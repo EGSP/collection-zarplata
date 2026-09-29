@@ -14,7 +14,8 @@
     "build:web": "vite build",
     "build:executable": "npm run build && node scripts/build-executable.mjs",
     "metadata:generate": "node scripts/metadata-generate.ts",
-    "start": "node --enable-source-maps dist/server/main.js"
+    "start": "node --enable-source-maps dist/server/main.js",
+    "start:check": "npm run build && node --enable-source-maps dist/server/main.js --database=memory"
   },
   "type": "module",
   "private": true,

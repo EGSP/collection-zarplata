@@ -6,7 +6,7 @@ import { synchronizeSchema } from './synchronization.js';
 
 /**
  * Синхронизирует структуру до начала приёма запросов. Хук приложения запускается после
- * `onModuleInit` базы и метаданных, поэтому оба источника уже готовы.
+ * открытия соединения провайдером базы и `onModuleInit` метаданных, поэтому оба источника уже готовы.
  */
 @Injectable()
 export class SchemaService implements OnApplicationBootstrap {
