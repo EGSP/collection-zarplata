@@ -135,14 +135,14 @@ export class DataService {
      * при ошибке любой операции откатываются предшествующие записи. Возвращает один результат
      * либо массив в порядке операций; типизированные ошибки переводит фильтр контроллера.
      */
-    perform(body: unknown): Promise<unknown> {
+    perform(body: unknown, userGuid: string): Promise<unknown> {
         if (Array.isArray(body) && body.length === 0) {
             return Promise.reject(new DataValidationError({ message: 'Пакет операций пуст', fields: ['операции'] }));
         }
         const operations = Array.isArray(body) ? body : [body];
         // Тот же диспетчер доступен обработчикам: вложенный вызов не обходит проверку и транзакцию.
         const dispatcher: ActionDispatcher = { execute: (operation) => this.execute(operation) };
-        const program = Effect.forEach(operations, (operation) => this.execute(operation)).pipe(
+        const program = Effect.forEach(operations, (operation) => this.execute(operation, userGuid)).pipe(
             (work) => this.database.effect.transaction(work),
             Effect.provideService(ActionDispatcher, dispatcher),
             Effect.provideService(Database, this.database.effect),
@@ -152,7 +152,7 @@ export class DataService {
     }
 
     /** Находит цель и даёт каждому действию свой контекст, наследуя трассу и пользователя у вложенного. */
-    private execute(value: unknown): Effect.Effect<unknown, unknown, ActionDispatcher> {
+    private execute(value: unknown, userGuid: string | null = null): Effect.Effect<unknown, unknown, ActionDispatcher> {
         return Effect.gen(function* (this: DataService) {
             const operation = parseOperation(value);
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
@@ -162,7 +162,7 @@ export class DataService {
             // У внешней операции родителя нет; вложенная получает текущий контекст из Effect.
             const parent = yield* Effect.serviceOption(ActionContext);
             const context: ActionContext = {
-                userGuid: parent._tag === 'Some' ? parent.value.userGuid : null,
+                userGuid: parent._tag === 'Some' ? parent.value.userGuid : userGuid,
                 traceGuid: parent._tag === 'Some' ? parent.value.traceGuid : newGuid(),
                 actionGuid: newGuid(),
                 parentActionGuid: parent._tag === 'Some' ? parent.value.actionGuid : null,
