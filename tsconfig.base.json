@@ -1,0 +1,16 @@
+{
+    "$schema": "./node_modules/@effect/tsgo/schema.json",
+    "compilerOptions": {
+        "target": "ES2024",
+        "strict": true,
+        "exactOptionalPropertyTypes": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "skipLibCheck": true,
+        "plugins": [
+            {
+                "name": "@effect/language-service"
+            }
+        ]
+    }
+}
