@@ -24,5 +24,5 @@ export const Sample = catalog('sample')
             const context = yield* ActionContext;
             const dispatcher = yield* ActionDispatcher;
             const record = yield* dispatcher.execute({ target: { kind: 'catalog', name: 'sample' }, action: 'get', payload: { guid: input.guid } });
-            return { record, traceGuid: context.traceGuid, actionGuid: context.actionGuid };
+            return { record, userGuid: context.userGuid, traceGuid: context.traceGuid, actionGuid: context.actionGuid };
         })));

@@ -1,6 +1,6 @@
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { connect, type Database } from '@tursodatabase/database';
-import { Effect, Semaphore } from 'effect';
+import { Effect } from 'effect';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { SettingsService } from '../settings/settings.service.js';
@@ -21,8 +21,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     async onModuleInit(): Promise<void> {
         await mkdir(path.dirname(this.settings.databasePath), { recursive: true });
         this.database = await connect(this.settings.databasePath);
-        // Все транзакции и отдельные записи используют одно разрешение для общего соединения.
-        this.effectDatabase = makeDatabase(this.database, Semaphore.makeUnsafe(1));
+        this.effectDatabase = makeDatabase(this.database);
     }
 
     async onModuleDestroy(): Promise<void> {
