@@ -1,9 +1,9 @@
 import type { FieldKind, ObjectTarget, RecorderValue } from './descriptions.js';
 
-/** Цель ссылки: построитель справочника или документа либо функция, которая его возвращает. */
+/** Цель ссылки: билдер справочника или документа либо функция, которая его возвращает. */
 export type ReferenceTarget = ObjectTarget | (() => ObjectTarget);
 
-/** Внутреннее состояние построителя поля. */
+/** Внутреннее состояние билдера поля. */
 export interface FieldState {
     readonly kind: FieldKind;
     readonly title: string | null;
@@ -16,13 +16,13 @@ export interface FieldState {
     readonly target: ReferenceTarget | null;
 }
 
-/** Метка обязательного поля в типе построителя. */
+/** Метка обязательного поля в типе билдера. */
 export interface RequiredField {
     readonly '~required': true;
 }
 
 /**
- * Неизменяемый построитель поля: каждый метод возвращает новый построитель.
+ * Неизменяемый билдер поля: каждый метод возвращает новый билдер.
  * `Value` — тип значения поля в записи объекта.
  */
 export abstract class FieldBuilder<Value> {
@@ -101,7 +101,7 @@ export class RecorderFieldBuilder extends FieldBuilder<RecorderValue> {}
 
 export type AnyFieldBuilder = FieldBuilder<unknown>;
 
-/** Набор построителей полей по именам. */
+/** Набор билдеров полей по именам. */
 export type FieldMap = { readonly [name: string]: AnyFieldBuilder };
 
 function initialState(kind: FieldKind): FieldState {
@@ -146,8 +146,8 @@ export class FieldFactory {
     }
 
     /**
-     * Ссылка на справочник или документ. Цель передаётся построителем,
-     * а при циклическом импорте — функцией, которая возвращает построитель.
+     * Ссылка на справочник или документ. Цель передаётся билдером,
+     * а при циклическом импорте — функцией, которая возвращает билдер.
      */
     reference(target: ReferenceTarget): ReferenceFieldBuilder {
         return new ReferenceFieldBuilder({ ...initialState('reference'), target });
@@ -156,7 +156,7 @@ export class FieldFactory {
 
 export const fieldFactory = new FieldFactory();
 
-/** Построители полей, которых нет в публичной фабрике: они нужны только стандартным полям. */
+/** Билдеры полей, которых нет в публичной фабрике: они нужны только стандартным полям. */
 export const standardFieldFactory = {
     guid: (): GuidFieldBuilder => new GuidFieldBuilder(initialState('guid')),
     recorder: (): RecorderFieldBuilder => new RecorderFieldBuilder(initialState('recorder')),

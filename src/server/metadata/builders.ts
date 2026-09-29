@@ -14,7 +14,7 @@ import type { MetadataError } from './metadata.errors.js';
 import { managedStandardFields, standardFields, type StandardFields } from './standard-fields.js';
 
 // ---------------------------------------------------------------------------
-// Внутреннее состояние построителей
+// Внутреннее состояние билдеров
 
 export interface FieldEntry {
     readonly name: string;
@@ -67,16 +67,16 @@ export type ObjectRecord<Kind extends ObjectKind, Fields extends FieldMap, Parts
     }
 >;
 
-/** Тип записи объекта по его построителю: `RecordOf<typeof Employees>`. */
+/** Тип записи объекта по его билдеру: `RecordOf<typeof Employees>`. */
 export type RecordOf<Builder extends ObjectBuilder> = ObjectRecord<Builder['kind'], Builder['~fields'], Builder['~tableParts']>;
 
 /** Имена полей объекта, включая стандартные. */
 type FieldNames<Kind extends ObjectKind, Fields extends FieldMap> = keyof StandardFields[Kind] & string | keyof Fields & string;
 
 // ---------------------------------------------------------------------------
-// Вложенные построители
+// Вложенные билдеры
 
-/** Построитель табличной части. */
+/** Билдер табличной части. */
 export class TablePartBuilder<Fields extends FieldMap = {}> {
     declare readonly '~fields': Fields;
     readonly '~title': string | null;
@@ -99,7 +99,7 @@ export class TablePartBuilder<Fields extends FieldMap = {}> {
     }
 }
 
-/** Построитель входных данных собственного действия. */
+/** Билдер входных данных собственного действия. */
 export class ActionInputBuilder<Fields extends FieldMap = {}> {
     declare readonly '~fields': Fields;
     readonly '~entries': ReadonlyArray<FieldEntry>;
@@ -122,7 +122,7 @@ export class ActionInputBuilder<Fields extends FieldMap = {}> {
  */
 export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, unknown>;
 
-/** Построитель собственного действия. Выполнение действий реализует диспетчер (#6). */
+/** Билдер собственного действия. Выполнение действий реализует диспетчер (#6). */
 export class ActionBuilder<Input extends FieldMap = {}> {
     declare readonly '~input': Input;
     readonly '~title': string | null;
@@ -149,7 +149,7 @@ export class ActionBuilder<Input extends FieldMap = {}> {
     }
 }
 
-/** Переопределение формы по умолчанию. Применяет построитель описаний форм (#11). */
+/** Переопределение формы по умолчанию. Применяет билдер описаний форм (#11). */
 export class FormBuilder<Names extends string> {
     readonly '~overrides': ReadonlyArray<FormOverride>;
 
@@ -184,9 +184,9 @@ export interface WritePolicy<Record> {
 }
 
 // ---------------------------------------------------------------------------
-// Построители объектов
+// Билдеры объектов
 
-/** Общая часть построителей всех видов объектов. */
+/** Общая часть билдеров всех видов объектов. */
 export interface ObjectBuilder<Kind extends ObjectKind = ObjectKind, Name extends string = string> {
     readonly kind: Kind;
     readonly name: Name;
@@ -207,7 +207,7 @@ export interface ObjectBuilder<Kind extends ObjectKind = ObjectKind, Name extend
     commit(configuration: ReadonlyArray<ObjectBuilder>): Effect.Effect<ObjectDescription, MetadataError>;
 }
 
-/** Построитель справочника или документа. */
+/** Билдер справочника или документа. */
 export interface RecordObjectBuilder<
     Kind extends 'catalog' | 'document',
     Name extends string,
@@ -251,7 +251,7 @@ export type DocumentBuilder<Name extends string, Fields extends FieldMap, Parts 
 /** Ресурс регистра — число или деньги: их суммируют при расчёте оборотов. */
 type ResourceFieldBuilder = NumberFieldBuilder | MoneyFieldBuilder;
 
-/** Построитель регистра оборотов. Строки регистра записывают документы при проведении. */
+/** Билдер регистра оборотов. Строки регистра записывают документы при проведении. */
 export interface RegisterBuilder<Name extends string, Fields extends FieldMap> extends ObjectBuilder<'register', Name> {
     readonly '~fields': Fields;
     readonly '~tableParts': {};
@@ -271,7 +271,7 @@ export interface RegisterBuilder<Name extends string, Fields extends FieldMap> e
     ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }>;
 }
 
-/** Единая реализация построителей; наружу она видна через интерфейсы вида объекта. */
+/** Единая реализация билдеров; наружу она видна через интерфейсы вида объекта. */
 class ObjectBuilderImplementation {
     declare readonly '~fields': FieldMap;
     declare readonly '~tableParts': TablePartMap;

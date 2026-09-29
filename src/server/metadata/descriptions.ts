@@ -1,5 +1,5 @@
 /**
- * Неизменяемые описания объектов конфигурации. Их собирает `commit()` построителя,
+ * Неизменяемые описания объектов конфигурации. Их собирает `commit()` билдера,
  * и с ними работает остальная платформа: структура БД, диспетчер, формы.
  */
 
@@ -80,7 +80,7 @@ export interface ActionDescription {
     readonly handler: ((input: never) => unknown) | null;
 }
 
-/** Переопределение формы. Применяет построитель описаний форм (#11). */
+/** Переопределение формы. Применяет билдер описаний форм (#11). */
 export type FormOverride =
     | { readonly kind: 'group'; readonly title: string; readonly fields: ReadonlyArray<string> }
     | { readonly kind: 'hide'; readonly field: string }

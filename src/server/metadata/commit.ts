@@ -72,7 +72,7 @@ function resolveTarget(entry: FieldEntry, location: string, problems: Problems, 
         problems.add(location, `не удалось получить объект ссылки: ${String(cause)}`);
         return null;
     }
-    // Функция может вернуть undefined, если построитель ещё не инициализирован из-за циклического импорта.
+    // Функция может вернуть undefined, если билдер ещё не инициализирован из-за циклического импорта.
     if (resolved === undefined || resolved === null) {
         problems.add(location, 'объект ссылки не определён; при циклическом импорте передайте функцию: field.reference(() => Объект)');
         return null;
@@ -137,7 +137,7 @@ function freeze<T>(value: T): T {
     return value;
 }
 
-/** Проверяет состояние построителя. Возвращает описание, если проблем нет. */
+/** Проверяет состояние билдера. Возвращает описание, если проблем нет. */
 function validateObject(
     state: ObjectState,
     configuration: ReadonlyArray<ObjectBuilder>,
@@ -214,7 +214,7 @@ function validateObject(
     return { problems: problems.items, description };
 }
 
-/** Реализация `commit()` построителя. */
+/** Реализация `commit()` билдера. */
 export function commitObject(state: ObjectState, configuration: ReadonlyArray<ObjectBuilder>): Effect.Effect<ObjectDescription, MetadataError> {
     return Effect.suspend(() => {
         const { problems, description } = validateObject(state, configuration);

@@ -3,7 +3,7 @@ import { fieldFactory as field, standardFieldFactory, type AnyFieldBuilder } fro
 
 /**
  * Стандартные поля видов объектов — единственное место, где они заданы.
- * Сервис метаданных добавляет их построителю методом `withStandardFields()` перед `commit()`,
+ * Сервис метаданных добавляет их билдеру методом `withStandardFields()` перед `commit()`,
  * а тип записи объекта включает их заранее.
  */
 export const standardFields = {
