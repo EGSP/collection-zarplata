@@ -386,6 +386,15 @@ class ObjectBuilderImplementation {
     }
 }
 
+/**
+ * Проверяет, что значение — билдер объекта. Нужна реестру конфигурации: экспорт файла
+ * конфигурации известен только во время выполнения, и кроме билдера файл может экспортировать
+ * вспомогательные значения.
+ */
+export function isObjectBuilder(value: unknown): value is ObjectBuilder {
+    return value instanceof ObjectBuilderImplementation;
+}
+
 function emptyState(kind: ObjectKind, name: string): ObjectState {
     return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], standardFieldsAdded: false };
 }

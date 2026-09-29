@@ -7,3 +7,5 @@ dist/
 collection-zarplata.settings.json
 data/
 .worktrees/
+# Реестр конфигурации создаёт npm run metadata:generate
+src/configuration/configuration.generated.ts
