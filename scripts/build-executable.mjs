@@ -22,6 +22,10 @@ await build({
     target: 'node24',
     format: 'cjs',
     define: { 'import.meta.dirname': JSON.stringify('') },
+    // При упаковке в одну область видимости esbuild переименовывает совпадающие имена классов,
+    // например MetadataService в MetadataService2. Nest подписывает сообщения по имени класса,
+    // поэтому исходные имена нужно сохранить.
+    keepNames: true,
     plugins: [{
         name: 'turso-native-loader',
         setup(buildContext) {
