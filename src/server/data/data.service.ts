@@ -4,16 +4,21 @@ import { Effect, Schema } from 'effect';
 import { DatabaseService } from '../database/database.service.js';
 import { Database } from '../database/database.effect.js';
 import { insert, remove, select, update, type SqlCondition, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
-import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
+import type { ObjectDescription } from '../metadata/descriptions.js';
 import { MetadataService } from '../metadata/metadata.service.js';
 import { actionInputSchema, fieldSchema, inputSchema } from '../metadata/schema.js';
 import { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 
+/** Представление строки после чтения из базы или проверки входных данных. */
 type RecordValue = Record<string, unknown>;
+/** Внешний запрос после проверки обязательных полей оболочки; payload проверяется для выбранного действия. */
 type Operation = { readonly target: { readonly kind: string; readonly name: string }; readonly action: string; readonly payload: unknown };
 
-/** Создаёт упорядоченный по времени UUIDv7 для записей, трасс и действий. */
+/**
+ * Создаёт UUIDv7: первые шесть байт содержат время, остальные заполняются случайными байтами.
+ * Версия и вариант задаются отдельно, чтобы идентификаторы оставались совместимыми с UUID.
+ */
 function newGuid(): string {
     const bytes = randomBytes(16);
     const time = Date.now();
@@ -24,6 +29,7 @@ function newGuid(): string {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/** Отклоняет массив и null до обращения к полям тела запроса; location попадает в ответ 400. */
 function objectValue(value: unknown, location: string): RecordValue {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         throw new DataValidationError({ message: `Ожидается объект: ${location}`, fields: [location] });
@@ -31,6 +37,7 @@ function objectValue(value: unknown, location: string): RecordValue {
     return value as RecordValue;
 }
 
+/** Извлекает обязательную непустую строку из непроверенного тела запроса. */
 function stringValue(value: unknown, location: string): string {
     if (typeof value !== 'string' || value.length === 0) {
         throw new DataValidationError({ message: `Нужно указать ${location}`, fields: [location] });
@@ -38,6 +45,7 @@ function stringValue(value: unknown, location: string): string {
     return value;
 }
 
+/** Принимает только точно представимое целое число; значение по умолчанию действует лишь при отсутствии поля. */
 function nonnegative(value: unknown, location: string, fallback: number): number {
     if (value === undefined) return fallback;
     if (!Number.isSafeInteger(value) || (value as number) < 0) {
@@ -46,6 +54,7 @@ function nonnegative(value: unknown, location: string, fallback: number): number
     return value as number;
 }
 
+/** Проверяет оболочку операции, оставляя проверку payload схеме конкретного действия. */
 function parseOperation(value: unknown): Operation {
     const operation = objectValue(value, 'операция');
     const target = objectValue(operation['target'], 'target');
@@ -56,11 +65,16 @@ function parseOperation(value: unknown): Operation {
     };
 }
 
+/**
+ * Собирает все ошибки Effect Schema за один проход и возвращает их вместе с путями полей.
+ * Схема передаётся из метаданных выбранного действия; её ошибка становится ответом 400.
+ */
 function validated<S extends Schema.Top>(schema: S, value: unknown, location: string): Effect.Effect<S['Type'], DataValidationError> {
     // Эти схемы состоят из синхронных полей метаданных и не требуют сервисов декодирования.
     return (Schema.decodeUnknownEffect(schema, { errors: 'all' })(value) as Effect.Effect<S['Type'], Schema.SchemaError>).pipe(
         Effect.mapError((error) => {
             const message = error.message.replaceAll('\n  at ', ' — поле ');
+            // Форматтер Effect пишет путь в квадратных скобках; клиенту нужен путь от payload.
             const fields = [...message.matchAll(/поле ([^\n]+)/g)].map((match) =>
                 `${location}.${match[1]}`.replaceAll(/\["([^"]+)"\]/g, '$1').replaceAll(/\[(\d+)\]/g, '.$1'),
             );
@@ -69,6 +83,7 @@ function validated<S extends Schema.Top>(schema: S, value: unknown, location: st
     );
 }
 
+/** Переводит логические значения в 0/1 для колонки INTEGER в таблице STRICT. */
 function sqlValue(value: unknown): SqlValue {
     if (value === undefined || value === null) return null;
     if (typeof value === 'boolean') return value ? 1 : 0;
@@ -76,6 +91,7 @@ function sqlValue(value: unknown): SqlValue {
     throw new DataValidationError({ message: 'Неверное значение поля', fields: [] });
 }
 
+/** Восстанавливает логические поля после чтения из SQLite, сохраняя прочие значения без преобразования. */
 function recordFromRow(row: RecordValue, description: ObjectDescription): RecordValue {
     const record = { ...row };
     for (const field of description.fields) {
@@ -93,12 +109,17 @@ function recordFromRow(row: RecordValue, description: ObjectDescription): Record
 export class DataService {
     constructor(private readonly metadata: MetadataService, private readonly database: DatabaseService) {}
 
-    /** Принимает одну операцию или непустой пакет и сохраняет форму ответа. */
+    /**
+     * Принимает одну операцию или непустой пакет. Вся цепочка использует одну транзакцию;
+     * при ошибке любой операции откатываются предшествующие записи. Возвращает один результат
+     * либо массив в порядке операций; типизированные ошибки переводит фильтр контроллера.
+     */
     perform(body: unknown): Promise<unknown> {
         if (Array.isArray(body) && body.length === 0) {
             return Promise.reject(new DataValidationError({ message: 'Пакет операций пуст', fields: ['операции'] }));
         }
         const operations = Array.isArray(body) ? body : [body];
+        // Тот же диспетчер доступен обработчикам: вложенный вызов не обходит проверку и транзакцию.
         const dispatcher: ActionDispatcher = { execute: (operation) => this.execute(operation) };
         const program = Effect.forEach(operations, (operation) => this.execute(operation)).pipe(
             (work) => this.database.effect.transaction(work),
@@ -109,6 +130,7 @@ export class DataService {
         return Effect.runPromise(program);
     }
 
+    /** Находит цель и даёт каждому действию свой контекст, наследуя трассу и пользователя у вложенного. */
     private execute(value: unknown): Effect.Effect<unknown, unknown, ActionDispatcher> {
         return Effect.gen(function* (this: DataService) {
             const operation = parseOperation(value);
@@ -116,6 +138,7 @@ export class DataService {
             if (description === undefined) {
                 return yield* new DataNotFoundError({ message: `Объект ${operation.target.kind}.${operation.target.name} не найден` });
             }
+            // У внешней операции родителя нет; вложенная получает текущий контекст из Effect.
             const parent = yield* Effect.serviceOption(ActionContext);
             const context: ActionContext = {
                 userGuid: parent._tag === 'Some' ? parent.value.userGuid : null,
@@ -127,6 +150,7 @@ export class DataService {
         }.bind(this));
     }
 
+    /** Выбирает стандартное или собственное действие; неизвестное действие возвращает 404. */
     private dispatch(description: ObjectDescription, action: string, payload: unknown): Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher> {
         if (description.kind === 'catalog') {
             switch (action) {
@@ -142,6 +166,7 @@ export class DataService {
             return Effect.gen(function* () {
                 const schema = actionInputSchema(description, action)!;
                 const input = yield* validated(schema, payload, 'payload');
+                // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
                 const result = custom.handler!(input as never);
                 if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик действия должен вернуть Effect'));
                 return yield* result as Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher>;
@@ -150,10 +175,12 @@ export class DataService {
         return Effect.fail(new DataNotFoundError({ message: `Действие «${action}» для ${description.kind}.${description.name} не найдено` }));
     }
 
+    /** Имя таблицы выводится только из проверенных метаданных, а не из произвольной строки запроса. */
     private table(description: ObjectDescription): string {
         return `${description.kind}_${description.name}`;
     }
 
+    /** Проверяет идентификатор в действиях чтения и пометки до запроса к базе. */
     private guidPayload(payload: unknown): string {
         const value = objectValue(payload, 'payload');
         const guid = stringValue(value['guid'], 'payload.guid');
@@ -163,10 +190,12 @@ export class DataService {
         return guid;
     }
 
+    /** Читает одну запись вместе со всеми табличными частями; отсутствующая запись даёт 404. */
     private get(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown> {
         return this.load(description, this.guidPayload(payload));
     }
 
+    /** Собирает запись из основной таблицы и таблиц частей, сохраняя порядок строк по lineNumber. */
     private load(description: ObjectDescription, guid: string): Effect.Effect<RecordValue, unknown> {
         return Effect.gen(function* (this: DataService) {
             const database = this.database.effect;
@@ -179,6 +208,7 @@ export class DataService {
                     where: [{ column: 'ownerGuid', operator: '=', value: guid }],
                     orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
                 }));
+                // Служебные ключи связывают строку с владельцем, но не входят в значение табличной части.
                 record[part.name] = rows.map(({ ownerGuid: _ownerGuid, lineNumber: _lineNumber, ...fields }) => {
                     const result = { ...fields };
                     for (const field of part.fields) if (field.kind === 'boolean' && result[field.name] !== null) result[field.name] = result[field.name] === 1;
@@ -189,6 +219,10 @@ export class DataService {
         }.bind(this));
     }
 
+    /**
+     * Выбирает страницу и общее число строк по одному отбору. Поля сверяются с метаданными,
+     * поэтому их имена могут безопасно участвовать в построении SQL; значения остаются параметрами.
+     */
     private list(description: ObjectDescription, payload: unknown): Effect.Effect<unknown, unknown> {
         return Effect.gen(function* (this: DataService) {
             const options = objectValue(payload, 'payload');
@@ -227,9 +261,11 @@ export class DataService {
                 }
                 orderBy.push({ column: name, direction: sort['direction'] as SqlOrder['direction'] });
             }
+            // При одинаковых значениях сортировки guid задаёт однозначный порядок строк.
             if (!orderBy.some((order) => order.column === 'guid')) orderBy.push({ column: 'guid', direction: 'ASC' });
             const table = this.table(description);
             const database = this.database.effect;
+            // Подзапрос повторяет тот же отбор, чтобы total не зависел от размера текущей страницы.
             const filtered = select(table, { where });
             const count = yield* database.get<{ total: number }>({
                 sql: `SELECT COUNT(*) AS total FROM (${filtered.sql})`,
@@ -240,6 +276,10 @@ export class DataService {
         }.bind(this));
     }
 
+    /**
+     * Создаёт запись без guid или заменяет значения существующей записи с guid. Клиент передаёт
+     * полное состояние заполняемых полей и табличных частей; ошибочные значения откатывают запись.
+     */
     private save(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown> {
         return Effect.gen(function* (this: DataService) {
             const request = objectValue(payload, 'payload');
@@ -255,11 +295,13 @@ export class DataService {
                 yield* database.run(insert(this.table(description), values));
             } else {
                 yield* this.load(description, guid);
+                // Обновление не снимает ранее установленную пометку удаления.
                 const { guid: _guid, deletedAt: _deletedAt, ...changed } = values;
                 yield* database.run(update(this.table(description), changed, [{ column: 'guid', operator: '=', value: guid }]));
             }
             for (const part of description.tableParts) {
                 const table = `${this.table(description)}_${part.name}`;
+                // Табличная часть передана целиком; удаление старых строк и вставка новых атомарны.
                 yield* database.run(remove(table, [{ column: 'ownerGuid', operator: '=', value: guid }]));
                 const rows = input[part.name] as RecordValue[];
                 for (const [index, row] of rows.entries()) {
@@ -272,6 +314,7 @@ export class DataService {
         }.bind(this));
     }
 
+    /** Меняет только пометку удаления и возвращает запись с её актуальными значениями. */
     private markDeleted(description: ObjectDescription, payload: unknown, marked: boolean): Effect.Effect<RecordValue, unknown> {
         return Effect.gen(function* (this: DataService) {
             const guid = this.guidPayload(payload);

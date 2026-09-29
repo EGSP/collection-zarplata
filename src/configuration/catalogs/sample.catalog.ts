@@ -6,6 +6,7 @@ import { Effect } from 'effect';
 import { ActionContext, ActionDispatcher } from '../../server/data/action-context.js';
 import { catalog } from '../../server/metadata/index.js';
 
+/** Пробный объект сохраняет действие inspect для проверки вложенного вызова диспетчера. */
 export const Sample = catalog('sample')
     .title('Пробный справочник')
     .field('comment', (field) => field.string().title('Комментарий').maximumLength(500))

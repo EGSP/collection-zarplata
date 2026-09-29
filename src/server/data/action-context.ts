@@ -1,10 +1,14 @@
 import { Context, Effect } from 'effect';
 
-/** Контекст одного действия в цепочке запроса. Вход без авторизации оставляет userGuid пустым. */
+/** Контекст одного действия в цепочке запроса; передаётся через окружение Effect без параметров обработчика. */
 export interface ActionContext {
+    /** Идентификатор пользователя всей цепочки; до появления входа равен null. */
     readonly userGuid: string | null;
+    /** Общий идентификатор внешнего запроса и всех вложенных действий. */
     readonly traceGuid: string;
+    /** Идентификатор именно этого вызова действия. */
     readonly actionGuid: string;
+    /** Идентификатор вызывающего действия; у внешнего вызова равен null. */
     readonly parentActionGuid: string | null;
 }
 
@@ -13,6 +17,7 @@ export const ActionContext = Context.Service<ActionContext>('ActionContext');
 
 /** Вложенный вызов вновь проходит поиск действия и проверку входных данных в диспетчере. */
 export interface ActionDispatcher {
+    /** Принимает такую же операцию, как эндпоинт, и выполняет её внутри текущей транзакции. */
     execute(operation: unknown): Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher>;
 }
 

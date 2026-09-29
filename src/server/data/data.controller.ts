@@ -4,7 +4,10 @@ import { DatabaseError } from '../database/database.errors.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { DataService } from './data.service.js';
 
-/** Единственное место преобразования типизированных ошибок бизнес-логики в HTTP. */
+/**
+ * Единственное место преобразования ошибок диспетчера в HTTP: неверные данные дают 400,
+ * отсутствующая цель — 404, сбой базы и непредвиденная ошибка — 500 без деталей запроса.
+ */
 @Catch()
 export class PerformExceptionFilter implements ExceptionFilter {
     catch(error: unknown, host: ArgumentsHost): void {
@@ -27,6 +30,7 @@ export class PerformExceptionFilter implements ExceptionFilter {
 export class DataController {
     constructor(private readonly data: DataService) {}
 
+    /** Передаёт одну операцию или массив диспетчеру; успешный ответ всегда имеет статус 200. */
     @Post()
     @HttpCode(HttpStatus.OK)
     perform(@Body() body: unknown): Promise<unknown> {

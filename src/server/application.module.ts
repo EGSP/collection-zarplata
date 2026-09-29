@@ -7,6 +7,7 @@ import { MetadataModule } from './metadata/metadata.module.js';
 import { SchemaModule } from './schema/schema.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 
+/** Корневой модуль связывает API данных с общими сервисами базы и метаданных. */
 @Module({
     imports: [SettingsModule, DatabaseModule, MetadataModule, SchemaModule, DataModule, HealthModule, ClientModule],
 })
