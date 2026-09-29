@@ -1,15 +1,23 @@
+/**
+ * Effect Schema для проверки входных данных, построенная из описания полей.
+ *
+ * Схема только проверяет значения и не переводит строки в даты: даты хранятся в базе строками
+ * ISO 8601, и перевод туда и обратно ничего бы не дал. Сообщения об ошибках на русском, потому
+ * что они доходят до пользователя; сообщения Effect по умолчанию английские.
+ */
 import { Schema } from 'effect';
 import type { FieldDescription, FieldKind, ObjectDescription } from './descriptions.js';
 
-/**
- * Effect Schema для проверки входных данных, построенная из описания полей.
- * Схема проверяет значения; перевод строк в даты и другие типы не выполняется.
- */
-
 const datePattern = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** Часовой пояс обязателен: время без пояса разные машины прочитают по-разному. */
 const dateTimePattern = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+/** Любая версия UUID: платформа создаёт UUIDv7, но ссылку могут передать и на объект, пришедший из другой программы. */
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Проверяет, что дата существует в календаре. Шаблон пропускает `2026-02-30`, а `Date` молча
+ * переносит такую дату на 2 марта, поэтому после создания даты её части сравниваются с исходными.
+ */
 function isCalendarDate(year: string, month: string, day: string): boolean {
     const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
     return date.getUTCFullYear() === Number(year) && date.getUTCMonth() === Number(month) - 1 && date.getUTCDate() === Number(day);
@@ -28,7 +36,10 @@ const expectedValues: { readonly [Kind in FieldKind]: string } = {
     recorder: 'регистратор { document, guid }',
 };
 
-/** Базовый тип поля с сообщением о неверном типе значения. Проверки добавляются после него. */
+/**
+ * Базовый тип поля с сообщением о неверном типе значения. Проверки добавляются после него:
+ * аннотация, поставленная после проверки, относится к проверке, а не к типу.
+ */
 function typed<S extends Schema.Top>(schema: S, kind: FieldKind): S['Rebuild'] {
     return schema.annotate({ message: `ожидается ${expectedValues[kind]}` });
 }
@@ -58,7 +69,8 @@ const RecorderValue = typed(Schema.Struct({ document: Schema.String, guid: guidS
 
 function numberSchema(field: FieldDescription): Schema.Top {
     const { minimum, maximum } = field;
-    // Сообщение о неверном типе ставится на Schema.Number до проверок: аннотация после проверки относится к ней.
+    // Здесь не используется typed(): диагностика Effect требует, чтобы проверка конечности
+    // стояла в одной цепочке с Schema.Number, иначе считает, что NaN и Infinity допустимы.
     return Schema.Number.annotate({ message: `ожидается ${expectedValues[field.kind]}` }).check(
         Schema.isFinite({ message: 'ожидается конечное число' }),
         ...(field.integer ? [Schema.makeFilter((value: number) => Number.isSafeInteger(value) || 'ожидается целое число')] : []),
@@ -70,6 +82,7 @@ function numberSchema(field: FieldDescription): Schema.Top {
 function stringSchema(field: FieldDescription): Schema.Top {
     const { minimumLength, maximumLength } = field;
     const checks = [
+        // Строка из пробелов в форме выглядит пустой, поэтому обязательное поле она не заполняет.
         ...(field.required ? [Schema.makeFilter((value: string) => value.trim() !== '' || 'значение не заполнено')] : []),
         ...(minimumLength === null ? [] : [Schema.makeFilter((value: string) => value.length >= minimumLength || `длина меньше ${minimumLength}`)]),
         ...(maximumLength === null ? [] : [Schema.makeFilter((value: string) => value.length <= maximumLength || `длина больше ${maximumLength}`)]),

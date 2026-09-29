@@ -1,3 +1,20 @@
+/**
+ * Билдеры объектов конфигурации: справочников, документов и регистров.
+ *
+ * Билдеры неизменяемы: каждый вызов возвращает новый билдер, а исходный не меняется. Файл
+ * конфигурации экспортирует билдер, этот же билдер импортируют другие файлы для ссылок, а сервис
+ * метаданных дополняет его стандартными полями. Изменяемый билдер получил бы стандартные поля
+ * во всех местах сразу, а повторное дополнение продублировало бы их.
+ *
+ * Тип записи выводится из цепочки вызовов: каждый `.field(...)` возвращает билдер с расширенным
+ * параметром типа `Fields`. В TypeScript нет типов высшего порядка, поэтому метод базового класса
+ * не может вернуть «тот же подкласс с другими параметрами». Отсюда одна реализация
+ * `ObjectBuilderImplementation` и отдельный интерфейс для каждого вида объекта: интерфейс задаёт
+ * точные типы и набор методов, например `.dimension` есть только у регистра.
+ *
+ * Свойства с префиксом `~` служебные. Их читают `commit()` и выводы типов, а в подсказках
+ * редактора они стоят в конце списка и не мешают методам описания.
+ */
 import type { Effect } from 'effect';
 import { commitObject } from './commit.js';
 import type { FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription } from './descriptions.js';
@@ -13,22 +30,26 @@ import {
 import type { MetadataError } from './metadata.errors.js';
 import { managedStandardFields, standardFields, type StandardFields } from './standard-fields.js';
 
-// ---------------------------------------------------------------------------
-// Внутреннее состояние билдеров
-
+/**
+ * Поле в том виде, в каком его объявили: имя, роль и билдер поля. Проверку и сборку описания
+ * выполняет `commit()`, поэтому здесь сохраняются и ошибочные объявления, например повторы имён.
+ */
 export interface FieldEntry {
     readonly name: string;
     readonly role: FieldRole;
+    /** Значение заполняет платформа; у полей, объявленных в конфигурации, всегда `false`. */
     readonly managed: boolean;
     readonly builder: AnyFieldBuilder;
 }
 
+/** Объявленная табличная часть. `title` равен `null`, если заголовок не задан. */
 export interface TablePartEntry {
     readonly name: string;
     readonly title: string | null;
     readonly fields: ReadonlyArray<FieldEntry>;
 }
 
+/** Объявленное собственное действие. `handler` равен `null`, пока не вызван `handle(...)`. */
 export interface ActionEntry {
     readonly name: string;
     readonly title: string | null;
@@ -36,6 +57,7 @@ export interface ActionEntry {
     readonly handler: ((input: never) => unknown) | null;
 }
 
+/** Всё, что накопила цепочка вызовов билдера объекта. Из этого состояния `commit()` собирает описание. */
 export interface ObjectState {
     readonly kind: ObjectKind;
     readonly name: string;
@@ -45,16 +67,16 @@ export interface ObjectState {
     readonly actions: ReadonlyArray<ActionEntry>;
     readonly form: ReadonlyArray<FormOverride> | null;
     readonly policies: ReadonlyArray<PolicyDescription>;
+    /** Вызван ли `withStandardFields()`: без стандартных полей `commit()` завершается ошибкой. */
     readonly standardFieldsAdded: boolean;
 }
 
+/** Создаёт запись объявленного поля; функция описания получает общую фабрику полей. */
 function attribute(name: string, define: (field: FieldFactory) => AnyFieldBuilder, role: FieldRole = 'attribute'): FieldEntry {
     return { name, role, managed: false, builder: define(fieldFactory) };
 }
 
-// ---------------------------------------------------------------------------
-// Типы записей
-
+/** Раскрывает пересечение типов в один объект, чтобы подсказка редактора показывала список полей, а не цепочку `A & B & C`. */
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
 /** Табличные части объекта: имя → поля строки. */
@@ -73,11 +95,9 @@ export type RecordOf<Builder extends ObjectBuilder> = ObjectRecord<Builder['kind
 /** Имена полей объекта, включая стандартные. */
 type FieldNames<Kind extends ObjectKind, Fields extends FieldMap> = keyof StandardFields[Kind] & string | keyof Fields & string;
 
-// ---------------------------------------------------------------------------
-// Вложенные билдеры
-
-/** Билдер табличной части. */
+/** Билдер табличной части: заголовок и поля строки. */
 export class TablePartBuilder<Fields extends FieldMap = {}> {
+    /** Только для вывода типов: во время выполнения свойства нет. */
     declare readonly '~fields': Fields;
     readonly '~title': string | null;
     readonly '~entries': ReadonlyArray<FieldEntry>;
@@ -99,8 +119,9 @@ export class TablePartBuilder<Fields extends FieldMap = {}> {
     }
 }
 
-/** Билдер входных данных собственного действия. */
+/** Билдер входных данных собственного действия. Поля объявляются так же, как поля объекта. */
 export class ActionInputBuilder<Fields extends FieldMap = {}> {
+    /** Только для вывода типов: во время выполнения свойства нет. */
     declare readonly '~fields': Fields;
     readonly '~entries': ReadonlyArray<FieldEntry>;
 
@@ -117,13 +138,14 @@ export class ActionInputBuilder<Fields extends FieldMap = {}> {
 }
 
 /**
- * Обработчик собственного действия. Заготовка: окружение и контекст действия
- * уточнит диспетчер (#6).
+ * Обработчик собственного действия. Заготовка: окружение Effect и контекст действия
+ * уточнит диспетчер (#6), пока требования к окружению не ограничены.
  */
 export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, unknown>;
 
-/** Билдер собственного действия. Выполнение действий реализует диспетчер (#6). */
+/** Билдер собственного действия. Заготовка: выполнение действий реализует диспетчер (#6). */
 export class ActionBuilder<Input extends FieldMap = {}> {
+    /** Только для вывода типов: во время выполнения свойства нет. */
     declare readonly '~input': Input;
     readonly '~title': string | null;
     readonly '~entries': ReadonlyArray<FieldEntry>;
@@ -139,17 +161,25 @@ export class ActionBuilder<Input extends FieldMap = {}> {
         return new ActionBuilder(title, this['~entries'], this['~handler']);
     }
 
-    /** Поля входных данных. Заменяет ранее объявленные; обработчик нужно задать после них. */
+    /**
+     * Поля входных данных. Заменяет ранее объявленные и сбрасывает обработчик: тип его аргумента
+     * выводится из полей, поэтому заданный раньше обработчик мог ожидать другие данные.
+     */
     input<Fields extends FieldMap>(define: (input: ActionInputBuilder) => ActionInputBuilder<Fields>): ActionBuilder<Fields> {
         return new ActionBuilder(this['~title'], define(new ActionInputBuilder())['~entries'], null);
     }
 
+    /** Обработчик действия; получает входные данные, проверенные по объявленным полям. */
     handle(handler: ActionHandler<FieldsRecord<Input>>): ActionBuilder<Input> {
         return new ActionBuilder(this['~title'], this['~entries'], handler);
     }
 }
 
-/** Переопределение формы по умолчанию. Применяет билдер описаний форм (#11). */
+/**
+ * Переопределение формы по умолчанию. Заготовка: переопределения применяет построение описаний
+ * форм (#11). `Names` — имена полей и табличных частей объекта, поэтому TypeScript отклоняет
+ * несуществующие имена.
+ */
 export class FormBuilder<Names extends string> {
     readonly '~overrides': ReadonlyArray<FormOverride>;
 
@@ -173,24 +203,24 @@ export class FormBuilder<Names extends string> {
     }
 }
 
-/**
- * Политика записи. Заготовка: выполнение и способ отказа уточнит #10.
- * - `canWrite` — можно ли записать объект;
- * - `beforeWrite` — действия перед записью.
- */
+/** Политика записи объекта. Заготовка: порядок выполнения и способ отказа уточнит #10. */
 export interface WritePolicy<Record> {
+    /** Решает, можно ли записать объект в таком виде. */
     readonly canWrite?: (record: Record) => Effect.Effect<boolean, unknown, unknown>;
+    /** Выполняется перед записью, например чтобы проверить связанные данные. */
     readonly beforeWrite?: (record: Record) => Effect.Effect<unknown, unknown, unknown>;
 }
 
-// ---------------------------------------------------------------------------
-// Билдеры объектов
-
-/** Общая часть билдеров всех видов объектов. */
+/**
+ * Общая часть билдеров всех видов объектов. Этого интерфейса достаточно сервису метаданных:
+ * ему нужны вид и имя объекта, `withStandardFields()` и `commit()`.
+ */
 export interface ObjectBuilder<Kind extends ObjectKind = ObjectKind, Name extends string = string> {
     readonly kind: Kind;
     readonly name: Name;
+    /** Только для вывода типов: объявленные поля. */
     readonly '~fields': FieldMap;
+    /** Только для вывода типов: табличные части. */
     readonly '~tableParts': TablePartMap;
     readonly '~state': ObjectState;
 
@@ -201,13 +231,14 @@ export interface ObjectBuilder<Kind extends ObjectKind = ObjectKind, Name extend
     withStandardFields(): this;
 
     /**
-     * Проверяет описание и собирает неизменяемое описание объекта.
-     * `configuration` — все объекты конфигурации: по ним проверяются ссылки.
+     * Проверяет описание и собирает неизменяемое описание объекта. `configuration` — билдеры всех
+     * объектов конфигурации: без них нельзя проверить, что объект ссылки существует. При ошибках
+     * завершается `MetadataError` со списком всех найденных проблем.
      */
     commit(configuration: ReadonlyArray<ObjectBuilder>): Effect.Effect<ObjectDescription, MetadataError>;
 }
 
-/** Билдер справочника или документа. */
+/** Билдер справочника или документа: у них одинаковый набор возможностей описания. */
 export interface RecordObjectBuilder<
     Kind extends 'catalog' | 'document',
     Name extends string,
@@ -217,19 +248,22 @@ export interface RecordObjectBuilder<
     readonly '~fields': Fields;
     readonly '~tableParts': Parts;
 
+    /** Заголовок объекта в интерфейсе. Если он не задан, используется имя. */
     title(title: string): RecordObjectBuilder<Kind, Name, Fields, Parts>;
 
+    /** Реквизит объекта. Имя и тип поля попадают в тип записи. */
     field<const FieldName extends string, Field extends AnyFieldBuilder>(
         name: FieldName,
         define: (field: FieldFactory) => Field,
     ): RecordObjectBuilder<Kind, Name, Fields & { readonly [K in FieldName]: Field }, Parts>;
 
+    /** Табличная часть; в записи она представлена массивом строк. */
     tablePart<const PartName extends string, PartFields extends FieldMap>(
         name: PartName,
         define: (part: TablePartBuilder) => TablePartBuilder<PartFields>,
     ): RecordObjectBuilder<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }>;
 
-    /** Собственное действие. Выполнение реализует диспетчер (#6). */
+    /** Собственное действие. Заготовка: выполнение реализует диспетчер (#6). */
     action<Input extends FieldMap>(
         name: string,
         define: (action: ActionBuilder) => ActionBuilder<Input>,
@@ -244,11 +278,13 @@ export interface RecordObjectBuilder<
     policy(policy: WritePolicy<ObjectRecord<Kind, Fields, Parts>>): RecordObjectBuilder<Kind, Name, Fields, Parts>;
 }
 
+/** Билдер справочника; его создаёт `catalog(name)`. */
 export type CatalogBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap> = RecordObjectBuilder<'catalog', Name, Fields, Parts>;
 
+/** Билдер документа; его создаёт `document(name)`. */
 export type DocumentBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap> = RecordObjectBuilder<'document', Name, Fields, Parts>;
 
-/** Ресурс регистра — число или деньги: их суммируют при расчёте оборотов. */
+/** Ресурс регистра — число или деньги: только такие значения можно суммировать при расчёте оборотов. */
 type ResourceFieldBuilder = NumberFieldBuilder | MoneyFieldBuilder;
 
 /** Билдер регистра оборотов. Строки регистра записывают документы при проведении. */
@@ -271,8 +307,12 @@ export interface RegisterBuilder<Name extends string, Fields extends FieldMap> e
     ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }>;
 }
 
-/** Единая реализация билдеров; наружу она видна через интерфейсы вида объекта. */
+/**
+ * Единая реализация билдеров всех видов. Набор методов ограничивают интерфейсы вида объекта,
+ * через которые реализация видна снаружи; сама она содержит методы всех видов.
+ */
 class ObjectBuilderImplementation {
+    /** Только для вывода типов: во время выполнения свойств нет. */
     declare readonly '~fields': FieldMap;
     declare readonly '~tableParts': TablePartMap;
     readonly '~state': ObjectState;
@@ -340,6 +380,7 @@ class ObjectBuilderImplementation {
         return commitObject(this['~state'], configuration);
     }
 
+    /** Возвращает новый билдер с изменённым состоянием, не трогая текущий. */
     private with(patch: Partial<ObjectState>): this {
         return new ObjectBuilderImplementation({ ...this['~state'], ...patch }) as this;
     }
@@ -348,6 +389,9 @@ class ObjectBuilderImplementation {
 function emptyState(kind: ObjectKind, name: string): ObjectState {
     return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], standardFieldsAdded: false };
 }
+
+// Функции ниже приводят реализацию к интерфейсу через unknown: точные типы полей существуют
+// только на уровне типов и накапливаются в интерфейсе, у класса их нет.
 
 /** Справочник: условно-постоянные данные. */
 export function catalog<const Name extends string>(name: Name): CatalogBuilder<Name, {}, {}> {
