@@ -1,6 +1,10 @@
 import { Data } from 'effect';
 
-/** Ошибка при обращении к базе данных. */
+/**
+ * Ошибка драйвера с названием операции, на которой она возникла.
+ * Исходная причина остаётся в `cause` для диагностики, а сообщение пользователю не раскрывает
+ * текст SQL, параметры запроса и подробности драйвера.
+ */
 export class DatabaseError extends Data.TaggedError('DatabaseError')<{
     readonly operation: string;
     readonly cause: unknown;
