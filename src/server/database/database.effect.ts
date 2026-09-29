@@ -1,5 +1,5 @@
-import type { Database as TursoDatabase } from '@tursodatabase/database';
-import { Context, Effect, Exit, Option, Semaphore } from 'effect';
+import type { Database as TursoDatabase, Transaction } from '@tursodatabase/database';
+import { Context, Effect, Exit, Option } from 'effect';
 import { DatabaseError } from './database.errors.js';
 import type { SqlQuery, SqlValue } from './sql.builder.js';
 
@@ -10,9 +10,9 @@ import type { SqlQuery, SqlValue } from './sql.builder.js';
 export interface Database {
     /** Возвращает первую строку или `undefined`, если запрос ничего не нашёл. */
     get<Row extends Record<string, unknown>>(query: SqlQuery): Effect.Effect<Row | undefined, DatabaseError>;
-    /** Возвращает все найденные строки. Чтение не занимает очередь записей. */
+    /** Возвращает все найденные строки. Чтение вне транзакции ждёт завершения текущей транзакции. */
     all<Row extends Record<string, unknown>>(query: SqlQuery): Effect.Effect<readonly Row[], DatabaseError>;
-    /** Выполняет изменяющий запрос. Вне транзакции ждёт своей очереди. */
+    /** Выполняет изменяющий запрос. Вне транзакции драйвер упорядочивает его с остальными запросами. */
     run(query: SqlQuery): Effect.Effect<DatabaseRunResult, DatabaseError>;
     /**
      * Выполняет несколько действий атомарно. Вложенный вызов продолжает текущую транзакцию;
@@ -32,33 +32,34 @@ export interface DatabaseRunResult {
 /** Тег для передачи сервиса из Nest-провайдера в окружение бизнес-логики Effect. */
 export const Database = Context.Service<Database>('Database');
 
-/** Наличие тега отмечает, что этот Effect уже выполняется внутри транзакции. */
+/** Дескриптор принадлежит только открывшей его транзакции и её вложенным действиям. */
 interface TransactionContext {
-    readonly connection: TursoDatabase;
+    readonly connection: Transaction;
 }
 
 const CurrentTransaction = Context.Service<TransactionContext>('Database.CurrentTransaction');
 
 /**
- * Создаёт Effect-сервис поверх единственного соединения процесса.
- * Один и тот же семафор упорядочивает начало транзакций и отдельные записи: иначе запись
- * вне транзакции могла бы оказаться между её `BEGIN` и `COMMIT`.
+ * Создаёт Effect-сервис поверх единственного соединения процесса. Нативная блокировка драйвера
+ * удерживает соединение до подтверждения или отката, а запросы внутри идут через дескриптор.
  */
-export function makeDatabase(connection: TursoDatabase, semaphore: Semaphore.Semaphore): Database {
-    // Все вызовы драйвера проходят здесь, чтобы их ошибки имели тип DatabaseError.
+export function makeDatabase(connection: TursoDatabase): Database {
     const execute = <Value>(
         operation: string,
         query: SqlQuery,
-        call: (parameters: readonly SqlValue[]) => Promise<Value>,
+        call: (database: TursoDatabase | Transaction, parameters: readonly SqlValue[]) => Promise<Value>,
     ): Effect.Effect<Value, DatabaseError> =>
-        Effect.tryPromise({
-            try: () => call(query.parameters),
-            catch: (cause) => new DatabaseError({ operation, cause }),
+        Effect.gen(function* () {
+            const current = yield* Effect.serviceOption(CurrentTransaction);
+            return yield* Effect.tryPromise({
+                try: () => call(Option.isSome(current) ? current.value.connection : connection, query.parameters),
+                catch: (cause) => new DatabaseError({ operation, cause }),
+            });
         });
 
     /**
-     * Вложенный вызов не открывает новый `BEGIN`: текущий Effect уже владеет разрешением
-     * семафора, поэтому повторный захват привёл бы к ожиданию самого себя.
+     * Вложенный вызов пользуется текущим дескриптором. Повторное открытие транзакции
+     * ожидало бы блокировку соединения, которую уже удерживает внешний вызов.
      */
     const inTransaction = <Value, Error, Requirements>(
         work: Effect.Effect<Value, Error, Requirements>,
@@ -66,41 +67,38 @@ export function makeDatabase(connection: TursoDatabase, semaphore: Semaphore.Sem
         Effect.gen(function* () {
             const current = yield* Effect.serviceOption(CurrentTransaction);
             if (Option.isSome(current)) return yield* work;
-
-            // Разрешение удерживается до завершения COMMIT или ROLLBACK. acquireUseRelease
-            // вызывает завершающее действие и при ошибке, и при прерывании work.
-            return yield* semaphore.withPermit(
-                Effect.acquireUseRelease(
-                    Effect.tryPromise({
-                        try: () => connection.exec('BEGIN IMMEDIATE'),
-                        catch: (cause) => new DatabaseError({ operation: 'BEGIN IMMEDIATE', cause }),
-                    }),
-                    // Контекст передаётся только работе этой транзакции и её вложенным Effect.
-                    () => Effect.provideService(work, CurrentTransaction, { connection }),
-                    (_, result) =>
-                        Effect.tryPromise({
-                            try: () => connection.exec(Exit.isSuccess(result) ? 'COMMIT' : 'ROLLBACK'),
-                            catch: (cause) =>
-                                new DatabaseError({ operation: Exit.isSuccess(result) ? 'COMMIT' : 'ROLLBACK', cause }),
-                        }).pipe(Effect.asVoid),
-                ),
-            );
+            const context = yield* Effect.context<Requirements>();
+            return yield* Effect.callback<Value, Error | DatabaseError>((resume, signal) => {
+                // Драйвер откатывает транзакцию при отклонении callback. Сохраняем полный Exit,
+                // чтобы после отката вернуть исходную ошибку или прерывание Effect.
+                let workFailure: Exit.Failure<Value, Error> | undefined;
+                const transaction = Promise.resolve().then(() => connection.transactionAsync(async (handle) => {
+                    const operation = Effect.provideService(Effect.provide(work, context), CurrentTransaction, { connection: handle });
+                    const result = await Effect.runPromiseExit(operation, { signal });
+                    if (Exit.isFailure(result)) {
+                        workFailure = result;
+                        throw result;
+                    }
+                    return result.value;
+                }).immediate());
+                void transaction.then(
+                    (value) => resume(Effect.succeed(value)),
+                    (cause) => resume(workFailure !== undefined && cause === workFailure
+                        ? Effect.failCause(workFailure.cause)
+                        : Effect.fail(new DatabaseError({ operation: 'transaction', cause }))),
+                );
+                // После прерывания ждём нативного ROLLBACK до освобождения соединения.
+                return Effect.promise(() => transaction.then(() => undefined, () => undefined));
+            });
         });
 
     return {
         get: <Row extends Record<string, unknown>>(query: SqlQuery) =>
-            execute<Row | undefined>('get', query, (parameters) => connection.get(query.sql, ...parameters)),
+            execute<Row | undefined>('get', query, (database, parameters) => database.get(query.sql, ...parameters)),
         all: <Row extends Record<string, unknown>>(query: SqlQuery) =>
-            execute<readonly Row[]>('all', query, (parameters) => connection.all(query.sql, ...parameters)),
+            execute<readonly Row[]>('all', query, (database, parameters) => database.all(query.sql, ...parameters)),
         run: (query: SqlQuery) =>
-            Effect.gen(function* () {
-                const current = yield* Effect.serviceOption(CurrentTransaction);
-                const write = execute<DatabaseRunResult>('run', query, (parameters) =>
-                    connection.run(query.sql, ...parameters),
-                );
-                // Внутри транзакции разрешение уже захвачено; отдельная запись ждёт очереди.
-                return yield* Option.isSome(current) ? write : semaphore.withPermit(write);
-            }),
+            execute<DatabaseRunResult>('run', query, (database, parameters) => database.run(query.sql, ...parameters)),
         transaction: inTransaction,
     };
 }

@@ -10,6 +10,7 @@ interface SettingsFile {
     port: number;
     databasePath: string;
     pinHmacSecret: string;
+    initialUser: { name: string; pin: string } | undefined;
 }
 
 function readSettings(): SettingsFile {
@@ -40,12 +41,21 @@ function readSettings(): SettingsFile {
     if (typeof settings['pinHmacSecret'] !== 'string' || settings['pinHmacSecret'].length < 32) {
         throw new Error(`В файле настроек ${filePath} секрет pinHmacSecret должен содержать не меньше 32 символов`);
     }
+    const initialUser = settings['initialUser'];
+    if (initialUser !== undefined && (typeof initialUser !== 'object' || initialUser === null || Array.isArray(initialUser)
+        || typeof (initialUser as Record<string, unknown>)['name'] !== 'string'
+        || !(initialUser as { name: string }).name.trim()
+        || typeof (initialUser as Record<string, unknown>)['pin'] !== 'string'
+        || !/^[0-9]{4,12}$/.test((initialUser as { pin: string }).pin))) {
+        throw new Error(`В файле настроек ${filePath} initialUser должен содержать имя и PIN из 4–12 цифр`);
+    }
 
     return {
         host: settings['host'],
         port: settings['port'] as number,
         databasePath: path.resolve(directory, settings['databasePath']),
         pinHmacSecret: settings['pinHmacSecret'],
+        initialUser: initialUser as SettingsFile['initialUser'],
     };
 }
 
@@ -57,5 +67,6 @@ export class SettingsService {
     readonly port = this.settings.port;
     readonly databasePath = this.settings.databasePath;
     readonly pinHmacSecret = this.settings.pinHmacSecret;
+    readonly initialUser = this.settings.initialUser;
     readonly webRootPath = isSea() ? '' : path.resolve(import.meta.dirname, '../../web');
 }

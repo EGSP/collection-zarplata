@@ -124,4 +124,19 @@ export interface ObjectDescription {
     readonly actions: ReadonlyArray<ActionDescription>;
     readonly form: FormDescription | null;
     readonly policies: ReadonlyArray<PolicyDescription>;
+    /**
+     * Обработчик проведения документа; у справочников и регистров, а также у документа без
+     * движений равен `null`. Аргумент типизирован как `never` по той же причине, что и у
+     * обработчика действия: вызывать его можно только с записью этого документа.
+     */
+    readonly posting: ((record: never) => unknown) | null;
+}
+
+/**
+ * Строки одного регистра, которые обработчик проведения возвращает платформе. Регистр указан
+ * именем: сама строка ещё не проверена, её проверяет диспетчер по описанию регистра.
+ */
+export interface RegisterMovements {
+    readonly register: string;
+    readonly rows: ReadonlyArray<{ readonly [name: string]: unknown }>;
 }

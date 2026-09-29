@@ -80,7 +80,7 @@ const platformTables: readonly TableStructure[] = [
     { name: 'platform_schema', columns: [column('id', 'INTEGER', true), column('snapshot', 'TEXT', true)], primaryKey: ['id'], indexes: [] },
     { name: 'platform_migrations', columns: [column('id', 'TEXT', true), column('appliedAt', 'TEXT', true)], primaryKey: ['id'], indexes: [] },
     { name: 'platform_journal', columns: [column('guid', 'TEXT', true), column('occurredAt', 'TEXT', true), column('actorGuid', 'TEXT'), column('action', 'TEXT', true), column('objectKind', 'TEXT'), column('objectName', 'TEXT'), column('objectGuid', 'TEXT'), column('details', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_journal', 'occurredAt', ['occurredAt']), index('platform_journal', 'object', ['objectKind', 'objectName', 'objectGuid'])] },
-    { name: 'platform_users', columns: [column('guid', 'TEXT', true), column('name', 'TEXT', true), column('pinHash', 'TEXT', true), column('disabledAt', 'TEXT')], primaryKey: ['guid'], indexes: [] },
+    { name: 'platform_users', columns: [column('guid', 'TEXT', true), column('name', 'TEXT', true), column('pinHash', 'TEXT', true), column('disabledAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_users', 'pinHash', ['pinHash'], true)] },
     { name: 'platform_tokens', columns: [column('guid', 'TEXT', true), column('userGuid', 'TEXT', true), column('expiresAt', 'TEXT', true), column('revokedAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_tokens', 'userGuid', ['userGuid'])] },
 ];
 

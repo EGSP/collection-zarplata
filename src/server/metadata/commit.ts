@@ -265,6 +265,9 @@ function validateObject(
         };
     });
 
+    // Тип билдера даёт posting(...) только документу, но состояние может прийти и без проверки типов.
+    if (state.posting !== null && state.kind !== 'document') problems.add(null, 'обработчик проведения допустим только у документа');
+
     if (state.form !== null) checkForm(state.form, fields, fieldNames, partNames, problems);
 
     const description: ObjectDescription = {
@@ -276,6 +279,7 @@ function validateObject(
         actions,
         form: state.form === null ? null : { overrides: state.form },
         policies: state.policies,
+        posting: state.posting,
     };
     return { problems: problems.items, description };
 }

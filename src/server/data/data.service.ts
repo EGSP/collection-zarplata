@@ -3,10 +3,10 @@ import { randomBytes } from 'node:crypto';
 import { Effect, Schema } from 'effect';
 import { DatabaseService } from '../database/database.service.js';
 import { Database } from '../database/database.effect.js';
-import { insert, remove, select, update, type SqlCondition, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
-import type { ObjectDescription } from '../metadata/descriptions.js';
+import { insert, remove, select, sqlIdentifier, update, type SqlCondition, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
+import type { ObjectDescription, RegisterMovements } from '../metadata/descriptions.js';
 import { MetadataService } from '../metadata/metadata.service.js';
-import { actionInputSchema, fieldSchema, inputSchema } from '../metadata/schema.js';
+import { actionInputSchema, fieldSchema, fieldsSchema, inputSchema } from '../metadata/schema.js';
 import { filterOperators, type FilterOperator } from '../ui/descriptions.js';
 import { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
@@ -15,8 +15,14 @@ import { DataNotFoundError, DataValidationError } from './data.errors.js';
 type RecordValue = Record<string, unknown>;
 /** Внешний запрос после проверки обязательных полей оболочки; payload проверяется для выбранного действия. */
 type Operation = { readonly target: { readonly kind: string; readonly name: string }; readonly action: string; readonly payload: unknown };
-/** Буквальная подстрока после приведения регистра; не передаётся в SQL как шаблон LIKE. */
-type ContainsCondition = { readonly field: string; readonly value: string };
+/**
+ * Условие отбора, которое проверяется после чтения строки, а не в SQL: буквальная подстрока
+ * и неравенство регистратора, для которого конструктор запросов не умеет строить `OR`.
+ */
+type RowPredicate = (row: RecordValue) => boolean;
+
+/** Ширина номера документа: номера одной длины сортируются как строки в числовом порядке. */
+const numberWidth = 6;
 
 /**
  * Операторы SQL для способов сравнения из формата описаний. `contains` в SQL не переводится:
@@ -112,11 +118,15 @@ function sqlValue(value: unknown): SqlValue {
     throw new DataValidationError({ message: 'Неверное значение поля', fields: [] });
 }
 
-/** Восстанавливает логические поля после чтения из SQLite, сохраняя прочие значения без преобразования. */
+/**
+ * Восстанавливает логические поля после чтения из SQLite и собирает регистратор движения из двух
+ * колонок, в которых он хранится. Прочие значения возвращаются без преобразования.
+ */
 function recordFromRow(row: RecordValue, description: ObjectDescription): RecordValue {
-    const record = { ...row };
+    const { recorderDocument, recorderGuid, ...record } = row;
     for (const field of description.fields) {
         if (field.kind === 'boolean' && record[field.name] !== null) record[field.name] = record[field.name] === 1;
+        if (field.kind === 'recorder') record[field.name] = { document: recorderDocument, guid: recorderGuid };
     }
     return record;
 }
@@ -135,14 +145,14 @@ export class DataService {
      * при ошибке любой операции откатываются предшествующие записи. Возвращает один результат
      * либо массив в порядке операций; типизированные ошибки переводит фильтр контроллера.
      */
-    perform(body: unknown): Promise<unknown> {
+    perform(body: unknown, userGuid: string): Promise<unknown> {
         if (Array.isArray(body) && body.length === 0) {
             return Promise.reject(new DataValidationError({ message: 'Пакет операций пуст', fields: ['операции'] }));
         }
         const operations = Array.isArray(body) ? body : [body];
         // Тот же диспетчер доступен обработчикам: вложенный вызов не обходит проверку и транзакцию.
         const dispatcher: ActionDispatcher = { execute: (operation) => this.execute(operation) };
-        const program = Effect.forEach(operations, (operation) => this.execute(operation)).pipe(
+        const program = Effect.forEach(operations, (operation) => this.execute(operation, userGuid)).pipe(
             (work) => this.database.effect.transaction(work),
             Effect.provideService(ActionDispatcher, dispatcher),
             Effect.provideService(Database, this.database.effect),
@@ -152,7 +162,7 @@ export class DataService {
     }
 
     /** Находит цель и даёт каждому действию свой контекст, наследуя трассу и пользователя у вложенного. */
-    private execute(value: unknown): Effect.Effect<unknown, unknown, ActionDispatcher> {
+    private execute(value: unknown, userGuid: string | null = null): Effect.Effect<unknown, unknown, ActionDispatcher> {
         return Effect.gen(function* (this: DataService) {
             const operation = parseOperation(value);
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
@@ -162,7 +172,7 @@ export class DataService {
             // У внешней операции родителя нет; вложенная получает текущий контекст из Effect.
             const parent = yield* Effect.serviceOption(ActionContext);
             const context: ActionContext = {
-                userGuid: parent._tag === 'Some' ? parent.value.userGuid : null,
+                userGuid: parent._tag === 'Some' ? parent.value.userGuid : userGuid,
                 traceGuid: parent._tag === 'Some' ? parent.value.traceGuid : newGuid(),
                 actionGuid: newGuid(),
                 parentActionGuid: parent._tag === 'Some' ? parent.value.actionGuid : null,
@@ -173,13 +183,28 @@ export class DataService {
 
     /** Выбирает стандартное или собственное действие; неизвестное действие возвращает 404. */
     private dispatch(description: ObjectDescription, action: string, payload: unknown): Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher> {
-        if (description.kind === 'catalog') {
+        if (description.kind !== 'register') {
             switch (action) {
                 case 'list': return this.list(description, payload);
                 case 'get': return this.get(description, payload);
                 case 'save': return this.save(description, payload);
                 case 'markDeleted': return this.markDeleted(description, payload, true);
                 case 'unmarkDeleted': return this.markDeleted(description, payload, false);
+            }
+        }
+        if (description.kind === 'document') {
+            switch (action) {
+                case 'post': return this.post(description, payload);
+                case 'unpost': return this.unpost(description, payload);
+            }
+        }
+        if (description.kind === 'register') {
+            if (action === 'list') return this.list(description, payload);
+            // Движения должны соответствовать проведённым документам, поэтому записывает их только проведение.
+            if (['get', 'save', 'markDeleted', 'unmarkDeleted', 'post', 'unpost'].includes(action)) {
+                return Effect.fail(new DataNotFoundError({
+                    message: `Действие «${action}» для регистра недоступно: строки регистра записывают документы при проведении`,
+                }));
             }
         }
         const custom = description.actions.find((candidate) => candidate.name === action);
@@ -243,7 +268,8 @@ export class DataService {
     /**
      * Выбирает страницу и общее число строк по одному отбору. Поля сверяются с метаданными,
      * поэтому их имена могут безопасно участвовать в построении SQL; значения остаются параметрами.
-     * Для буквальной подстроки проверяет кандидатов порциями до подсчёта и разбиения на страницы.
+     * Условия, которые нельзя выразить в SQL, проверяет на кандидатах порциями до подсчёта
+     * и разбиения на страницы. Строки регистра упорядочиваются по регистратору и номеру строки.
      */
     private list(description: ObjectDescription, payload: unknown): Effect.Effect<unknown, unknown> {
         return Effect.gen(function* (this: DataService) {
@@ -258,7 +284,7 @@ export class DataService {
             const sorting = options['sort'] ?? [];
             if (!Array.isArray(filters) || !Array.isArray(sorting)) return yield* new DataValidationError({ message: 'Отбор и сортировка должны быть списками', fields: ['payload.filter', 'payload.sort'] });
             const where: SqlCondition[] = [];
-            const contains: ContainsCondition[] = [];
+            const predicates: RowPredicate[] = [];
             for (const raw of filters) {
                 const filter = objectValue(raw, 'payload.filter');
                 const name = stringValue(filter['field'], 'payload.filter.field');
@@ -273,7 +299,8 @@ export class DataService {
                     if (typeof filter['value'] !== 'string') {
                         return yield* new DataValidationError({ message: `Для поиска по «${name}» нужна строка`, fields: [`payload.filter.${name}`] });
                     }
-                    contains.push({ field: name, value: searchText(filter['value']) });
+                    const text = searchText(filter['value']);
+                    predicates.push((row) => typeof row[name] === 'string' && searchText(row[name]).includes(text));
                     continue;
                 }
                 const value = filter['value'];
@@ -281,6 +308,21 @@ export class DataService {
                     return yield* new DataValidationError({ message: `Неверное значение отбора «${name}»`, fields: [`payload.filter.${name}`] });
                 }
                 if (value !== null) yield* validated(fieldSchema(field), value, `payload.filter.${name}`);
+                if (field.kind === 'recorder') {
+                    // Регистратор всегда заполнен: равенство null не находит строк, неравенство null — все строки.
+                    if (value === null) {
+                        if (operator === 'equals') predicates.push(() => false);
+                        continue;
+                    }
+                    const recorder = value as { readonly document: string; readonly guid: string };
+                    if (operator === 'equals') {
+                        where.push({ column: 'recorderDocument', operator: '=', value: recorder.document });
+                        where.push({ column: 'recorderGuid', operator: '=', value: recorder.guid });
+                    } else {
+                        predicates.push((row) => row['recorderDocument'] !== recorder.document || row['recorderGuid'] !== recorder.guid);
+                    }
+                    continue;
+                }
                 where.push({ column: name, operator: sqlOperators[operator], value: sqlValue(value) });
             }
             const orderBy: SqlOrder[] = [];
@@ -288,26 +330,32 @@ export class DataService {
                 const sort = objectValue(raw, 'payload.sort');
                 const name = stringValue(sort['field'], 'payload.sort.field');
                 const direction = sort['direction'];
-                if (!description.fields.some((field) => field.name === name) || (direction !== 'ascending' && direction !== 'descending')) {
+                // Регистратор хранится в двух колонках и в описании списка не сортируется.
+                const field = description.fields.find((candidate) => candidate.name === name);
+                if (field === undefined || field.kind === 'recorder' || (direction !== 'ascending' && direction !== 'descending')) {
                     return yield* new DataValidationError({ message: `Неверная сортировка по «${name}»`, fields: [`payload.sort.${name}`] });
                 }
                 orderBy.push({ column: name, direction: direction === 'ascending' ? 'ASC' : 'DESC' });
             }
-            // При одинаковых значениях сортировки guid задаёт однозначный порядок строк.
-            if (!orderBy.some((order) => order.column === 'guid')) orderBy.push({ column: 'guid', direction: 'ASC' });
+            // При одинаковых значениях сортировки ключ таблицы задаёт однозначный порядок строк.
+            // У строки регистра нет guid: её определяют регистратор и номер строки.
+            const key = description.kind === 'register' ? ['recorderDocument', 'recorderGuid', 'lineNumber'] : ['guid'];
+            for (const column of key) {
+                if (!orderBy.some((order) => order.column === column)) orderBy.push({ column, direction: 'ASC' });
+            }
             const table = this.table(description);
             const database = this.database.effect;
-            if (contains.length > 0) {
+            if (predicates.length > 0) {
                 const items: RecordValue[] = [];
                 let total = 0;
                 let scanned = 0;
                 const chunkSize = 500;
                 while (true) {
                     // Turso LIKE обрабатывает % и _ как шаблон и не складывает регистр кириллицы.
-                    // Читаем кандидатов порциями, применяя буквальный поиск до выбора страницы.
+                    // Читаем кандидатов порциями, применяя такие условия до выбора страницы.
                     const candidates = yield* database.all<RecordValue>(select(table, { where, orderBy, limit: chunkSize, offset: scanned }));
                     for (const row of candidates) {
-                        if (!contains.every(({ field, value }) => typeof row[field] === 'string' && searchText(row[field]).includes(value))) continue;
+                        if (!predicates.every((predicate) => predicate(row))) continue;
                         total++;
                         if (total > offset && items.length < pageSize) items.push(recordFromRow(row, description));
                     }
@@ -330,8 +378,10 @@ export class DataService {
     /**
      * Создаёт запись без guid или заменяет значения существующей записи с guid. Клиент передаёт
      * полное состояние заполняемых полей и табличных частей; ошибочные значения откатывают запись.
+     * Новый документ получает следующий номер и не проведён. Запись проведённого документа
+     * заново записывает его движения, чтобы они соответствовали новым данным.
      */
-    private save(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown> {
+    private save(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionContext | ActionDispatcher> {
         return Effect.gen(function* (this: DataService) {
             const request = objectValue(payload, 'payload');
             const guid = request['guid'] === undefined ? newGuid() : stringValue(request['guid'], 'payload.guid');
@@ -342,10 +392,15 @@ export class DataService {
                 if (!field.managed) values[field.name] = sqlValue(input[field.name]);
             }
             const database = this.database.effect;
+            let posted = false;
             if (request['guid'] === undefined) {
+                if (description.kind === 'document') {
+                    values['number'] = yield* this.nextNumber(description);
+                    values['posted'] = 0;
+                }
                 yield* database.run(insert(this.table(description), values));
             } else {
-                yield* this.load(description, guid);
+                posted = (yield* this.load(description, guid))['posted'] === true;
                 // Обновление не снимает ранее установленную пометку удаления.
                 const { guid: _guid, deletedAt: _deletedAt, ...changed } = values;
                 yield* database.run(update(this.table(description), changed, [{ column: 'guid', operator: '=', value: guid }]));
@@ -361,19 +416,123 @@ export class DataService {
                     yield* database.run(insert(table, fields));
                 }
             }
+            if (posted) yield* this.writeMovements(description, yield* this.load(description, guid));
             return yield* this.load(description, guid);
         }.bind(this));
     }
 
-    /** Меняет только пометку удаления и возвращает запись с её актуальными значениями. */
+    /**
+     * Меняет пометку удаления и возвращает запись с её актуальными значениями. Пометка отменяет
+     * проведение документа: помеченный документ не должен влиять на обороты регистров.
+     * Снятие пометки документ не проводит, это делает отдельное действие `post`.
+     */
     private markDeleted(description: ObjectDescription, payload: unknown, marked: boolean): Effect.Effect<RecordValue, unknown> {
         return Effect.gen(function* (this: DataService) {
             const guid = this.guidPayload(payload);
-            yield* this.load(description, guid);
-            yield* this.database.effect.run(update(this.table(description), {
-                deletedAt: marked ? new Date().toISOString() : null,
-            }, [{ column: 'guid', operator: '=', value: guid }]));
+            const record = yield* this.load(description, guid);
+            const values: Record<string, SqlValue> = { deletedAt: marked ? new Date().toISOString() : null };
+            if (marked && record['posted'] === true) {
+                yield* this.removeMovements(description, guid);
+                values['posted'] = 0;
+            }
+            yield* this.database.effect.run(update(this.table(description), values, [{ column: 'guid', operator: '=', value: guid }]));
             return yield* this.load(description, guid);
+        }.bind(this));
+    }
+
+    /**
+     * Выдаёт следующий номер документа: наибольший номер плюс один, дополненный нулями до
+     * `numberWidth` знаков. Номер выдаётся внутри изменяющей транзакции, а такие транзакции
+     * выполняются по очереди, поэтому два документа не получат один номер.
+     */
+    private nextNumber(description: ObjectDescription): Effect.Effect<string, unknown> {
+        return Effect.gen(function* (this: DataService) {
+            // CAST сравнивает номера как числа: после 999999 строковое сравнение нарушило бы порядок.
+            const row = yield* this.database.effect.get<{ last: number | null }>({
+                sql: `SELECT MAX(CAST(${sqlIdentifier('number')} AS INTEGER)) AS last FROM ${sqlIdentifier(this.table(description))}`,
+                parameters: [],
+            });
+            return String((row?.last ?? 0) + 1).padStart(numberWidth, '0');
+        }.bind(this));
+    }
+
+    /**
+     * Проводит документ: отмечает его проведённым и заменяет его движения строками, которые
+     * вернул обработчик проведения. Повторное проведение не дублирует движения. Документ,
+     * помеченный на удаление, провести нельзя.
+     */
+    private post(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionContext | ActionDispatcher> {
+        return Effect.gen(function* (this: DataService) {
+            const guid = this.guidPayload(payload);
+            const record = yield* this.load(description, guid);
+            if (record['deletedAt'] !== null) {
+                return yield* new DataValidationError({ message: 'Документ помечен на удаление, провести его нельзя', fields: ['payload.guid'] });
+            }
+            yield* this.database.effect.run(update(this.table(description), { posted: 1 }, [{ column: 'guid', operator: '=', value: guid }]));
+            // Обработчик получает запись уже с признаком проведения, как она будет видна после действия.
+            yield* this.writeMovements(description, yield* this.load(description, guid));
+            return yield* this.load(description, guid);
+        }.bind(this));
+    }
+
+    /** Отменяет проведение: удаляет движения документа и снимает признак проведения. */
+    private unpost(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown> {
+        return Effect.gen(function* (this: DataService) {
+            const guid = this.guidPayload(payload);
+            yield* this.load(description, guid);
+            yield* this.removeMovements(description, guid);
+            yield* this.database.effect.run(update(this.table(description), { posted: 0 }, [{ column: 'guid', operator: '=', value: guid }]));
+            return yield* this.load(description, guid);
+        }.bind(this));
+    }
+
+    /**
+     * Удаляет движения документа во всех регистрах конфигурации, а не только в тех, куда пишет
+     * текущий обработчик проведения: после изменения данных документа обработчик может перестать
+     * писать в регистр, и старые строки остались бы в нём.
+     */
+    private removeMovements(description: ObjectDescription, guid: string): Effect.Effect<void, unknown> {
+        return Effect.gen(function* (this: DataService) {
+            for (const register of this.metadata.objects.filter((object) => object.kind === 'register')) {
+                yield* this.database.effect.run(remove(this.table(register), [
+                    { column: 'recorderDocument', operator: '=', value: description.name },
+                    { column: 'recorderGuid', operator: '=', value: guid },
+                ]));
+            }
+        }.bind(this));
+    }
+
+    /**
+     * Заменяет движения документа строками обработчика проведения. Строки проверяются по описанию
+     * регистра так же, как входные данные записи; ошибка отменяет проведение вместе с транзакцией.
+     * Регистратор и номер строки заполняет платформа, период по умолчанию равен дате документа.
+     */
+    private writeMovements(description: ObjectDescription, record: RecordValue): Effect.Effect<void, unknown, ActionContext | ActionDispatcher> {
+        return Effect.gen(function* (this: DataService) {
+            const guid = record['guid'] as string;
+            yield* this.removeMovements(description, guid);
+            if (description.posting === null) return;
+            // Описание хранит обработчики разных документов; вызов допустим с записью этого документа.
+            const result = description.posting(record as never);
+            if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть Effect'));
+            const groups = yield* result as Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher>;
+            if (!Array.isArray(groups)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть список движений'));
+            // Номера строк сквозные внутри регистра, даже если обработчик вернул для него несколько групп.
+            const lineNumbers = new Map<string, number>();
+            for (const group of groups as ReadonlyArray<RegisterMovements>) {
+                const register = this.metadata.find('register', group.register);
+                if (register === undefined) return yield* Effect.die(new Error(`Регистр «${group.register}» не найден в конфигурации`));
+                const fields = register.fields.filter((field) => !field.managed);
+                const rows = group.rows.map((row) => ({ ...row, period: row['period'] ?? record['date'] }));
+                const checked = yield* validated(Schema.Array(fieldsSchema(fields)), rows, `проведение.${register.name}`) as Effect.Effect<ReadonlyArray<RecordValue>, DataValidationError>;
+                for (const row of checked) {
+                    const lineNumber = (lineNumbers.get(register.name) ?? 0) + 1;
+                    lineNumbers.set(register.name, lineNumber);
+                    const values: Record<string, SqlValue> = { recorderDocument: description.name, recorderGuid: guid, lineNumber };
+                    for (const field of fields) values[field.name] = sqlValue(row[field.name]);
+                    yield* this.database.effect.run(insert(this.table(register), values));
+                }
+            }
         }.bind(this));
     }
 }

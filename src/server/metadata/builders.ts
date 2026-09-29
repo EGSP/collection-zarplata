@@ -17,7 +17,7 @@
  */
 import type { Effect } from 'effect';
 import { commitObject } from './commit.js';
-import type { FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription } from './descriptions.js';
+import type { FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RegisterMovements } from './descriptions.js';
 import {
     fieldFactory,
     type AnyFieldBuilder,
@@ -67,6 +67,8 @@ export interface ObjectState {
     readonly actions: ReadonlyArray<ActionEntry>;
     readonly form: ReadonlyArray<FormOverride> | null;
     readonly policies: ReadonlyArray<PolicyDescription>;
+    /** Обработчик проведения; задаётся только у документа. */
+    readonly posting: ((record: never) => unknown) | null;
     /** Вызван ли `withStandardFields()`: без стандартных полей `commit()` завершается ошибкой. */
     readonly standardFieldsAdded: boolean;
 }
@@ -253,40 +255,63 @@ export interface RecordObjectBuilder<
     readonly '~tableParts': Parts;
 
     /** Заголовок объекта в интерфейсе. Если он не задан, используется имя. */
-    title(title: string): RecordObjectBuilder<Kind, Name, Fields, Parts>;
+    title(title: string): RecordBuilderOf<Kind, Name, Fields, Parts>;
 
     /** Реквизит объекта. Имя и тип поля попадают в тип записи. */
     field<const FieldName extends string, Field extends AnyFieldBuilder>(
         name: FieldName,
         define: (field: FieldFactory) => Field,
-    ): RecordObjectBuilder<Kind, Name, Fields & { readonly [K in FieldName]: Field }, Parts>;
+    ): RecordBuilderOf<Kind, Name, Fields & { readonly [K in FieldName]: Field }, Parts>;
 
     /** Табличная часть; в записи она представлена массивом строк. */
     tablePart<const PartName extends string, PartFields extends FieldMap>(
         name: PartName,
         define: (part: TablePartBuilder) => TablePartBuilder<PartFields>,
-    ): RecordObjectBuilder<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }>;
+    ): RecordBuilderOf<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }>;
 
     /** Собственное действие, доступное через единый эндпоинт. */
     action<Input extends FieldMap>(
         name: string,
         define: (action: ActionBuilder) => ActionBuilder<Input>,
-    ): RecordObjectBuilder<Kind, Name, Fields, Parts>;
+    ): RecordBuilderOf<Kind, Name, Fields, Parts>;
 
     /** Переопределение формы. Повторный вызов заменяет предыдущее. */
     form(
         define: (form: FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>) => FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>,
-    ): RecordObjectBuilder<Kind, Name, Fields, Parts>;
+    ): RecordBuilderOf<Kind, Name, Fields, Parts>;
 
     /** Политика записи. Политики из нескольких вызовов выполняются по порядку. */
-    policy(policy: WritePolicy<ObjectRecord<Kind, Fields, Parts>>): RecordObjectBuilder<Kind, Name, Fields, Parts>;
+    policy(policy: WritePolicy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts>;
 }
 
 /** Билдер справочника; его создаёт `catalog(name)`. */
 export type CatalogBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap> = RecordObjectBuilder<'catalog', Name, Fields, Parts>;
 
+/**
+ * Билдер того же вида, что и исходный. Методы общего интерфейса возвращают его, чтобы после
+ * `.field(...)` у документа остался метод `.posting(...)`, которого нет у справочника.
+ */
+type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, Fields extends FieldMap, Parts extends TablePartMap> =
+    Kind extends 'document' ? DocumentBuilder<Name, Fields, Parts> : CatalogBuilder<Name, Fields, Parts>;
+
+/**
+ * Обработчик проведения получает сохранённую запись документа с табличными частями и возвращает
+ * строки регистров, собранные функцией `movements(...)`. Через окружение ему доступны контекст
+ * действия, диспетчер вложенных вызовов и база данных. Ошибка обработчика отменяет проведение
+ * вместе со всей транзакцией запроса.
+ */
+export type PostingHandler<Record> = (record: Record) => Effect.Effect<ReadonlyArray<RegisterMovements>, unknown, unknown>;
+
 /** Билдер документа; его создаёт `document(name)`. */
-export type DocumentBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap> = RecordObjectBuilder<'document', Name, Fields, Parts>;
+export interface DocumentBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap>
+    extends RecordObjectBuilder<'document', Name, Fields, Parts> {
+    /**
+     * Обработчик проведения. Платформа удаляет прежние движения документа во всех регистрах
+     * и записывает строки, которые вернул обработчик, поэтому повторное проведение их не дублирует.
+     * Повторный вызов заменяет обработчик.
+     */
+    posting(handler: PostingHandler<ObjectRecord<'document', Fields, Parts>>): DocumentBuilder<Name, Fields, Parts>;
+}
 
 /** Ресурс регистра — число или деньги: только такие значения можно суммировать при расчёте оборотов. */
 type ResourceFieldBuilder = NumberFieldBuilder | MoneyFieldBuilder;
@@ -309,6 +334,24 @@ export interface RegisterBuilder<Name extends string, Fields extends FieldMap> e
         name: FieldName,
         define: (field: FieldFactory) => Field,
     ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }>;
+}
+
+/**
+ * Строка движения регистра в том виде, в каком её возвращает обработчик проведения: измерения
+ * и ресурсы регистра. `period` можно не указывать — тогда платформа подставит дату документа.
+ * Регистратор и номер строки платформа заполняет сама.
+ */
+export type MovementOf<Fields extends FieldMap> = Simplify<FieldsRecord<Fields> & { readonly period?: string }>;
+
+/**
+ * Связывает строки движений с регистром для обработчика проведения. Тип строки выводится из
+ * билдера регистра, поэтому TypeScript отклоняет неизвестные измерения и ресурсы.
+ */
+export function movements<Name extends string, Fields extends FieldMap>(
+    register: RegisterBuilder<Name, Fields>,
+    rows: ReadonlyArray<MovementOf<Fields>>,
+): RegisterMovements {
+    return { register: register.name, rows };
 }
 
 /**
@@ -369,6 +412,10 @@ class ObjectBuilderImplementation {
         return this.with({ policies: [...this['~state'].policies, description] });
     }
 
+    posting(handler: PostingHandler<never>): this {
+        return this.with({ posting: handler });
+    }
+
     withStandardFields(): this {
         if (this['~state'].standardFieldsAdded) return this;
         const standard: ReadonlyArray<FieldEntry> = Object.entries(standardFields[this.kind]).map(([name, builder]) => ({
@@ -400,7 +447,7 @@ export function isObjectBuilder(value: unknown): value is ObjectBuilder {
 }
 
 function emptyState(kind: ObjectKind, name: string): ObjectState {
-    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], standardFieldsAdded: false };
+    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], posting: null, standardFieldsAdded: false };
 }
 
 // Функции ниже приводят реализацию к интерфейсу через unknown: точные типы полей существуют
