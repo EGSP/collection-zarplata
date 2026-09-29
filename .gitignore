@@ -6,3 +6,5 @@ dist/
 .env
 data/
 .worktrees/
+# Реестр конфигурации создаёт npm run metadata:generate
+src/configuration/configuration.generated.ts
