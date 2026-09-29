@@ -78,7 +78,7 @@ export interface TablePartDescription {
     readonly fields: ReadonlyArray<FieldDescription>;
 }
 
-/** Собственное действие объекта. Заготовка: выполнение реализует диспетчер (#6). */
+/** Собственное действие объекта: диспетчер проверяет входные данные перед вызовом обработчика. */
 export interface ActionDescription {
     readonly name: string;
     readonly title: string;
@@ -90,7 +90,7 @@ export interface ActionDescription {
     readonly handler: ((input: never) => unknown) | null;
 }
 
-/** Переопределение формы. Заготовка: применяет построение описаний форм (#11). */
+/** Переопределение формы. Применяет его построение описаний форм в `src/server/ui`. */
 export type FormOverride =
     | { readonly kind: 'group'; readonly title: string; readonly fields: ReadonlyArray<string> }
     | { readonly kind: 'hide'; readonly field: string }

@@ -5,7 +5,8 @@ dist/
 *.db-shm
 .env
 collection-zarplata.settings.json
-data/
+# Только каталог данных в корне: серверный модуль src/server/data должен отслеживаться Git.
+/data/
 .worktrees/
 # Реестр конфигурации создаёт npm run metadata:generate
 src/configuration/configuration.generated.ts

@@ -138,12 +138,13 @@ export class ActionInputBuilder<Fields extends FieldMap = {}> {
 }
 
 /**
- * Обработчик собственного действия. Заготовка: окружение Effect и контекст действия
- * уточнит диспетчер (#6), пока требования к окружению не ограничены.
+ * Обработчик собственного действия получает проверенные входные данные и возвращает Effect.
+ * Его ошибки прерывают всю транзакцию запроса. Через окружение ему доступны контекст действия,
+ * диспетчер вложенных вызовов и база данных.
  */
 export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, unknown>;
 
-/** Билдер собственного действия. Заготовка: выполнение действий реализует диспетчер (#6). */
+/** Билдер собственного действия; обработчик вызывается диспетчером после проверки данных. */
 export class ActionBuilder<Input extends FieldMap = {}> {
     /** Только для вывода типов: во время выполнения свойства нет. */
     declare readonly '~input': Input;
@@ -176,9 +177,12 @@ export class ActionBuilder<Input extends FieldMap = {}> {
 }
 
 /**
- * Переопределение формы по умолчанию. Заготовка: переопределения применяет построение описаний
- * форм (#11). `Names` — имена полей и табличных частей объекта, поэтому TypeScript отклоняет
- * несуществующие имена.
+ * Переопределение формы по умолчанию. `Names` — имена полей и табличных частей объекта,
+ * поэтому TypeScript отклоняет несуществующие имена.
+ *
+ * По умолчанию форма — одна группа без заголовка: поля в порядке объявления, затем табличные
+ * части. Группы выводятся в порядке объявления, а элементы, не попавшие ни в одну группу,
+ * собираются после них в группу без заголовка. Порядок обхода с клавиатуры следует за раскладкой.
  */
 export class FormBuilder<Names extends string> {
     readonly '~overrides': ReadonlyArray<FormOverride>;
@@ -187,12 +191,12 @@ export class FormBuilder<Names extends string> {
         this['~overrides'] = overrides;
     }
 
-    /** Группа полей с заголовком. */
+    /** Группа полей и табличных частей с заголовком; элементы выводятся и обходятся в указанном порядке. */
     group(title: string, fields: ReadonlyArray<Names>): FormBuilder<Names> {
         return new FormBuilder([...this['~overrides'], { kind: 'group', title, fields }]);
     }
 
-    /** Скрыть поле или табличную часть. */
+    /** Скрыть поле или табличную часть. Обязательное поле, которое заполняет пользователь, скрыть нельзя. */
     hide(field: Names): FormBuilder<Names> {
         return new FormBuilder([...this['~overrides'], { kind: 'hide', field }]);
     }
@@ -263,7 +267,7 @@ export interface RecordObjectBuilder<
         define: (part: TablePartBuilder) => TablePartBuilder<PartFields>,
     ): RecordObjectBuilder<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }>;
 
-    /** Собственное действие. Заготовка: выполнение реализует диспетчер (#6). */
+    /** Собственное действие, доступное через единый эндпоинт. */
     action<Input extends FieldMap>(
         name: string,
         define: (action: ActionBuilder) => ActionBuilder<Input>,
