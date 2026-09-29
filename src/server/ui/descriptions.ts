@@ -4,6 +4,7 @@
  * Клиент строит формы и списки только по этим описаниям и импортирует этот файл напрямую.
  * Поэтому здесь нет импортов Nest и Effect: клиентская сборка не должна тянуть серверные пакеты.
  * Единственный импорт — типы из описаний метаданных, у которых собственных импортов тоже нет.
+ * Отсюда же сервер берёт названия способов сравнения и направлений сортировки для действия `list`.
  *
  * Описание уже учитывает переопределения формы из конфигурации: клиенту не нужно знать,
  * что задано по умолчанию, а что переопределено.
@@ -108,12 +109,31 @@ export interface ListColumn {
 }
 
 /**
- * Способ сравнения в отборе списка:
- * - `equals` — значение равно заданному;
- * - `contains` — строка содержит заданную подстроку;
- * - `greaterOrEqual`, `lessOrEqual` — границы диапазона чисел, сумм и дат.
+ * Способ сравнения в отборе списка. Те же названия принимает действие `list` единого эндпоинта:
+ * - `equals`, `notEquals` — значение равно или не равно заданному; с `null` проверяют, заполнено ли поле;
+ * - `greater`, `greaterOrEqual`, `less`, `lessOrEqual` — сравнение чисел, сумм и дат;
+ * - `contains` — строка содержит заданную подстроку без учёта регистра; `%` и `_` — обычные символы.
  */
-export type FilterOperator = 'equals' | 'contains' | 'greaterOrEqual' | 'lessOrEqual';
+export type FilterOperator = 'equals' | 'notEquals' | 'greater' | 'greaterOrEqual' | 'less' | 'lessOrEqual' | 'contains';
+
+const equality: ReadonlyArray<FilterOperator> = ['equals', 'notEquals'];
+const ordered: ReadonlyArray<FilterOperator> = ['equals', 'notEquals', 'greater', 'greaterOrEqual', 'less', 'lessOrEqual'];
+
+/**
+ * Способы сравнения, допустимые для вида поля. Описание списка предлагает клиенту именно их,
+ * а действие `list` отклоняет остальные, поэтому клиент и сервер не расходятся в правилах отбора.
+ */
+export const filterOperators: { readonly [Kind in FieldKind]: ReadonlyArray<FilterOperator> } = {
+    string: ['contains', ...equality],
+    number: ordered,
+    money: ordered,
+    date: ordered,
+    dateTime: ordered,
+    boolean: equality,
+    reference: equality,
+    guid: equality,
+    recorder: equality,
+};
 
 /** Отбор, который список предлагает по полю, и допустимые для этого поля способы сравнения. */
 export interface ListFilter {
@@ -124,6 +144,7 @@ export interface ListFilter {
     readonly operators: ReadonlyArray<FilterOperator>;
 }
 
+/** Направление сортировки в описании списка и в действии `list`. */
 export type SortDirection = 'ascending' | 'descending';
 
 /** Сортировка по одному полю. */

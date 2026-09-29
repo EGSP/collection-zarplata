@@ -7,20 +7,20 @@
  * Проверку переопределений (существование имён, однозначность групп) уже выполнил `commit()`,
  * поэтому построение не завершается ошибкой.
  */
-import type { FieldDescription, FieldKind, FormOverride, ObjectDescription } from '../metadata/descriptions.js';
+import type { FieldDescription, FormOverride, ObjectDescription } from '../metadata/descriptions.js';
 import { formHiddenStandardFields } from '../metadata/standard-fields.js';
-import type {
-    FilterOperator,
-    FormAction,
-    FormField,
-    FormGroup,
-    FormTablePart,
-    FormView,
-    ListColumn,
-    ListFilter,
-    ListSort,
-    ListView,
-    ObjectView,
+import {
+    filterOperators,
+    type FormAction,
+    type FormField,
+    type FormGroup,
+    type FormTablePart,
+    type FormView,
+    type ListColumn,
+    type ListFilter,
+    type ListSort,
+    type ListView,
+    type ObjectView,
 } from './descriptions.js';
 
 /** Стандартные действия формы по видам объектов в порядке показа. `list` и `get` форма выполняет сама. */
@@ -37,19 +37,6 @@ const standardFormActions: { readonly [Kind in 'catalog' | 'document']: Readonly
         { name: 'markDeleted', title: 'Пометить на удаление' },
         { name: 'unmarkDeleted', title: 'Снять пометку удаления' },
     ],
-};
-
-/** Способы сравнения в отборе по виду поля. `guid` не отбирается: для поиска объекта служит `get`. */
-const filterOperators: { readonly [Kind in FieldKind]: ReadonlyArray<FilterOperator> } = {
-    string: ['contains', 'equals'],
-    number: ['equals', 'greaterOrEqual', 'lessOrEqual'],
-    money: ['equals', 'greaterOrEqual', 'lessOrEqual'],
-    date: ['equals', 'greaterOrEqual', 'lessOrEqual'],
-    dateTime: ['equals', 'greaterOrEqual', 'lessOrEqual'],
-    boolean: ['equals'],
-    reference: ['equals'],
-    guid: [],
-    recorder: ['equals'],
 };
 
 /**
@@ -148,9 +135,7 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
 export function buildList(object: ObjectDescription): ListView {
     const fields = object.fields.filter((field) => !formHiddenStandardFields.has(field.name));
     const columns: ReadonlyArray<ListColumn> = fields.map((field) => ({ field: field.name, title: field.title, kind: field.kind, target: field.target }));
-    const filters: ReadonlyArray<ListFilter> = fields
-        .filter((field) => filterOperators[field.kind].length > 0)
-        .map((field) => ({ field: field.name, title: field.title, kind: field.kind, target: field.target, operators: filterOperators[field.kind] }));
+    const filters: ReadonlyArray<ListFilter> = fields.map((field) => ({ field: field.name, title: field.title, kind: field.kind, target: field.target, operators: filterOperators[field.kind] }));
     // Регистратор состоит из двух значений, и порядок по нему ничего не говорит пользователю.
     const sortable = fields.filter((field) => field.kind !== 'recorder').map((field) => field.name);
     return {
