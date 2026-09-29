@@ -1,20 +1,38 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { isSea } from 'node:sea';
+import { LaunchArguments, pinPattern, portValue } from './launch-arguments.js';
 
 const settingsFileName = 'collection-zarplata.settings.json';
 
-interface SettingsFile {
-    host: string;
-    port: number;
-    databasePath: string;
-    pinHmacSecret: string;
-    initialUser: { name: string; pin: string } | undefined;
+/** Порт режима памяти по умолчанию: он не совпадает с портом 3000, на который Vite направляет `/api` в режиме разработки. */
+const memoryDefaultPort = 3100;
+
+/**
+ * Где хранится база. Файл сохраняет данные между запусками; база в памяти пуста при каждом
+ * запуске и исчезает после остановки процесса.
+ */
+export type DatabaseLocation =
+    | { readonly kind: 'file'; readonly path: string }
+    | { readonly kind: 'memory' };
+
+/** Пользователь, которого сервер создаёт при запуске в пустой таблице пользователей. */
+export interface InitialUser {
+    readonly name: string;
+    readonly pin: string;
 }
 
-function readSettings(): SettingsFile {
-    const directory = isSea() ? path.dirname(process.execPath) : process.cwd();
+interface Settings {
+    readonly host: string;
+    readonly port: number;
+    readonly database: DatabaseLocation;
+    readonly pinHmacSecret: string;
+    readonly initialUser: InitialUser | undefined;
+}
+
+function readSettingsFile(directory: string): Settings {
     const filePath = path.join(directory, settingsFileName);
     let value: unknown;
 
@@ -32,7 +50,7 @@ function readSettings(): SettingsFile {
     if (typeof settings['host'] !== 'string' || settings['host'].trim() === '') {
         throw new Error(`В файле настроек ${filePath} нужен непустой адрес host`);
     }
-    if (!Number.isInteger(settings['port']) || (settings['port'] as number) < 1 || (settings['port'] as number) > 65535) {
+    if (!portValue(settings['port'])) {
         throw new Error(`В файле настроек ${filePath} порт port должен быть целым числом от 1 до 65535`);
     }
     if (typeof settings['databasePath'] !== 'string' || settings['databasePath'].trim() === '') {
@@ -46,27 +64,63 @@ function readSettings(): SettingsFile {
         || typeof (initialUser as Record<string, unknown>)['name'] !== 'string'
         || !(initialUser as { name: string }).name.trim()
         || typeof (initialUser as Record<string, unknown>)['pin'] !== 'string'
-        || !/^[0-9]{4,12}$/.test((initialUser as { pin: string }).pin))) {
+        || !pinPattern.test((initialUser as { pin: string }).pin))) {
         throw new Error(`В файле настроек ${filePath} initialUser должен содержать имя и PIN из 4–12 цифр`);
     }
 
     return {
         host: settings['host'],
-        port: settings['port'] as number,
-        databasePath: path.resolve(directory, settings['databasePath']),
+        port: settings['port'],
+        database: { kind: 'file', path: path.resolve(directory, settings['databasePath']) },
         pinHmacSecret: settings['pinHmacSecret'],
-        initialUser: initialUser as SettingsFile['initialUser'],
+        initialUser: initialUser as InitialUser | undefined,
     };
 }
 
-/** Настройки берутся из JSON рядом с исполняемым файлом либо из корня проекта при разработке. */
+/**
+ * Настройки режима памяти не читают файл: у агента в новом worktree его нет. Секрет создаётся
+ * при запуске, потому что токены и хеши PIN живут не дольше процесса вместе с базой.
+ */
+function memorySettings(launch: LaunchArguments): Settings {
+    return {
+        host: '127.0.0.1',
+        port: memoryDefaultPort,
+        database: { kind: 'memory' },
+        pinHmacSecret: randomBytes(32).toString('hex'),
+        initialUser: launch.testPin === undefined ? undefined : { name: 'Тестовый пользователь', pin: launch.testPin },
+    };
+}
+
+function readSettings(launch: LaunchArguments): Settings {
+    if (launch.database === 'memory') return memorySettings(launch);
+    return readSettingsFile(isSea() ? path.dirname(process.execPath) : process.cwd());
+}
+
+/**
+ * Настройки запуска. Обычно они читаются из файла JSON рядом с исполняемым файлом или в корне
+ * проекта при разработке; ошибка в файле останавливает запуск. Параметр `--database=memory`
+ * запускает приложение на пустой базе в памяти без файла настроек, а `--test-pin` создаёт в ней
+ * тестового пользователя. Порт из настроек может заменить параметр `--port`: порт, который
+ * слушает сервер, выбирает провайдер `ServerPort`.
+ */
 @Injectable()
 export class SettingsService {
-    private readonly settings = readSettings();
-    readonly host = this.settings.host;
-    readonly port = this.settings.port;
-    readonly databasePath = this.settings.databasePath;
-    readonly pinHmacSecret = this.settings.pinHmacSecret;
-    readonly initialUser = this.settings.initialUser;
+    private readonly settings: Settings;
+    readonly host: string;
+    /** Порт из файла настроек или порт режима памяти по умолчанию; сервер слушает порт из `ServerPort`. */
+    readonly port: number;
+    readonly database: DatabaseLocation;
+    readonly pinHmacSecret: string;
+    /** Первый пользователь из файла настроек либо тестовый пользователь режима памяти. */
+    readonly initialUser: InitialUser | undefined;
     readonly webRootPath = isSea() ? '' : path.resolve(import.meta.dirname, '../../web');
+
+    constructor(@Inject(LaunchArguments) launch: LaunchArguments) {
+        this.settings = readSettings(launch);
+        this.host = this.settings.host;
+        this.port = this.settings.port;
+        this.database = this.settings.database;
+        this.pinHmacSecret = this.settings.pinHmacSecret;
+        this.initialUser = this.settings.initialUser;
+    }
 }
