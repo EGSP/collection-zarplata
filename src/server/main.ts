@@ -4,9 +4,13 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { ApplicationModule } from './application.module.js';
 import { SettingsService } from './settings/settings.service.js';
 
-const application = await NestFactory.create<NestFastifyApplication>(ApplicationModule, new FastifyAdapter());
-application.setGlobalPrefix('api');
-application.enableShutdownHooks();
+async function start(): Promise<void> {
+    const application = await NestFactory.create<NestFastifyApplication>(ApplicationModule, new FastifyAdapter());
+    application.setGlobalPrefix('api');
+    application.enableShutdownHooks();
 
-const settings = application.get(SettingsService);
-await application.listen(settings.port, settings.host);
+    const settings = application.get(SettingsService);
+    await application.listen(settings.port, settings.host);
+}
+
+void start();
