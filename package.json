@@ -11,6 +11,7 @@
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.json",
     "build:web": "vite build",
+    "build:executable": "npm run build && node scripts/build-executable.mjs",
     "start": "node --enable-source-maps dist/server/main.js"
   },
   "type": "module",
@@ -46,6 +47,8 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "concurrently": "10.0.5",
+    "esbuild": "0.28.2",
+    "postject": "1.0.0-alpha.6",
     "typescript": "7.0.2",
     "vite": "8.3.1"
   }

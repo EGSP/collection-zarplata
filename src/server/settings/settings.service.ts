@@ -1,15 +1,61 @@
 import { Injectable } from '@nestjs/common';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { isSea } from 'node:sea';
 
-/**
- * Настройки запуска. Пока читаются из переменных окружения со значениями по умолчанию;
- * позже источником станет файл настроек рядом с исполняемым файлом.
- */
+const settingsFileName = 'collection-zarplata.settings.json';
+
+interface SettingsFile {
+    host: string;
+    port: number;
+    databasePath: string;
+    pinHmacSecret: string;
+}
+
+function readSettings(): SettingsFile {
+    const directory = isSea() ? path.dirname(process.execPath) : process.cwd();
+    const filePath = path.join(directory, settingsFileName);
+    let value: unknown;
+
+    try {
+        value = JSON.parse(readFileSync(filePath, 'utf8'));
+    } catch (error) {
+        throw new Error(`Не удалось прочитать файл настроек ${filePath}: ${String(error)}`);
+    }
+
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new Error(`Файл настроек ${filePath} должен содержать объект JSON`);
+    }
+
+    const settings = value as Record<string, unknown>;
+    if (typeof settings['host'] !== 'string' || settings['host'].trim() === '') {
+        throw new Error(`В файле настроек ${filePath} нужен непустой адрес host`);
+    }
+    if (!Number.isInteger(settings['port']) || (settings['port'] as number) < 1 || (settings['port'] as number) > 65535) {
+        throw new Error(`В файле настроек ${filePath} порт port должен быть целым числом от 1 до 65535`);
+    }
+    if (typeof settings['databasePath'] !== 'string' || settings['databasePath'].trim() === '') {
+        throw new Error(`В файле настроек ${filePath} нужен непустой путь databasePath`);
+    }
+    if (typeof settings['pinHmacSecret'] !== 'string' || settings['pinHmacSecret'].length < 32) {
+        throw new Error(`В файле настроек ${filePath} секрет pinHmacSecret должен содержать не меньше 32 символов`);
+    }
+
+    return {
+        host: settings['host'],
+        port: settings['port'] as number,
+        databasePath: path.resolve(directory, settings['databasePath']),
+        pinHmacSecret: settings['pinHmacSecret'],
+    };
+}
+
+/** Настройки берутся из JSON рядом с исполняемым файлом либо из корня проекта при разработке. */
 @Injectable()
 export class SettingsService {
-    readonly host = process.env['HOST'] ?? '127.0.0.1';
-    readonly port = Number(process.env['PORT'] ?? 3000);
-    readonly databasePath = path.resolve(process.env['DATABASE_PATH'] ?? 'data/collection-zarplata.db');
-    /** Собранный клиент: dist/web рядом с dist/server. */
-    readonly webRootPath = path.resolve(import.meta.dirname, '../../web');
+    private readonly settings = readSettings();
+    readonly host = this.settings.host;
+    readonly port = this.settings.port;
+    readonly databasePath = this.settings.databasePath;
+    readonly pinHmacSecret = this.settings.pinHmacSecret;
+    readonly webRootPath = isSea() ? '' : path.resolve(import.meta.dirname, '../../web');
 }
