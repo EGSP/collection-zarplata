@@ -6,9 +6,17 @@
 /** lowerCamelCase латиницей: буква в начале, дальше буквы и цифры, без `_`. */
 const namePattern = /^[a-z][A-Za-z0-9]*$/;
 
+/**
+ * SQLite не ограничивает длину имён, но имена таблиц составляются из нескольких частей
+ * (вид объекта, объект, табличная часть). Ограничение держит их читаемыми.
+ */
 const maximumNameLength = 60;
 
-/** Ключевые слова SQLite: https://www.sqlite.org/lang_keywords.html */
+/**
+ * Ключевые слова SQLite: https://www.sqlite.org/lang_keywords.html. Экранированное имя допустимо
+ * и совпадая с ключевым словом, но такие имена запрещены, чтобы запрос, собранный без кавычек
+ * по ошибке, не менял смысл.
+ */
 const sqlKeywords: ReadonlySet<string> = new Set(
     `abort action add after all alter always analyze and as asc attach autoincrement before begin between by cascade
     case cast check collate column commit conflict constraint create cross current current_date current_time

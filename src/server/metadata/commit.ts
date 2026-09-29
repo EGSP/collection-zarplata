@@ -1,3 +1,11 @@
+/**
+ * Проверка описаний объектов и сборка неизменяемых описаний.
+ *
+ * Проверка не останавливается на первой проблеме, а собирает все: описание объекта правят
+ * вручную, и исправлять ошибки по одной за запуск приложения неудобно. Поэтому проверки
+ * записывают проблемы в общий список, а описание собирается даже из ошибочного состояния —
+ * `commitConfiguration` нужно пройти все объекты, прежде чем сообщить об ошибке.
+ */
 import { Effect } from 'effect';
 import type { FieldEntry, ObjectBuilder, ObjectState } from './builders.js';
 import type {
@@ -15,13 +23,14 @@ import { standardFields } from './standard-fields.js';
 /** Стандартные действия платформы: собственное действие не может называться так же. */
 const standardActions: ReadonlySet<string> = new Set(['list', 'get', 'save', 'markDeleted', 'unmarkDeleted', 'post', 'unpost']);
 
+/** Названия видов объектов для сообщений об ошибках. */
 const kindTitles: { readonly [Kind in ObjectKind]: string } = {
     catalog: 'справочник',
     document: 'документ',
     register: 'регистр',
 };
 
-/** Список проблем одного объекта. */
+/** Список проблем одного объекта; подставляет объект в каждую проблему, чтобы проверки указывали только место. */
 class Problems {
     readonly items: Array<MetadataProblem> = [];
 
@@ -32,10 +41,15 @@ class Problems {
     }
 }
 
+/** Обозначение объекта в сообщениях, например `catalog employees`; оно же ключ для поиска повторов. */
 function objectLabel(object: { readonly kind: ObjectKind; readonly name: string }): string {
     return `${object.kind} ${object.name}`;
 }
 
+/**
+ * Проверяет, что длины и границы поля согласованы между собой. Несогласованные границы
+ * не дадут ошибку в описании, но сделают поле незаполняемым: ни одно значение не пройдёт проверку.
+ */
 function checkBounds(field: FieldDescription, location: string, problems: Problems): void {
     const { minimumLength, maximumLength, minimum, maximum } = field;
     for (const [bound, value] of [['минимальная длина', minimumLength], ['максимальная длина', maximumLength]] as const) {
@@ -59,6 +73,11 @@ function checkBounds(field: FieldDescription, location: string, problems: Proble
     }
 }
 
+/**
+ * Находит объект, на который ссылается поле, и проверяет, что он есть в конфигурации.
+ * Объекты сравниваются по виду и имени, а не по ссылке на билдер: `withStandardFields()`
+ * создаёт новый билдер, и в конфигурации лежит уже не тот экземпляр, который импортирован для ссылки.
+ */
 function resolveTarget(entry: FieldEntry, location: string, problems: Problems, configuration: ReadonlyArray<ObjectBuilder>): ObjectTarget | null {
     const target = entry.builder['~state'].target;
     if (target === null) {
@@ -67,6 +86,8 @@ function resolveTarget(entry: FieldEntry, location: string, problems: Problems, 
     }
     let resolved: ObjectTarget | undefined;
     try {
+        // Функция цели обращается к экспорту другого файла; при циклическом импорте он может быть
+        // ещё не инициализирован, и обращение к нему бросает ReferenceError.
         resolved = typeof target === 'function' ? target() : target;
     } catch (cause) {
         problems.add(location, `не удалось получить объект ссылки: ${String(cause)}`);
@@ -78,6 +99,7 @@ function resolveTarget(entry: FieldEntry, location: string, problems: Problems, 
         return null;
     }
     const { kind, name } = resolved;
+    // Тип цели уже запрещает регистр, но цель может прийти из объекта без проверки типов.
     if (kind !== 'catalog' && kind !== 'document') {
         problems.add(location, `ссылаться можно только на справочник или документ, указан ${kindTitles[kind as ObjectKind] ?? kind} «${name}»`);
         return null;
@@ -129,6 +151,11 @@ function describeFields(
     });
 }
 
+/**
+ * Замораживает описание целиком, включая вложенные массивы и объекты. `Object.freeze` действует
+ * только на один уровень, а описание читают многие модули платформы. Функции (обработчики
+ * и политики) не замораживаются: `typeof` у них `function`, а не `object`.
+ */
 function freeze<T>(value: T): T {
     if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
         for (const item of Object.values(value)) freeze(item);
@@ -137,7 +164,10 @@ function freeze<T>(value: T): T {
     return value;
 }
 
-/** Проверяет состояние билдера. Возвращает описание, если проблем нет. */
+/**
+ * Проверяет состояние билдера и собирает описание. Описание возвращается всегда, но пригодно
+ * к использованию, только если список проблем пуст.
+ */
 function validateObject(
     state: ObjectState,
     configuration: ReadonlyArray<ObjectBuilder>,
@@ -214,7 +244,10 @@ function validateObject(
     return { problems: problems.items, description };
 }
 
-/** Реализация `commit()` билдера. */
+/**
+ * Реализация `commit()` билдера. Проверка откладывается до запуска Effect: функции целей ссылок
+ * должны вызываться, когда все файлы конфигурации уже загружены.
+ */
 export function commitObject(state: ObjectState, configuration: ReadonlyArray<ObjectBuilder>): Effect.Effect<ObjectDescription, MetadataError> {
     return Effect.suspend(() => {
         const { problems, description } = validateObject(state, configuration);
