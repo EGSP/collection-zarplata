@@ -1,3 +1,5 @@
+import { journalColumns } from './20260929_journal_columns.js';
+
 /**
  * Явная миграция для изменений, которые нельзя вывести из нового описания объекта.
  * `changes` перечисляет разрешённые изменения снимка; `statements` выполняются по порядку
@@ -16,4 +18,4 @@ export interface SchemaMigration {
  * Реестр миграций. Добавляйте сюда импорт нового файла и его значение в порядке `id`.
  * Статический импорт включает миграции и в исполняемый файл без доступа к исходникам.
  */
-export const migrations: readonly SchemaMigration[] = [];
+export const migrations: readonly SchemaMigration[] = [journalColumns];
