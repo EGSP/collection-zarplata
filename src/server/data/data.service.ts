@@ -14,6 +14,13 @@ import { DataNotFoundError, DataValidationError } from './data.errors.js';
 type RecordValue = Record<string, unknown>;
 /** Внешний запрос после проверки обязательных полей оболочки; payload проверяется для выбранного действия. */
 type Operation = { readonly target: { readonly kind: string; readonly name: string }; readonly action: string; readonly payload: unknown };
+/** Буквальная подстрока после приведения регистра; не передаётся в SQL как шаблон LIKE. */
+type ContainsCondition = { readonly field: string; readonly value: string };
+
+/** Приводит строку и запрос к одному регистру, сохраняя буквальный смысл символов `%` и `_`. */
+function searchText(value: string): string {
+    return value.normalize('NFC').toLowerCase();
+}
 
 /**
  * Создаёт UUIDv7: первые шесть байт содержат время, остальные заполняются случайными байтами.
@@ -222,6 +229,7 @@ export class DataService {
     /**
      * Выбирает страницу и общее число строк по одному отбору. Поля сверяются с метаданными,
      * поэтому их имена могут безопасно участвовать в построении SQL; значения остаются параметрами.
+     * Для буквальной подстроки проверяет кандидатов порциями до подсчёта и разбиения на страницы.
      */
     private list(description: ObjectDescription, payload: unknown): Effect.Effect<unknown, unknown> {
         return Effect.gen(function* (this: DataService) {
@@ -236,13 +244,21 @@ export class DataService {
             const sorting = options['sort'] ?? [];
             if (!Array.isArray(filters) || !Array.isArray(sorting)) return yield* new DataValidationError({ message: 'Отбор и сортировка должны быть списками', fields: ['payload.filter', 'payload.sort'] });
             const where: SqlCondition[] = [];
+            const contains: ContainsCondition[] = [];
             for (const raw of filters) {
                 const filter = objectValue(raw, 'payload.filter');
                 const name = stringValue(filter['field'], 'payload.filter.field');
                 const field = description.fields.find((candidate) => candidate.name === name);
                 if (field === undefined) return yield* new DataValidationError({ message: `Неизвестное поле отбора «${name}»`, fields: [`payload.filter.${name}`] });
                 const operator = filter['operator'];
-                if (!['=', '!=', '<', '<=', '>', '>=', 'LIKE'].includes(operator as string) || (operator === 'LIKE' && field.kind !== 'string')) {
+                if (operator === 'contains') {
+                    if (field.kind !== 'string' || typeof filter['value'] !== 'string') {
+                        return yield* new DataValidationError({ message: `Для поиска по «${name}» нужна строка`, fields: [`payload.filter.${name}`] });
+                    }
+                    contains.push({ field: name, value: searchText(filter['value']) });
+                    continue;
+                }
+                if (!['=', '!=', '<', '<=', '>', '>='].includes(operator as string)) {
                     return yield* new DataValidationError({ message: `Недопустимый оператор отбора для «${name}»`, fields: [`payload.filter.${name}`] });
                 }
                 const value = filter['value'];
@@ -265,6 +281,25 @@ export class DataService {
             if (!orderBy.some((order) => order.column === 'guid')) orderBy.push({ column: 'guid', direction: 'ASC' });
             const table = this.table(description);
             const database = this.database.effect;
+            if (contains.length > 0) {
+                const items: RecordValue[] = [];
+                let total = 0;
+                let scanned = 0;
+                const chunkSize = 500;
+                while (true) {
+                    // Turso LIKE обрабатывает % и _ как шаблон и не складывает регистр кириллицы.
+                    // Читаем кандидатов порциями, применяя буквальный поиск до выбора страницы.
+                    const candidates = yield* database.all<RecordValue>(select(table, { where, orderBy, limit: chunkSize, offset: scanned }));
+                    for (const row of candidates) {
+                        if (!contains.every(({ field, value }) => typeof row[field] === 'string' && searchText(row[field]).includes(value))) continue;
+                        total++;
+                        if (total > offset && items.length < pageSize) items.push(recordFromRow(row, description));
+                    }
+                    scanned += candidates.length;
+                    if (candidates.length < chunkSize) break;
+                }
+                return { items, total, page, pageSize };
+            }
             // Подзапрос повторяет тот же отбор, чтобы total не зависел от размера текущей страницы.
             const filtered = select(table, { where });
             const count = yield* database.get<{ total: number }>({
