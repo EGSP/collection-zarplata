@@ -138,12 +138,12 @@ export class ActionInputBuilder<Fields extends FieldMap = {}> {
 }
 
 /**
- * Обработчик собственного действия. Заготовка: окружение Effect и контекст действия
- * уточнит диспетчер (#6), пока требования к окружению не ограничены.
+ * Обработчик собственного действия получает проверенные входные данные. Через окружение
+ * Effect ему доступны контекст действия, диспетчер вложенных вызовов и база данных.
  */
 export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, unknown>;
 
-/** Билдер собственного действия. Заготовка: выполнение действий реализует диспетчер (#6). */
+/** Билдер собственного действия; обработчик вызывается диспетчером после проверки данных. */
 export class ActionBuilder<Input extends FieldMap = {}> {
     /** Только для вывода типов: во время выполнения свойства нет. */
     declare readonly '~input': Input;
@@ -263,7 +263,7 @@ export interface RecordObjectBuilder<
         define: (part: TablePartBuilder) => TablePartBuilder<PartFields>,
     ): RecordObjectBuilder<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }>;
 
-    /** Собственное действие. Заготовка: выполнение реализует диспетчер (#6). */
+    /** Собственное действие, доступное через единый эндпоинт. */
     action<Input extends FieldMap>(
         name: string,
         define: (action: ActionBuilder) => ActionBuilder<Input>,

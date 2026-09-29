@@ -1,0 +1,285 @@
+import { Injectable } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
+import { Effect, Schema } from 'effect';
+import { DatabaseService } from '../database/database.service.js';
+import { Database } from '../database/database.effect.js';
+import { insert, remove, select, update, type SqlCondition, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
+import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
+import { MetadataService } from '../metadata/metadata.service.js';
+import { actionInputSchema, fieldSchema, inputSchema } from '../metadata/schema.js';
+import { ActionContext, ActionDispatcher } from './action-context.js';
+import { DataNotFoundError, DataValidationError } from './data.errors.js';
+
+type RecordValue = Record<string, unknown>;
+type Operation = { readonly target: { readonly kind: string; readonly name: string }; readonly action: string; readonly payload: unknown };
+
+/** Создаёт упорядоченный по времени UUIDv7 для записей, трасс и действий. */
+function newGuid(): string {
+    const bytes = randomBytes(16);
+    const time = Date.now();
+    for (let index = 5; index >= 0; index--) bytes[index] = Math.floor(time / 2 ** ((5 - index) * 8)) & 255;
+    bytes[6] = (bytes[6]! & 15) | 0x70;
+    bytes[8] = (bytes[8]! & 63) | 0x80;
+    const hex = bytes.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function objectValue(value: unknown, location: string): RecordValue {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new DataValidationError({ message: `Ожидается объект: ${location}`, fields: [location] });
+    }
+    return value as RecordValue;
+}
+
+function stringValue(value: unknown, location: string): string {
+    if (typeof value !== 'string' || value.length === 0) {
+        throw new DataValidationError({ message: `Нужно указать ${location}`, fields: [location] });
+    }
+    return value;
+}
+
+function nonnegative(value: unknown, location: string, fallback: number): number {
+    if (value === undefined) return fallback;
+    if (!Number.isSafeInteger(value) || (value as number) < 0) {
+        throw new DataValidationError({ message: `${location}: ожидается неотрицательное целое число`, fields: [location] });
+    }
+    return value as number;
+}
+
+function parseOperation(value: unknown): Operation {
+    const operation = objectValue(value, 'операция');
+    const target = objectValue(operation['target'], 'target');
+    return {
+        target: { kind: stringValue(target['kind'], 'target.kind'), name: stringValue(target['name'], 'target.name') },
+        action: stringValue(operation['action'], 'action'),
+        payload: operation['payload'] ?? {},
+    };
+}
+
+function validated<S extends Schema.Top>(schema: S, value: unknown, location: string): Effect.Effect<S['Type'], DataValidationError> {
+    // Эти схемы состоят из синхронных полей метаданных и не требуют сервисов декодирования.
+    return (Schema.decodeUnknownEffect(schema, { errors: 'all' })(value) as Effect.Effect<S['Type'], Schema.SchemaError>).pipe(
+        Effect.mapError((error) => {
+            const message = error.message.replaceAll('\n  at ', ' — поле ');
+            const fields = [...message.matchAll(/поле ([^\n]+)/g)].map((match) =>
+                `${location}.${match[1]}`.replaceAll(/\["([^"]+)"\]/g, '$1').replaceAll(/\[(\d+)\]/g, '.$1'),
+            );
+            return new DataValidationError({ message: `${location}: ${message}`, fields: fields.length ? fields : [location] });
+        }),
+    );
+}
+
+function sqlValue(value: unknown): SqlValue {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'boolean') return value ? 1 : 0;
+    if (typeof value === 'string' || typeof value === 'number') return value;
+    throw new DataValidationError({ message: 'Неверное значение поля', fields: [] });
+}
+
+function recordFromRow(row: RecordValue, description: ObjectDescription): RecordValue {
+    const record = { ...row };
+    for (const field of description.fields) {
+        if (field.kind === 'boolean' && record[field.name] !== null) record[field.name] = record[field.name] === 1;
+    }
+    return record;
+}
+
+/**
+ * Диспетчер выполняет операции в одной транзакции и предоставляет собственным обработчикам
+ * контекст и повторный вход через Effect. Отсутствующие пока права, политики и журнал
+ * подключатся к этому пути выполнения в отдельных задачах.
+ */
+@Injectable()
+export class DataService {
+    constructor(private readonly metadata: MetadataService, private readonly database: DatabaseService) {}
+
+    /** Принимает одну операцию или непустой пакет и сохраняет форму ответа. */
+    perform(body: unknown): Promise<unknown> {
+        if (Array.isArray(body) && body.length === 0) {
+            return Promise.reject(new DataValidationError({ message: 'Пакет операций пуст', fields: ['операции'] }));
+        }
+        const operations = Array.isArray(body) ? body : [body];
+        const dispatcher: ActionDispatcher = { execute: (operation) => this.execute(operation) };
+        const program = Effect.forEach(operations, (operation) => this.execute(operation)).pipe(
+            (work) => this.database.effect.transaction(work),
+            Effect.provideService(ActionDispatcher, dispatcher),
+            Effect.provideService(Database, this.database.effect),
+            Effect.map((results) => Array.isArray(body) ? results : results[0]),
+        );
+        return Effect.runPromise(program);
+    }
+
+    private execute(value: unknown): Effect.Effect<unknown, unknown, ActionDispatcher> {
+        return Effect.gen(function* (this: DataService) {
+            const operation = parseOperation(value);
+            const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
+            if (description === undefined) {
+                return yield* new DataNotFoundError({ message: `Объект ${operation.target.kind}.${operation.target.name} не найден` });
+            }
+            const parent = yield* Effect.serviceOption(ActionContext);
+            const context: ActionContext = {
+                userGuid: parent._tag === 'Some' ? parent.value.userGuid : null,
+                traceGuid: parent._tag === 'Some' ? parent.value.traceGuid : newGuid(),
+                actionGuid: newGuid(),
+                parentActionGuid: parent._tag === 'Some' ? parent.value.actionGuid : null,
+            };
+            return yield* Effect.provideService(this.dispatch(description, operation.action, operation.payload), ActionContext, context);
+        }.bind(this));
+    }
+
+    private dispatch(description: ObjectDescription, action: string, payload: unknown): Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher> {
+        if (description.kind === 'catalog') {
+            switch (action) {
+                case 'list': return this.list(description, payload);
+                case 'get': return this.get(description, payload);
+                case 'save': return this.save(description, payload);
+                case 'markDeleted': return this.markDeleted(description, payload, true);
+                case 'unmarkDeleted': return this.markDeleted(description, payload, false);
+            }
+        }
+        const custom = description.actions.find((candidate) => candidate.name === action);
+        if (custom !== undefined && custom.handler !== null) {
+            return Effect.gen(function* () {
+                const schema = actionInputSchema(description, action)!;
+                const input = yield* validated(schema, payload, 'payload');
+                const result = custom.handler!(input as never);
+                if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик действия должен вернуть Effect'));
+                return yield* result as Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher>;
+            }.bind(this));
+        }
+        return Effect.fail(new DataNotFoundError({ message: `Действие «${action}» для ${description.kind}.${description.name} не найдено` }));
+    }
+
+    private table(description: ObjectDescription): string {
+        return `${description.kind}_${description.name}`;
+    }
+
+    private guidPayload(payload: unknown): string {
+        const value = objectValue(payload, 'payload');
+        const guid = stringValue(value['guid'], 'payload.guid');
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(guid)) {
+            throw new DataValidationError({ message: 'Ожидается guid', fields: ['payload.guid'] });
+        }
+        return guid;
+    }
+
+    private get(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown> {
+        return this.load(description, this.guidPayload(payload));
+    }
+
+    private load(description: ObjectDescription, guid: string): Effect.Effect<RecordValue, unknown> {
+        return Effect.gen(function* (this: DataService) {
+            const database = this.database.effect;
+            const row = yield* database.get<RecordValue>(select(this.table(description), { where: [{ column: 'guid', operator: '=', value: guid }] }));
+            if (row === undefined) return yield* new DataNotFoundError({ message: `Запись ${description.name} с guid ${guid} не найдена` });
+            const record = recordFromRow(row, description);
+            for (const part of description.tableParts) {
+                const table = `${this.table(description)}_${part.name}`;
+                const rows = yield* database.all<RecordValue>(select(table, {
+                    where: [{ column: 'ownerGuid', operator: '=', value: guid }],
+                    orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
+                }));
+                record[part.name] = rows.map(({ ownerGuid: _ownerGuid, lineNumber: _lineNumber, ...fields }) => {
+                    const result = { ...fields };
+                    for (const field of part.fields) if (field.kind === 'boolean' && result[field.name] !== null) result[field.name] = result[field.name] === 1;
+                    return result;
+                });
+            }
+            return record;
+        }.bind(this));
+    }
+
+    private list(description: ObjectDescription, payload: unknown): Effect.Effect<unknown, unknown> {
+        return Effect.gen(function* (this: DataService) {
+            const options = objectValue(payload, 'payload');
+            const page = nonnegative(options['page'], 'payload.page', 1);
+            if (page < 1) return yield* new DataValidationError({ message: 'Номер страницы должен быть больше нуля', fields: ['payload.page'] });
+            const pageSize = nonnegative(options['pageSize'], 'payload.pageSize', 50);
+            if (pageSize < 1 || pageSize > 500) return yield* new DataValidationError({ message: 'Размер страницы должен быть от 1 до 500', fields: ['payload.pageSize'] });
+            const offset = (page - 1) * pageSize;
+            if (!Number.isSafeInteger(offset)) return yield* new DataValidationError({ message: 'Номер страницы слишком велик', fields: ['payload.page'] });
+            const filters = options['filter'] ?? [];
+            const sorting = options['sort'] ?? [];
+            if (!Array.isArray(filters) || !Array.isArray(sorting)) return yield* new DataValidationError({ message: 'Отбор и сортировка должны быть списками', fields: ['payload.filter', 'payload.sort'] });
+            const where: SqlCondition[] = [];
+            for (const raw of filters) {
+                const filter = objectValue(raw, 'payload.filter');
+                const name = stringValue(filter['field'], 'payload.filter.field');
+                const field = description.fields.find((candidate) => candidate.name === name);
+                if (field === undefined) return yield* new DataValidationError({ message: `Неизвестное поле отбора «${name}»`, fields: [`payload.filter.${name}`] });
+                const operator = filter['operator'];
+                if (!['=', '!=', '<', '<=', '>', '>=', 'LIKE'].includes(operator as string) || (operator === 'LIKE' && field.kind !== 'string')) {
+                    return yield* new DataValidationError({ message: `Недопустимый оператор отбора для «${name}»`, fields: [`payload.filter.${name}`] });
+                }
+                const value = filter['value'];
+                if (value === undefined || (value === null && !['=', '!='].includes(operator as string))) {
+                    return yield* new DataValidationError({ message: `Неверное значение отбора «${name}»`, fields: [`payload.filter.${name}`] });
+                }
+                if (value !== null) yield* validated(fieldSchema(field), value, `payload.filter.${name}`);
+                where.push({ column: name, operator: operator as SqlCondition['operator'], value: sqlValue(value) });
+            }
+            const orderBy: SqlOrder[] = [];
+            for (const raw of sorting) {
+                const sort = objectValue(raw, 'payload.sort');
+                const name = stringValue(sort['field'], 'payload.sort.field');
+                if (!description.fields.some((field) => field.name === name) || !['ASC', 'DESC'].includes(sort['direction'] as string)) {
+                    return yield* new DataValidationError({ message: `Неверная сортировка по «${name}»`, fields: [`payload.sort.${name}`] });
+                }
+                orderBy.push({ column: name, direction: sort['direction'] as SqlOrder['direction'] });
+            }
+            if (!orderBy.some((order) => order.column === 'guid')) orderBy.push({ column: 'guid', direction: 'ASC' });
+            const table = this.table(description);
+            const database = this.database.effect;
+            const filtered = select(table, { where });
+            const count = yield* database.get<{ total: number }>({
+                sql: `SELECT COUNT(*) AS total FROM (${filtered.sql})`,
+                parameters: filtered.parameters,
+            });
+            const rows = yield* database.all<RecordValue>(select(table, { where, orderBy, limit: pageSize, offset }));
+            return { items: rows.map((row) => recordFromRow(row, description)), total: count?.total ?? 0, page, pageSize };
+        }.bind(this));
+    }
+
+    private save(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown> {
+        return Effect.gen(function* (this: DataService) {
+            const request = objectValue(payload, 'payload');
+            const guid = request['guid'] === undefined ? newGuid() : stringValue(request['guid'], 'payload.guid');
+            if (request['guid'] !== undefined) yield* validated(fieldSchema(description.fields.find((field) => field.name === 'guid')!), guid, 'payload.guid');
+            const input = yield* validated(inputSchema(description), request['fields'], 'payload.fields') as Effect.Effect<RecordValue, DataValidationError>;
+            const values: Record<string, SqlValue> = { guid, deletedAt: null };
+            for (const field of description.fields) {
+                if (!field.managed) values[field.name] = sqlValue(input[field.name]);
+            }
+            const database = this.database.effect;
+            if (request['guid'] === undefined) {
+                yield* database.run(insert(this.table(description), values));
+            } else {
+                yield* this.load(description, guid);
+                const { guid: _guid, deletedAt: _deletedAt, ...changed } = values;
+                yield* database.run(update(this.table(description), changed, [{ column: 'guid', operator: '=', value: guid }]));
+            }
+            for (const part of description.tableParts) {
+                const table = `${this.table(description)}_${part.name}`;
+                yield* database.run(remove(table, [{ column: 'ownerGuid', operator: '=', value: guid }]));
+                const rows = input[part.name] as RecordValue[];
+                for (const [index, row] of rows.entries()) {
+                    const fields: Record<string, SqlValue> = { ownerGuid: guid, lineNumber: index + 1 };
+                    for (const field of part.fields) fields[field.name] = sqlValue(row[field.name]);
+                    yield* database.run(insert(table, fields));
+                }
+            }
+            return yield* this.load(description, guid);
+        }.bind(this));
+    }
+
+    private markDeleted(description: ObjectDescription, payload: unknown, marked: boolean): Effect.Effect<RecordValue, unknown> {
+        return Effect.gen(function* (this: DataService) {
+            const guid = this.guidPayload(payload);
+            yield* this.load(description, guid);
+            yield* this.database.effect.run(update(this.table(description), {
+                deletedAt: marked ? new Date().toISOString() : null,
+            }, [{ column: 'guid', operator: '=', value: guid }]));
+            return yield* this.load(description, guid);
+        }.bind(this));
+    }
+}

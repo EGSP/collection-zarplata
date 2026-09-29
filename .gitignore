@@ -5,7 +5,7 @@ dist/
 *.db-shm
 .env
 collection-zarplata.settings.json
-data/
+/data/
 .worktrees/
 # Реестр конфигурации создаёт npm run metadata:generate
 src/configuration/configuration.generated.ts

@@ -78,7 +78,7 @@ export interface TablePartDescription {
     readonly fields: ReadonlyArray<FieldDescription>;
 }
 
-/** Собственное действие объекта. Заготовка: выполнение реализует диспетчер (#6). */
+/** Собственное действие объекта: диспетчер проверяет входные данные перед вызовом обработчика. */
 export interface ActionDescription {
     readonly name: string;
     readonly title: string;
