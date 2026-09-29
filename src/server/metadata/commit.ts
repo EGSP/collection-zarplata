@@ -11,6 +11,7 @@ import type { FieldEntry, ObjectBuilder, ObjectState } from './builders.js';
 import type {
     ActionDescription,
     FieldDescription,
+    FormOverride,
     ObjectDescription,
     ObjectKind,
     ObjectTarget,
@@ -18,7 +19,7 @@ import type {
 } from './descriptions.js';
 import { MetadataError, type MetadataProblem } from './metadata.errors.js';
 import { checkName } from './names.js';
-import { standardFields } from './standard-fields.js';
+import { formHiddenStandardFields, standardFields } from './standard-fields.js';
 
 /** Стандартные действия платформы: собственное действие не может называться так же. */
 const standardActions: ReadonlySet<string> = new Set(['list', 'get', 'save', 'markDeleted', 'unmarkDeleted', 'post', 'unpost']);
@@ -152,6 +153,50 @@ function describeFields(
 }
 
 /**
+ * Проверяет переопределения формы. Кроме существования имён проверяет, что раскладка однозначна:
+ * элемент входит не больше чем в одну группу и не бывает одновременно скрыт и выведен в группу.
+ * Обязательное поле, которое заполняет пользователь, скрыть нельзя: без него запись не сохранится.
+ */
+function checkForm(
+    overrides: ReadonlyArray<FormOverride>,
+    fields: ReadonlyArray<FieldDescription>,
+    fieldNames: ReadonlySet<string>,
+    partNames: ReadonlySet<string>,
+    problems: Problems,
+): void {
+    const grouped = new Map<string, string>();
+    const hidden = new Set<string>();
+    for (const override of overrides) {
+        const names = override.kind === 'group' ? override.fields : [override.field];
+        for (const name of names) {
+            if (!fieldNames.has(name) && !partNames.has(name)) {
+                problems.add('форма', `нет поля или табличной части «${name}»`);
+            }
+        }
+        if (override.kind === 'group') {
+            const location = `форма, группа «${override.title}»`;
+            if (override.fields.length === 0) problems.add(location, 'в группе нет элементов');
+            for (const name of override.fields) {
+                const previous = grouped.get(name);
+                if (previous !== undefined) problems.add(location, `«${name}» уже входит в группу «${previous}»`);
+                if (formHiddenStandardFields.has(name)) problems.add(location, `стандартное поле «${name}» не выводится на форму`);
+                grouped.set(name, override.title);
+            }
+        } else if (override.kind === 'hide') {
+            hidden.add(override.field);
+            const field = fields.find((candidate) => candidate.name === override.field);
+            if (field !== undefined && field.required && !field.managed) {
+                problems.add('форма', `нельзя скрыть обязательное поле «${field.name}»: пользователь не сможет его заполнить`);
+            }
+        }
+    }
+    for (const name of hidden) {
+        const group = grouped.get(name);
+        if (group !== undefined) problems.add('форма', `«${name}» скрыто и одновременно входит в группу «${group}»`);
+    }
+}
+
+/**
  * Замораживает описание целиком, включая вложенные массивы и объекты. `Object.freeze` действует
  * только на один уровень, а описание читают многие модули платформы. Функции (обработчики
  * и политики) не замораживаются: `typeof` у них `function`, а не `object`.
@@ -220,16 +265,7 @@ function validateObject(
         };
     });
 
-    if (state.form !== null) {
-        for (const override of state.form) {
-            const names = override.kind === 'group' ? override.fields : [override.field];
-            for (const name of names) {
-                if (!fieldNames.has(name) && !partNames.has(name)) {
-                    problems.add('форма', `нет поля или табличной части «${name}»`);
-                }
-            }
-        }
-    }
+    if (state.form !== null) checkForm(state.form, fields, fieldNames, partNames, problems);
 
     const description: ObjectDescription = {
         kind: state.kind,

@@ -176,9 +176,12 @@ export class ActionBuilder<Input extends FieldMap = {}> {
 }
 
 /**
- * Переопределение формы по умолчанию. Заготовка: переопределения применяет построение описаний
- * форм (#11). `Names` — имена полей и табличных частей объекта, поэтому TypeScript отклоняет
- * несуществующие имена.
+ * Переопределение формы по умолчанию. `Names` — имена полей и табличных частей объекта,
+ * поэтому TypeScript отклоняет несуществующие имена.
+ *
+ * По умолчанию форма — одна группа без заголовка: поля в порядке объявления, затем табличные
+ * части. Группы выводятся в порядке объявления, а элементы, не попавшие ни в одну группу,
+ * собираются после них в группу без заголовка. Порядок обхода с клавиатуры следует за раскладкой.
  */
 export class FormBuilder<Names extends string> {
     readonly '~overrides': ReadonlyArray<FormOverride>;
@@ -187,12 +190,12 @@ export class FormBuilder<Names extends string> {
         this['~overrides'] = overrides;
     }
 
-    /** Группа полей с заголовком. */
+    /** Группа полей и табличных частей с заголовком; элементы выводятся и обходятся в указанном порядке. */
     group(title: string, fields: ReadonlyArray<Names>): FormBuilder<Names> {
         return new FormBuilder([...this['~overrides'], { kind: 'group', title, fields }]);
     }
 
-    /** Скрыть поле или табличную часть. */
+    /** Скрыть поле или табличную часть. Обязательное поле, которое заполняет пользователь, скрыть нельзя. */
     hide(field: Names): FormBuilder<Names> {
         return new FormBuilder([...this['~overrides'], { kind: 'hide', field }]);
     }

@@ -42,3 +42,10 @@ export type StandardFields = typeof standardFields;
  * `code`, `name`, `date` и `period` сюда не входят — их задаёт пользователь или обработчик проведения.
  */
 export const managedStandardFields: ReadonlySet<string> = new Set(['guid', 'deletedAt', 'number', 'posted', 'recorder', 'lineNumber']);
+
+/**
+ * Стандартные поля, которых нет на форме объекта: `guid` пользователю ничего не говорит,
+ * а пометку удаления ставят и снимают отдельные действия. Переопределение формы не может
+ * вывести эти поля в группу.
+ */
+export const formHiddenStandardFields: ReadonlySet<string> = new Set(['guid', 'deletedAt']);

@@ -90,7 +90,7 @@ export interface ActionDescription {
     readonly handler: ((input: never) => unknown) | null;
 }
 
-/** Переопределение формы. Заготовка: применяет построение описаний форм (#11). */
+/** Переопределение формы. Применяет его построение описаний форм в `src/server/ui`. */
 export type FormOverride =
     | { readonly kind: 'group'; readonly title: string; readonly fields: ReadonlyArray<string> }
     | { readonly kind: 'hide'; readonly field: string }
