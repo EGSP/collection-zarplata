@@ -1,23 +1,26 @@
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { Effect, Schema } from 'effect';
+import { Effect } from 'effect';
 import { DatabaseService } from '../database/database.service.js';
 import { Database } from '../database/database.effect.js';
-import { insert, remove, select, sqlIdentifier, update, type SqlCondition, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
-import type { ObjectDescription, RegisterMovements } from '../metadata/descriptions.js';
+import { insert, remove, select, sqlIdentifier, update, type SqlCondition, type SqlFilter, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
+import type { ObjectDescription } from '../metadata/descriptions.js';
+import { Metadata } from '../metadata/metadata.effect.js';
 import { MetadataService } from '../metadata/metadata.service.js';
-import { actionInputSchema, fieldSchema, fieldsSchema, inputSchema } from '../metadata/schema.js';
+import { actionInputSchema, fieldSchema, inputSchema } from '../metadata/schema.js';
 import { filterOperators, type FilterOperator } from '../ui/descriptions.js';
 import { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
+import { afterSave, markDeleted, post, unpost } from './posting.js';
+import { loadRecord, recordFromRow, sqlValue, tableName, validated, type RecordValue } from './records.js';
 
-/** Представление строки после чтения из базы или проверки входных данных. */
-type RecordValue = Record<string, unknown>;
+/** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
+type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher;
 /** Внешний запрос после проверки обязательных полей оболочки; payload проверяется для выбранного действия. */
 type Operation = { readonly target: { readonly kind: string; readonly name: string }; readonly action: string; readonly payload: unknown };
 /**
- * Условие отбора, которое проверяется после чтения строки, а не в SQL: буквальная подстрока
- * и неравенство регистратора, для которого конструктор запросов не умеет строить `OR`.
+ * Условие отбора, которое проверяется после чтения строки, а не в SQL: буквальная подстрока,
+ * которую `LIKE` в Turso понимает как шаблон и сравнивает с учётом регистра кириллицы.
  */
 type RowPredicate = (row: RecordValue) => boolean;
 
@@ -93,45 +96,6 @@ function parseOperation(value: unknown): Operation {
 }
 
 /**
- * Собирает все ошибки Effect Schema за один проход и возвращает их вместе с путями полей.
- * Схема передаётся из метаданных выбранного действия; её ошибка становится ответом 400.
- */
-function validated<S extends Schema.Top>(schema: S, value: unknown, location: string): Effect.Effect<S['Type'], DataValidationError> {
-    // Эти схемы состоят из синхронных полей метаданных и не требуют сервисов декодирования.
-    return (Schema.decodeUnknownEffect(schema, { errors: 'all' })(value) as Effect.Effect<S['Type'], Schema.SchemaError>).pipe(
-        Effect.mapError((error) => {
-            const message = error.message.replaceAll('\n  at ', ' — поле ');
-            // Форматтер Effect пишет путь в квадратных скобках; клиенту нужен путь от payload.
-            const fields = [...message.matchAll(/поле ([^\n]+)/g)].map((match) =>
-                `${location}.${match[1]}`.replaceAll(/\["([^"]+)"\]/g, '$1').replaceAll(/\[(\d+)\]/g, '.$1'),
-            );
-            return new DataValidationError({ message: `${location}: ${message}`, fields: fields.length ? fields : [location] });
-        }),
-    );
-}
-
-/** Переводит логические значения в 0/1 для колонки INTEGER в таблице STRICT. */
-function sqlValue(value: unknown): SqlValue {
-    if (value === undefined || value === null) return null;
-    if (typeof value === 'boolean') return value ? 1 : 0;
-    if (typeof value === 'string' || typeof value === 'number') return value;
-    throw new DataValidationError({ message: 'Неверное значение поля', fields: [] });
-}
-
-/**
- * Восстанавливает логические поля после чтения из SQLite и собирает регистратор движения из двух
- * колонок, в которых он хранится. Прочие значения возвращаются без преобразования.
- */
-function recordFromRow(row: RecordValue, description: ObjectDescription): RecordValue {
-    const { recorderDocument, recorderGuid, ...record } = row;
-    for (const field of description.fields) {
-        if (field.kind === 'boolean' && record[field.name] !== null) record[field.name] = record[field.name] === 1;
-        if (field.kind === 'recorder') record[field.name] = { document: recorderDocument, guid: recorderGuid };
-    }
-    return record;
-}
-
-/**
  * Диспетчер выполняет операции в одной транзакции и предоставляет собственным обработчикам
  * контекст и повторный вход через Effect. Отсутствующие пока права, политики и журнал
  * подключатся к этому пути выполнения в отдельных задачах.
@@ -151,18 +115,26 @@ export class DataService {
         }
         const operations = Array.isArray(body) ? body : [body];
         // Тот же диспетчер доступен обработчикам: вложенный вызов не обходит проверку и транзакцию.
-        const dispatcher: ActionDispatcher = { execute: (operation) => this.execute(operation) };
+        // Контракт диспетчера не требует от обработчика базы и метаданных, поэтому они передаются здесь.
+        const dispatcher: ActionDispatcher = { execute: (operation) => this.provideServices(this.execute(operation)) };
         const program = Effect.forEach(operations, (operation) => this.execute(operation, userGuid)).pipe(
             (work) => this.database.effect.transaction(work),
             Effect.provideService(ActionDispatcher, dispatcher),
-            Effect.provideService(Database, this.database.effect),
+            (work) => this.provideServices(work),
             Effect.map((results) => Array.isArray(body) ? results : results[0]),
         );
         return Effect.runPromise(program);
     }
 
+    /** Передаёт в окружение Effect сервисы Nest, которые нужны действиям: базу и метаданные. */
+    private provideServices<Value, Error, Requirements>(
+        work: Effect.Effect<Value, Error, Requirements>,
+    ): Effect.Effect<Value, Error, Exclude<Exclude<Requirements, Database>, Metadata>> {
+        return work.pipe(Effect.provideService(Database, this.database.effect), Effect.provideService(Metadata, this.metadata));
+    }
+
     /** Находит цель и даёт каждому действию свой контекст, наследуя трассу и пользователя у вложенного. */
-    private execute(value: unknown, userGuid: string | null = null): Effect.Effect<unknown, unknown, ActionDispatcher> {
+    private execute(value: unknown, userGuid: string | null = null): Effect.Effect<unknown, unknown, Exclude<ActionRequirements, ActionContext>> {
         return Effect.gen(function* (this: DataService) {
             const operation = parseOperation(value);
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
@@ -182,20 +154,20 @@ export class DataService {
     }
 
     /** Выбирает стандартное или собственное действие; неизвестное действие возвращает 404. */
-    private dispatch(description: ObjectDescription, action: string, payload: unknown): Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher> {
+    private dispatch(description: ObjectDescription, action: string, payload: unknown): Effect.Effect<unknown, unknown, ActionRequirements> {
         if (description.kind !== 'register') {
             switch (action) {
                 case 'list': return this.list(description, payload);
                 case 'get': return this.get(description, payload);
                 case 'save': return this.save(description, payload);
-                case 'markDeleted': return this.markDeleted(description, payload, true);
-                case 'unmarkDeleted': return this.markDeleted(description, payload, false);
+                case 'markDeleted': return Effect.suspend(() => markDeleted(description, this.guidPayload(payload), true));
+                case 'unmarkDeleted': return Effect.suspend(() => markDeleted(description, this.guidPayload(payload), false));
             }
         }
         if (description.kind === 'document') {
             switch (action) {
-                case 'post': return this.post(description, payload);
-                case 'unpost': return this.unpost(description, payload);
+                case 'post': return Effect.suspend(() => post(description, this.guidPayload(payload)));
+                case 'unpost': return Effect.suspend(() => unpost(description, this.guidPayload(payload)));
             }
         }
         if (description.kind === 'register') {
@@ -215,15 +187,10 @@ export class DataService {
                 // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
                 const result = custom.handler!(input as never);
                 if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик действия должен вернуть Effect'));
-                return yield* result as Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher>;
+                return yield* result as Effect.Effect<unknown, unknown, ActionRequirements>;
             }.bind(this));
         }
         return Effect.fail(new DataNotFoundError({ message: `Действие «${action}» для ${description.kind}.${description.name} не найдено` }));
-    }
-
-    /** Имя таблицы выводится только из проверенных метаданных, а не из произвольной строки запроса. */
-    private table(description: ObjectDescription): string {
-        return `${description.kind}_${description.name}`;
     }
 
     /** Проверяет идентификатор в действиях чтения и пометки до запроса к базе. */
@@ -237,32 +204,8 @@ export class DataService {
     }
 
     /** Читает одну запись вместе со всеми табличными частями; отсутствующая запись даёт 404. */
-    private get(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown> {
-        return this.load(description, this.guidPayload(payload));
-    }
-
-    /** Собирает запись из основной таблицы и таблиц частей, сохраняя порядок строк по lineNumber. */
-    private load(description: ObjectDescription, guid: string): Effect.Effect<RecordValue, unknown> {
-        return Effect.gen(function* (this: DataService) {
-            const database = this.database.effect;
-            const row = yield* database.get<RecordValue>(select(this.table(description), { where: [{ column: 'guid', operator: '=', value: guid }] }));
-            if (row === undefined) return yield* new DataNotFoundError({ message: `Запись ${description.name} с guid ${guid} не найдена` });
-            const record = recordFromRow(row, description);
-            for (const part of description.tableParts) {
-                const table = `${this.table(description)}_${part.name}`;
-                const rows = yield* database.all<RecordValue>(select(table, {
-                    where: [{ column: 'ownerGuid', operator: '=', value: guid }],
-                    orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
-                }));
-                // Служебные ключи связывают строку с владельцем, но не входят в значение табличной части.
-                record[part.name] = rows.map(({ ownerGuid: _ownerGuid, lineNumber: _lineNumber, ...fields }) => {
-                    const result = { ...fields };
-                    for (const field of part.fields) if (field.kind === 'boolean' && result[field.name] !== null) result[field.name] = result[field.name] === 1;
-                    return result;
-                });
-            }
-            return record;
-        }.bind(this));
+    private get(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, Database> {
+        return Effect.suspend(() => loadRecord(description, this.guidPayload(payload)));
     }
 
     /**
@@ -283,7 +226,7 @@ export class DataService {
             const filters = options['filter'] ?? [];
             const sorting = options['sort'] ?? [];
             if (!Array.isArray(filters) || !Array.isArray(sorting)) return yield* new DataValidationError({ message: 'Отбор и сортировка должны быть списками', fields: ['payload.filter', 'payload.sort'] });
-            const where: SqlCondition[] = [];
+            const where: SqlFilter[] = [];
             const predicates: RowPredicate[] = [];
             for (const raw of filters) {
                 const filter = objectValue(raw, 'payload.filter');
@@ -319,7 +262,13 @@ export class DataService {
                         where.push({ column: 'recorderDocument', operator: '=', value: recorder.document });
                         where.push({ column: 'recorderGuid', operator: '=', value: recorder.guid });
                     } else {
-                        predicates.push((row) => row['recorderDocument'] !== recorder.document || row['recorderGuid'] !== recorder.guid);
+                        // Turso 0.8 умеет сравнивать пары `(a, b) != (?, ?)`, но группа OR выражает то же
+                        // средствами конструктора запросов. Колонки регистратора NOT NULL, поэтому
+                        // неравенство не встретит NULL и оба способа дают одинаковый результат.
+                        where.push({ any: [
+                            { column: 'recorderDocument', operator: '!=', value: recorder.document },
+                            { column: 'recorderGuid', operator: '!=', value: recorder.guid },
+                        ] });
                     }
                     continue;
                 }
@@ -343,7 +292,7 @@ export class DataService {
             for (const column of key) {
                 if (!orderBy.some((order) => order.column === column)) orderBy.push({ column, direction: 'ASC' });
             }
-            const table = this.table(description);
+            const table = tableName(description);
             const database = this.database.effect;
             if (predicates.length > 0) {
                 const items: RecordValue[] = [];
@@ -378,10 +327,10 @@ export class DataService {
     /**
      * Создаёт запись без guid или заменяет значения существующей записи с guid. Клиент передаёт
      * полное состояние заполняемых полей и табличных частей; ошибочные значения откатывают запись.
-     * Новый документ получает следующий номер и не проведён. Запись проведённого документа
-     * заново записывает его движения, чтобы они соответствовали новым данным.
+     * Новый документ получает следующий номер и не проведён. Проведённый документ после записи
+     * проводится заново, чтобы движения соответствовали новым данным. Запись с неизвестным guid даёт 404.
      */
-    private save(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionContext | ActionDispatcher> {
+    private save(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionRequirements> {
         return Effect.gen(function* (this: DataService) {
             const request = objectValue(payload, 'payload');
             const guid = request['guid'] === undefined ? newGuid() : stringValue(request['guid'], 'payload.guid');
@@ -392,21 +341,20 @@ export class DataService {
                 if (!field.managed) values[field.name] = sqlValue(input[field.name]);
             }
             const database = this.database.effect;
-            let posted = false;
             if (request['guid'] === undefined) {
                 if (description.kind === 'document') {
                     values['number'] = yield* this.nextNumber(description);
                     values['posted'] = 0;
                 }
-                yield* database.run(insert(this.table(description), values));
+                yield* database.run(insert(tableName(description), values));
             } else {
-                posted = (yield* this.load(description, guid))['posted'] === true;
                 // Обновление не снимает ранее установленную пометку удаления.
                 const { guid: _guid, deletedAt: _deletedAt, ...changed } = values;
-                yield* database.run(update(this.table(description), changed, [{ column: 'guid', operator: '=', value: guid }]));
+                const result = yield* database.run(update(tableName(description), changed, [{ column: 'guid', operator: '=', value: guid }]));
+                if (result.changes === 0) return yield* new DataNotFoundError({ message: `Запись ${description.name} с guid ${guid} не найдена` });
             }
             for (const part of description.tableParts) {
-                const table = `${this.table(description)}_${part.name}`;
+                const table = `${tableName(description)}_${part.name}`;
                 // Табличная часть передана целиком; удаление старых строк и вставка новых атомарны.
                 yield* database.run(remove(table, [{ column: 'ownerGuid', operator: '=', value: guid }]));
                 const rows = input[part.name] as RecordValue[];
@@ -416,27 +364,7 @@ export class DataService {
                     yield* database.run(insert(table, fields));
                 }
             }
-            if (posted) yield* this.writeMovements(description, yield* this.load(description, guid));
-            return yield* this.load(description, guid);
-        }.bind(this));
-    }
-
-    /**
-     * Меняет пометку удаления и возвращает запись с её актуальными значениями. Пометка отменяет
-     * проведение документа: помеченный документ не должен влиять на обороты регистров.
-     * Снятие пометки документ не проводит, это делает отдельное действие `post`.
-     */
-    private markDeleted(description: ObjectDescription, payload: unknown, marked: boolean): Effect.Effect<RecordValue, unknown> {
-        return Effect.gen(function* (this: DataService) {
-            const guid = this.guidPayload(payload);
-            const record = yield* this.load(description, guid);
-            const values: Record<string, SqlValue> = { deletedAt: marked ? new Date().toISOString() : null };
-            if (marked && record['posted'] === true) {
-                yield* this.removeMovements(description, guid);
-                values['posted'] = 0;
-            }
-            yield* this.database.effect.run(update(this.table(description), values, [{ column: 'guid', operator: '=', value: guid }]));
-            return yield* this.load(description, guid);
+            return yield* afterSave(description, guid);
         }.bind(this));
     }
 
@@ -449,90 +377,10 @@ export class DataService {
         return Effect.gen(function* (this: DataService) {
             // CAST сравнивает номера как числа: после 999999 строковое сравнение нарушило бы порядок.
             const row = yield* this.database.effect.get<{ last: number | null }>({
-                sql: `SELECT MAX(CAST(${sqlIdentifier('number')} AS INTEGER)) AS last FROM ${sqlIdentifier(this.table(description))}`,
+                sql: `SELECT MAX(CAST(${sqlIdentifier('number')} AS INTEGER)) AS last FROM ${sqlIdentifier(tableName(description))}`,
                 parameters: [],
             });
             return String((row?.last ?? 0) + 1).padStart(numberWidth, '0');
-        }.bind(this));
-    }
-
-    /**
-     * Проводит документ: отмечает его проведённым и заменяет его движения строками, которые
-     * вернул обработчик проведения. Повторное проведение не дублирует движения. Документ,
-     * помеченный на удаление, провести нельзя.
-     */
-    private post(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionContext | ActionDispatcher> {
-        return Effect.gen(function* (this: DataService) {
-            const guid = this.guidPayload(payload);
-            const record = yield* this.load(description, guid);
-            if (record['deletedAt'] !== null) {
-                return yield* new DataValidationError({ message: 'Документ помечен на удаление, провести его нельзя', fields: ['payload.guid'] });
-            }
-            yield* this.database.effect.run(update(this.table(description), { posted: 1 }, [{ column: 'guid', operator: '=', value: guid }]));
-            // Обработчик получает запись уже с признаком проведения, как она будет видна после действия.
-            yield* this.writeMovements(description, yield* this.load(description, guid));
-            return yield* this.load(description, guid);
-        }.bind(this));
-    }
-
-    /** Отменяет проведение: удаляет движения документа и снимает признак проведения. */
-    private unpost(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown> {
-        return Effect.gen(function* (this: DataService) {
-            const guid = this.guidPayload(payload);
-            yield* this.load(description, guid);
-            yield* this.removeMovements(description, guid);
-            yield* this.database.effect.run(update(this.table(description), { posted: 0 }, [{ column: 'guid', operator: '=', value: guid }]));
-            return yield* this.load(description, guid);
-        }.bind(this));
-    }
-
-    /**
-     * Удаляет движения документа во всех регистрах конфигурации, а не только в тех, куда пишет
-     * текущий обработчик проведения: после изменения данных документа обработчик может перестать
-     * писать в регистр, и старые строки остались бы в нём.
-     */
-    private removeMovements(description: ObjectDescription, guid: string): Effect.Effect<void, unknown> {
-        return Effect.gen(function* (this: DataService) {
-            for (const register of this.metadata.objects.filter((object) => object.kind === 'register')) {
-                yield* this.database.effect.run(remove(this.table(register), [
-                    { column: 'recorderDocument', operator: '=', value: description.name },
-                    { column: 'recorderGuid', operator: '=', value: guid },
-                ]));
-            }
-        }.bind(this));
-    }
-
-    /**
-     * Заменяет движения документа строками обработчика проведения. Строки проверяются по описанию
-     * регистра так же, как входные данные записи; ошибка отменяет проведение вместе с транзакцией.
-     * Регистратор и номер строки заполняет платформа, период по умолчанию равен дате документа.
-     */
-    private writeMovements(description: ObjectDescription, record: RecordValue): Effect.Effect<void, unknown, ActionContext | ActionDispatcher> {
-        return Effect.gen(function* (this: DataService) {
-            const guid = record['guid'] as string;
-            yield* this.removeMovements(description, guid);
-            if (description.posting === null) return;
-            // Описание хранит обработчики разных документов; вызов допустим с записью этого документа.
-            const result = description.posting(record as never);
-            if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть Effect'));
-            const groups = yield* result as Effect.Effect<unknown, unknown, ActionContext | ActionDispatcher>;
-            if (!Array.isArray(groups)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть список движений'));
-            // Номера строк сквозные внутри регистра, даже если обработчик вернул для него несколько групп.
-            const lineNumbers = new Map<string, number>();
-            for (const group of groups as ReadonlyArray<RegisterMovements>) {
-                const register = this.metadata.find('register', group.register);
-                if (register === undefined) return yield* Effect.die(new Error(`Регистр «${group.register}» не найден в конфигурации`));
-                const fields = register.fields.filter((field) => !field.managed);
-                const rows = group.rows.map((row) => ({ ...row, period: row['period'] ?? record['date'] }));
-                const checked = yield* validated(Schema.Array(fieldsSchema(fields)), rows, `проведение.${register.name}`) as Effect.Effect<ReadonlyArray<RecordValue>, DataValidationError>;
-                for (const row of checked) {
-                    const lineNumber = (lineNumbers.get(register.name) ?? 0) + 1;
-                    lineNumbers.set(register.name, lineNumber);
-                    const values: Record<string, SqlValue> = { recorderDocument: description.name, recorderGuid: guid, lineNumber };
-                    for (const field of fields) values[field.name] = sqlValue(row[field.name]);
-                    yield* this.database.effect.run(insert(this.table(register), values));
-                }
-            }
         }.bind(this));
     }
 }

@@ -14,6 +14,18 @@ export interface SqlCondition {
     readonly value: SqlValue;
 }
 
+/**
+ * Условия, из которых достаточно выполнения одного: в SQL они соединяются через `OR`
+ * и заключаются в скобки, поэтому группа объединяется с остальными условиями через `AND`.
+ * Пустая группа отклоняется: в SQL у неё нет однозначного смысла.
+ */
+export interface SqlAnyCondition {
+    readonly any: readonly SqlCondition[];
+}
+
+/** Элемент отбора: отдельное условие или группа условий через `OR`. */
+export type SqlFilter = SqlCondition | SqlAnyCondition;
+
 /** Колонка и направление сортировки; направление ограничено двумя ключевыми словами SQL. */
 export interface SqlOrder {
     readonly column: string;
@@ -23,7 +35,7 @@ export interface SqlOrder {
 /** Настройки выборки. Без `columns` выбираются все колонки, без `limit` — все строки. */
 export interface SelectOptions {
     readonly columns?: readonly string[];
-    readonly where?: readonly SqlCondition[];
+    readonly where?: readonly SqlFilter[];
     readonly orderBy?: readonly SqlOrder[];
     readonly limit?: number;
     readonly offset?: number;
@@ -44,20 +56,30 @@ export function sqlIdentifier(identifier: string): string {
     return `"${identifier}"`;
 }
 
+/** Строит одно условие и добавляет его значение в `parameters`. */
+function condition(value: SqlCondition, parameters: SqlValue[]): string {
+    const column = sqlIdentifier(value.column);
+    if (!operators.has(value.operator)) throw new Error('Недопустимый оператор отбора');
+    if (value.value === null) {
+        // Сравнение `= NULL` в SQL не даёт совпадения; для него нужны IS NULL / IS NOT NULL.
+        if (value.operator === '=') return `${column} IS NULL`;
+        if (value.operator === '!=') return `${column} IS NOT NULL`;
+        throw new Error('С NULL допустимы только операторы = и !=');
+    }
+    parameters.push(value.value);
+    return `${column} ${value.operator} ?`;
+}
+
 /** Добавляет значения отбора в том же порядке, в каком в SQL появляются маркеры `?`. */
-function conditions(where: readonly SqlCondition[] | undefined, parameters: SqlValue[]): string {
+function conditions(where: readonly SqlFilter[] | undefined, parameters: SqlValue[]): string {
     if (where === undefined || where.length === 0) return '';
-    return ` WHERE ${where.map((condition) => {
-        const column = sqlIdentifier(condition.column);
-        if (!operators.has(condition.operator)) throw new Error('Недопустимый оператор отбора');
-        if (condition.value === null) {
-            // Сравнение `= NULL` в SQL не даёт совпадения; для него нужны IS NULL / IS NOT NULL.
-            if (condition.operator === '=') return `${column} IS NULL`;
-            if (condition.operator === '!=') return `${column} IS NOT NULL`;
-            throw new Error('С NULL допустимы только операторы = и !=');
-        }
-        parameters.push(condition.value);
-        return `${column} ${condition.operator} ?`;
+    return ` WHERE ${where.map((filter) => {
+        if (!('any' in filter)) return condition(filter, parameters);
+        // Пустая группа в скобках была бы синтаксической ошибкой, а её замена на FALSE или TRUE
+        // скрыла бы ошибку вызывающего кода, которая в UPDATE и DELETE затронула бы всю таблицу.
+        if (filter.any.length === 0) throw new Error('Группа условий OR не может быть пустой');
+        // Скобки сохраняют смысл группы: без них AND связал бы соседние условия сильнее OR.
+        return `(${filter.any.map((member) => condition(member, parameters)).join(' OR ')})`;
     }).join(' AND ')}`;
 }
 
@@ -109,7 +131,7 @@ export function insert(table: string, values: Readonly<Record<string, SqlValue>>
 export function update(
     table: string,
     values: Readonly<Record<string, SqlValue>>,
-    where: readonly SqlCondition[],
+    where: readonly SqlFilter[],
 ): SqlQuery {
     const entries = Object.entries(values);
     if (entries.length === 0) throw new Error('Для UPDATE нужно указать хотя бы одну колонку');
@@ -121,7 +143,7 @@ export function update(
 }
 
 /** Строит DELETE с обязательным отбором: случайный вызов не удалит всю таблицу. */
-export function remove(table: string, where: readonly SqlCondition[]): SqlQuery {
+export function remove(table: string, where: readonly SqlFilter[]): SqlQuery {
     if (where.length === 0) throw new Error('Для DELETE нужно указать условия отбора');
     const parameters: SqlValue[] = [];
     return { sql: `DELETE FROM ${sqlIdentifier(table)}${conditions(where, parameters)}`, parameters };
