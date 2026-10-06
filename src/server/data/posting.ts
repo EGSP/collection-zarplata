@@ -5,8 +5,8 @@
  * сочетаниях: `post` проводит документ, `unpost` и пометка удаления отменяют проведение,
  * `save` проведённого документа проводит его заново. Каждое изменение описано одним шагом —
  * функцией от состояния документа к новому состоянию, — а правила «провести» и «отменить
- * проведение» собраны из шагов один раз. Поэтому политики записи подключаются к составным
- * шагам, а не к каждому действию. Журнал сюда не подключается: его строку пишет диспетчер,
+ * проведение» собраны из шагов один раз. Политики вызываются диспетчером до запуска цепочки,
+ * а журнал записывается после выполнения всего действия. Журнал сюда не подключается: его строку пишет диспетчер,
  * сравнивая запись до и после всего действия. Шаг, меняющий признак документа, сам обновляет
  * запись в состоянии: цепочке не нужно перечитывать документ из базы между шагами.
  *
@@ -23,6 +23,7 @@ import { fieldsSchema } from '../metadata/schema.js';
 import type { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataValidationError } from './data.errors.js';
 import { loadRecord, sqlValue, tableName, validated, type RecordValue } from './records.js';
+import { readOnlyDatabase } from './read-only-database.js';
 
 /** Описание справочника или документа и его запись с табличными частями в том виде, как её возвращает `get`. */
 export interface DocumentState {
@@ -103,7 +104,7 @@ const writeMovements: Step = (state) => Effect.gen(function* () {
     // Описание хранит обработчики разных документов; вызов допустим с записью этого документа.
     const result = description.posting(record as never);
     if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть Effect'));
-    const groups = yield* result as Effect.Effect<unknown, unknown, PostingRequirements>;
+    const groups = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, PostingRequirements>, Database, readOnlyDatabase(database));
     if (!Array.isArray(groups)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть список движений'));
     // Номера строк сквозные внутри регистра, даже если обработчик вернул для него несколько групп.
     const lineNumbers = new Map<string, number>();

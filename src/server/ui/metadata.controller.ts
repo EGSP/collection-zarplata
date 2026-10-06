@@ -1,17 +1,20 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { AuthenticationGuard, type AuthenticatedRequest } from '../authentication/authentication.guard.js';
 import type { MetadataResponse } from './descriptions.js';
 import { UiService } from './ui.service.js';
 
 /**
- * Описания объектов для клиента: по ним он строит формы и списки. Заготовка: доступ по токену
- * и отбор объектов и действий по правам добавят #9 и #12.
+ * Описания объектов для клиента: по ним он строит формы и списки. Маршрут требует входа
+ * и не требует отдельного права: состав ответа зависит от прав пользователя, и пользователь
+ * без прав получает пустой список объектов.
  */
 @Controller('metadata')
+@UseGuards(AuthenticationGuard)
 export class MetadataController {
     constructor(private readonly ui: UiService) {}
 
     @Get()
-    metadata(): MetadataResponse {
-        return this.ui.metadataResponse;
+    metadata(@Req() request: AuthenticatedRequest): Promise<MetadataResponse> {
+        return this.ui.metadataResponse(request.userGuid);
     }
 }

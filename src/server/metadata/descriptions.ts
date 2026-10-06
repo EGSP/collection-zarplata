@@ -101,13 +101,14 @@ export interface FormDescription {
     readonly overrides: ReadonlyArray<FormOverride>;
 }
 
-/**
- * Политика записи. Заготовка: выполнение реализует #10. Аргумент типизирован как `never`
- * по той же причине, что и у обработчика действия: у объектов разные типы записей.
- */
+/** Политика объекта; тип записи скрыт после сборки разнородных описаний конфигурации. */
 export interface PolicyDescription {
-    readonly canWrite: ((record: never) => unknown) | null;
-    readonly beforeWrite: ((record: never) => unknown) | null;
+    readonly name: string;
+    readonly save: ((input: never) => unknown) | null;
+    readonly post: ((input: never) => unknown) | null;
+    readonly unpost: ((input: never) => unknown) | null;
+    readonly markDeleted: ((input: never) => unknown) | null;
+    readonly unmarkDeleted: ((input: never) => unknown) | null;
 }
 
 /**

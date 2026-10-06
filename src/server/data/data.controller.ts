@@ -1,13 +1,15 @@
 import { ArgumentsHost, Catch, Controller, ExceptionFilter, HttpCode, HttpException, HttpStatus, Post, Body, Req, UseFilters, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { RightsDeniedError } from '../authorization/authorization.errors.js';
 import { DatabaseError } from '../database/database.errors.js';
-import { DataNotFoundError, DataValidationError } from './data.errors.js';
+import { DataNotFoundError, DataPolicyError, DataValidationError } from './data.errors.js';
 import { DataService } from './data.service.js';
 import { AuthenticationGuard, type AuthenticatedRequest } from '../authentication/authentication.guard.js';
 
 /**
  * Единственное место преобразования ошибок диспетчера в HTTP: неверные данные дают 400,
- * отсутствующая цель — 404, сбой базы и непредвиденная ошибка — 500 без деталей запроса.
+ * отсутствие права — 403 с ключом права, отсутствующая цель — 404, сбой базы и непредвиденная
+ * ошибка — 500 без деталей запроса.
  */
 @Catch()
 export class PerformExceptionFilter implements ExceptionFilter {
@@ -17,8 +19,12 @@ export class PerformExceptionFilter implements ExceptionFilter {
             void reply.status(error.getStatus()).send({ error: error.message });
         } else if (error instanceof DataValidationError) {
             void reply.status(HttpStatus.BAD_REQUEST).send({ error: error.message, fields: error.fields });
+        } else if (error instanceof RightsDeniedError) {
+            void reply.status(HttpStatus.FORBIDDEN).send({ error: error.message, right: error.right });
         } else if (error instanceof DataNotFoundError) {
             void reply.status(HttpStatus.NOT_FOUND).send({ error: error.message });
+        } else if (error instanceof DataPolicyError) {
+            void reply.status(HttpStatus.CONFLICT).send({ error: error.message });
         } else if (error instanceof DatabaseError) {
             void reply.status(HttpStatus.INTERNAL_SERVER_ERROR).send({ error: error.message });
         } else {

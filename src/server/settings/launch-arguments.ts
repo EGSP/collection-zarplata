@@ -9,8 +9,15 @@ export interface LaunchArguments {
     readonly database: 'file' | 'memory';
     /** Порт сервера вместо порта из настроек. */
     readonly port: number | undefined;
-    /** PIN тестового пользователя, которого режим памяти создаёт при запуске. */
-    readonly testPin: string | undefined;
+    /** Тестовые пользователи, которых режим памяти создаёт при запуске. */
+    readonly testUsers: ReadonlyArray<TestUser>;
+}
+
+/** Тестовый пользователь из параметра `--test-pin`. */
+export interface TestUser {
+    readonly pin: string;
+    /** Имена ролей из параметра; `undefined` — параметр задал только PIN, и пользователь получает все роли. */
+    readonly roles: ReadonlyArray<string> | undefined;
 }
 
 /** Токен разобранных параметров запуска. */
@@ -18,6 +25,12 @@ export const LaunchArguments = Symbol('LaunchArguments');
 
 /** PIN пользователя: от 4 до 12 цифр. */
 export const pinPattern = /^[0-9]{4,12}$/;
+
+/**
+ * Значение `--test-pin`: PIN и необязательный список ролей через запятую, например `111111:reader`.
+ * Существование ролей здесь не проверяется: их знает конфигурация, и неизвестную роль отклоняет создание пользователя.
+ */
+const testUserPattern = /^([0-9]{4,12})(?::([A-Za-z0-9]+(?:,[A-Za-z0-9]+)*))?$/;
 
 /** Проверяет, что значение — допустимый номер порта TCP. */
 export function portValue(value: unknown): value is number {
@@ -31,7 +44,7 @@ export function portValue(value: unknown): value is number {
 function readArguments(values: readonly string[]): LaunchArguments {
     let database: LaunchArguments['database'] = 'file';
     let port: number | undefined;
-    let testPin: string | undefined;
+    const testUsers: TestUser[] = [];
     for (const argument of values) {
         const match = /^--([a-z-]+)=(.*)$/.exec(argument);
         const name = match?.[1];
@@ -40,19 +53,22 @@ function readArguments(values: readonly string[]): LaunchArguments {
             database = value;
         } else if (name === 'port' && /^[0-9]+$/.test(value) && portValue(Number(value))) {
             port = Number(value);
-        } else if (name === 'test-pin' && pinPattern.test(value)) {
-            testPin = value;
+        } else if (name === 'test-pin' && testUserPattern.test(value)) {
+            const [, pin, roles] = testUserPattern.exec(value)!;
+            // PIN однозначно определяет пользователя, поэтому второй пользователь с тем же PIN не смог бы войти.
+            if (testUsers.some((user) => user.pin === pin)) throw new Error(`Параметр --test-pin повторяет PIN ${pin}: у каждого тестового пользователя должен быть свой PIN`);
+            testUsers.push({ pin: pin!, roles: roles?.split(',') });
         } else if (name === 'database' || name === 'port' || name === 'test-pin') {
-            throw new Error(`Неверное значение параметра запуска ${argument}: ожидается --database=file|memory, --port=1…65535 или --test-pin из 4–12 цифр`);
+            throw new Error(`Неверное значение параметра запуска ${argument}: ожидается --database=file|memory, --port=1…65535 или --test-pin из 4–12 цифр с необязательными ролями: --test-pin=111111:reader`);
         } else {
             throw new Error(`Неизвестный параметр запуска ${argument}. Допустимы --database, --port и --test-pin`);
         }
     }
-    if (testPin !== undefined && database !== 'memory') {
+    if (testUsers.length > 0 && database !== 'memory') {
         // Тестовый PIN в рабочей базе создал бы постоянного пользователя с PIN из командной строки.
         throw new Error('Параметр --test-pin допустим только вместе с --database=memory');
     }
-    return { database, port, testPin };
+    return { database, port, testUsers };
 }
 
 /** Разбирает параметры процесса один раз при сборке приложения; ошибка останавливает запуск. */

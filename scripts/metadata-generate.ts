@@ -2,7 +2,8 @@
  * Генерация реестра объектов конфигурации: `npm run metadata:generate`.
  *
  * Скрипт находит файлы `src/configuration/**\/*.{catalog,document,register}.ts` и пишет
- * `src/configuration/configuration.generated.ts` с импортами этих файлов и списком модулей.
+ * `src/configuration/configuration.generated.ts` с импортами этих файлов, списком модулей
+ * и объектом прав `Rights`, построенным из тех же модулей.
  * Объекты обнаруживаются на этапе сборки, а не при запуске: в собранном исполняемом файле нет
  * исходников `.ts`, по которым можно было бы искать файлы. Поэтому новый объект добавляется одним
  * файлом, а реестр обновляется командой, а не правкой вручную.
@@ -39,6 +40,7 @@ function render(files: ReadonlyArray<string>): string {
         '// Файл создан командой `npm run metadata:generate`. Не редактируйте его вручную:',
         '// изменения пропадут при следующей генерации. Чтобы добавить объект конфигурации,',
         '// создайте файл *.catalog.ts, *.document.ts или *.register.ts в src/configuration.',
+        "import { defineRights } from '../server/authorization/rights.js';",
         "import type { ConfigurationModule } from '../server/metadata/registry.js';",
         ...imports,
         '',
@@ -46,6 +48,9 @@ function render(files: ReadonlyArray<string>): string {
         'export const configurationModules: ReadonlyArray<ConfigurationModule> = [',
         ...entries,
         '];',
+        '',
+        '/** Права объектов конфигурации и платформы. Роли указывают права этими переменными, а не строками. */',
+        `export const Rights = defineRights([${files.map((_file, index) => `module${index}`).join(', ')}]);`,
         '',
     ].join('\n');
 }
