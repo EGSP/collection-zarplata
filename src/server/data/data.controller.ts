@@ -1,7 +1,7 @@
 import { ArgumentsHost, Catch, Controller, ExceptionFilter, HttpCode, HttpException, HttpStatus, Post, Body, Req, UseFilters, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { DatabaseError } from '../database/database.errors.js';
-import { DataNotFoundError, DataValidationError } from './data.errors.js';
+import { DataNotFoundError, DataPolicyError, DataValidationError } from './data.errors.js';
 import { DataService } from './data.service.js';
 import { AuthenticationGuard, type AuthenticatedRequest } from '../authentication/authentication.guard.js';
 
@@ -19,6 +19,8 @@ export class PerformExceptionFilter implements ExceptionFilter {
             void reply.status(HttpStatus.BAD_REQUEST).send({ error: error.message, fields: error.fields });
         } else if (error instanceof DataNotFoundError) {
             void reply.status(HttpStatus.NOT_FOUND).send({ error: error.message });
+        } else if (error instanceof DataPolicyError) {
+            void reply.status(HttpStatus.CONFLICT).send({ error: error.message });
         } else if (error instanceof DatabaseError) {
             void reply.status(HttpStatus.INTERNAL_SERVER_ERROR).send({ error: error.message });
         } else {

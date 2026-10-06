@@ -21,6 +21,7 @@ export {
     type RegisterBuilder,
     type TablePartMap,
     type WritePolicy,
+    type WriteChange,
 } from './builders.js';
 export { commitConfiguration } from './commit.js';
 export type * from './descriptions.js';

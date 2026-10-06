@@ -142,7 +142,8 @@ export class ActionInputBuilder<Fields extends FieldMap = {}> {
 /**
  * Обработчик собственного действия получает проверенные входные данные и возвращает Effect.
  * Его ошибки прерывают всю транзакцию запроса. Через окружение ему доступны контекст действия,
- * диспетчер вложенных вызовов и база данных.
+ * диспетчер вложенных вызовов и чтение базы данных. Запись через Database запрещена;
+ * для изменения объектов обработчик вызывает ActionDispatcher.
  */
 export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, unknown>;
 
@@ -209,12 +210,17 @@ export class FormBuilder<Names extends string> {
     }
 }
 
-/** Политика записи объекта. Заготовка: порядок выполнения и способ отказа уточнит #10. */
+/** Состояние записи до и после одного изменяющего действия. */
+export interface WriteChange<Record> {
+    readonly action: string;
+    readonly before: Record | null;
+    readonly after: Record;
+}
+
+/** Проверка конфигурации перед изменением записи; отказ возвращается ошибкой Effect. */
 export interface WritePolicy<Record> {
-    /** Решает, можно ли записать объект в таком виде. */
-    readonly canWrite?: (record: Record) => Effect.Effect<boolean, unknown, unknown>;
-    /** Выполняется перед записью, например чтобы проверить связанные данные. */
-    readonly beforeWrite?: (record: Record) => Effect.Effect<unknown, unknown, unknown>;
+    readonly name: string;
+    readonly check: (change: WriteChange<Record>) => Effect.Effect<void, unknown, unknown>;
 }
 
 /**
@@ -297,7 +303,7 @@ type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, F
 /**
  * Обработчик проведения получает сохранённую запись документа с табличными частями и возвращает
  * строки регистров, собранные функцией `movements(...)`. Через окружение ему доступны контекст
- * действия, диспетчер вложенных вызовов и база данных. Ошибка обработчика отменяет проведение
+ * действия, диспетчер вложенных вызовов и чтение базы данных. Ошибка обработчика отменяет проведение
  * вместе со всей транзакцией запроса.
  */
 export type PostingHandler<Record> = (record: Record) => Effect.Effect<ReadonlyArray<RegisterMovements>, unknown, unknown>;
@@ -408,7 +414,7 @@ class ObjectBuilderImplementation {
     }
 
     policy(policy: WritePolicy<never>): this {
-        const description: PolicyDescription = { canWrite: policy.canWrite ?? null, beforeWrite: policy.beforeWrite ?? null };
+        const description: PolicyDescription = { name: policy.name, check: policy.check };
         return this.with({ policies: [...this['~state'].policies, description] });
     }
 

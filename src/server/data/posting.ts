@@ -23,6 +23,7 @@ import { fieldsSchema } from '../metadata/schema.js';
 import type { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataValidationError } from './data.errors.js';
 import { loadRecord, sqlValue, tableName, validated, type RecordValue } from './records.js';
+import { readOnlyDatabase } from './read-only-database.js';
 
 /** Описание справочника или документа и его запись с табличными частями в том виде, как её возвращает `get`. */
 export interface DocumentState {
@@ -103,7 +104,7 @@ const writeMovements: Step = (state) => Effect.gen(function* () {
     // Описание хранит обработчики разных документов; вызов допустим с записью этого документа.
     const result = description.posting(record as never);
     if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть Effect'));
-    const groups = yield* result as Effect.Effect<unknown, unknown, PostingRequirements>;
+    const groups = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, PostingRequirements>, Database, readOnlyDatabase(database));
     if (!Array.isArray(groups)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть список движений'));
     // Номера строк сквозные внутри регистра, даже если обработчик вернул для него несколько групп.
     const lineNumbers = new Map<string, number>();

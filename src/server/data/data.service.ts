@@ -14,6 +14,8 @@ import { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
 import { guidValue, loadRecord, objectValue, pageOptions, recordFromRow, sqlValue, stringValue, tableName, validated, type RecordValue } from './records.js';
+import { readOnlyDatabase } from './read-only-database.js';
+import { checkWritePolicies } from './write-policies.js';
 
 /** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
 type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher;
@@ -130,12 +132,21 @@ export class DataService {
                 case 'get': return this.get(description, payload);
                 case 'save': return Effect.suspend(() => {
                     const guid = objectValue(payload, 'payload')['guid'] === undefined ? undefined : this.guidPayload(payload);
-                    return this.journaled(description, action, guid, this.save(description, payload));
+                    return this.journaled(description, action, guid, (before) => this.save(description, payload, before));
                 });
                 case 'markDeleted':
                 case 'unmarkDeleted': return Effect.suspend(() => {
                     const guid = this.guidPayload(payload);
-                    return this.journaled(description, action, guid, markDeleted(description, guid, action === 'markDeleted'));
+                    return this.journaled(description, action, guid, (before) => Effect.gen(function* () {
+                        const marked = action === 'markDeleted';
+                        yield* checkWritePolicies(description, {
+                            action,
+                            before: before!,
+                            after: { ...before, deletedAt: marked ? new Date().toISOString() : null,
+                                ...(marked && before!['posted'] === true ? { posted: false } : {}) },
+                        });
+                        return yield* markDeleted(description, guid, marked);
+                    }));
                 });
             }
         }
@@ -144,7 +155,14 @@ export class DataService {
                 case 'post':
                 case 'unpost': return Effect.suspend(() => {
                     const guid = this.guidPayload(payload);
-                    return this.journaled(description, action, guid, (action === 'post' ? post : unpost)(description, guid));
+                    return this.journaled(description, action, guid, (before) => Effect.gen(function* () {
+                        yield* checkWritePolicies(description, {
+                            action,
+                            before: before!,
+                            after: { ...before, posted: action === 'post' },
+                        });
+                        return yield* (action === 'post' ? post : unpost)(description, guid);
+                    }));
                 });
             }
         }
@@ -159,14 +177,14 @@ export class DataService {
         }
         const custom = description.actions.find((candidate) => candidate.name === action);
         if (custom !== undefined && custom.handler !== null) {
-            return Effect.gen(function* () {
+            return Effect.gen(function* (this: DataService) {
                 const occurredAt = new Date().toISOString();
                 const schema = actionInputSchema(description, action)!;
                 const input = yield* validated(schema, payload, 'payload');
                 // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
                 const result = custom.handler!(input as never);
                 if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик действия должен вернуть Effect'));
-                const value = yield* result as Effect.Effect<unknown, unknown, ActionRequirements>;
+                const value = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ActionRequirements>, Database, readOnlyDatabase(this.database.effect));
                 // Платформа не знает, что именно изменил обработчик: изменения записей попадают в журнал
                 // строками вложенных действий, а эта строка связывает их с вызовом через parentActionGuid.
                 yield* writeJournal({ occurredAt, target: { kind: description.kind, name: description.name, guid: null }, action, changes: null });
@@ -191,12 +209,12 @@ export class DataService {
         description: ObjectDescription,
         action: string,
         guid: string | undefined,
-        work: Effect.Effect<RecordValue, unknown, ActionRequirements>,
+        work: (before: RecordValue | undefined) => Effect.Effect<RecordValue, unknown, ActionRequirements>,
     ): Effect.Effect<RecordValue, unknown, ActionRequirements> {
         return Effect.gen(function* () {
             const occurredAt = new Date().toISOString();
             const before = guid === undefined ? undefined : yield* loadRecord(description, guid);
-            const after = yield* work;
+            const after = yield* work(before);
             yield* writeJournal({
                 occurredAt,
                 target: { kind: description.kind, name: description.name, guid: after['guid'] as string },
@@ -329,7 +347,7 @@ export class DataService {
      * Новый документ получает следующий номер и не проведён. Проведённый документ после записи
      * проводится заново, чтобы движения соответствовали новым данным. Запись с неизвестным guid даёт 404.
      */
-    private save(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+    private save(description: ObjectDescription, payload: unknown, before: RecordValue | undefined): Effect.Effect<RecordValue, unknown, ActionRequirements> {
         return Effect.gen(function* (this: DataService) {
             const request = objectValue(payload, 'payload');
             const guid = request['guid'] === undefined ? newGuid() : stringValue(request['guid'], 'payload.guid');
@@ -340,11 +358,25 @@ export class DataService {
                 if (!field.managed) values[field.name] = sqlValue(input[field.name]);
             }
             const database = this.database.effect;
+            if (request['guid'] === undefined && description.kind === 'document') {
+                values['number'] = yield* this.nextNumber(description);
+                values['posted'] = 0;
+            }
+            yield* checkWritePolicies(description, {
+                action: 'save',
+                before: before ?? null,
+                after: {
+                    ...before,
+                    ...input,
+                    guid,
+                    deletedAt: before?.['deletedAt'] ?? null,
+                    ...(description.kind === 'document' ? {
+                        number: before?.['number'] ?? values['number'],
+                        posted: before?.['posted'] ?? false,
+                    } : {}),
+                },
+            });
             if (request['guid'] === undefined) {
-                if (description.kind === 'document') {
-                    values['number'] = yield* this.nextNumber(description);
-                    values['posted'] = 0;
-                }
                 yield* database.run(insert(tableName(description), values));
             } else {
                 // Обновление не снимает ранее установленную пометку удаления.

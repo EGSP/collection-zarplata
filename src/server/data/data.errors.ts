@@ -10,3 +10,8 @@ export class DataValidationError extends Data.TaggedError('DataValidationError')
 export class DataNotFoundError extends Data.TaggedError('DataNotFoundError')<{
     readonly message: string;
 }> {}
+
+/** Прикладная политика запретила изменение; фильтр возвращает HTTP 409 с причиной. */
+export class DataPolicyError extends Data.TaggedError('DataPolicyError')<{
+    readonly message: string;
+}> {}
