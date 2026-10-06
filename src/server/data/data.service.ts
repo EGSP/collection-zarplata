@@ -19,10 +19,10 @@ import { enforcePolicies, type PolicyInvocation } from './policies.js';
 
 /** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
 type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher;
-/** Подготовленное действие: аргументы политики и запись, которую можно выполнить после проверки. */
-type PreparedMutation = {
-    readonly policy: PolicyInvocation;
-    readonly apply: Effect.Effect<RecordValue, unknown, ActionRequirements>;
+/** Команда изменения: данные для всех применимых политик и эффект, исполняемый после их проверки. */
+type MutationOperation = {
+    readonly policyArguments: PolicyInvocation;
+    readonly execute: Effect.Effect<RecordValue, unknown, ActionRequirements>;
 };
 /** Внешний запрос после проверки обязательных полей оболочки; payload проверяется для выбранного действия. */
 type Operation = { readonly target: { readonly kind: string; readonly name: string }; readonly action: string; readonly payload: unknown };
@@ -134,31 +134,15 @@ export class DataService {
             switch (action) {
                 case 'list': return this.list(description, payload);
                 case 'get': return this.get(description, payload);
-                case 'save': return Effect.suspend(() => {
-                    const guid = objectValue(payload, 'payload')['guid'] === undefined ? undefined : this.guidPayload(payload);
-                    return this.executeMutation(description, action, guid, (before) => this.prepareSave(description, payload, before));
-                });
-                case 'markDeleted':
-                case 'unmarkDeleted': return Effect.suspend(() => {
-                    const guid = this.guidPayload(payload);
-                    const marked = action === 'markDeleted';
-                    return this.executeMutation(description, action, guid, (before) => Effect.succeed({
-                        policy: { action: marked ? 'markDeleted' : 'unmarkDeleted', input: { record: before! } },
-                        apply: markDeleted(description, guid, marked),
-                    }));
-                });
+                case 'save': return this.mutateSave(description, payload);
+                case 'markDeleted': return this.mutateMarkDeleted(description, payload);
+                case 'unmarkDeleted': return this.mutateUnmarkDeleted(description, payload);
             }
         }
         if (description.kind === 'document') {
             switch (action) {
-                case 'post':
-                case 'unpost': return Effect.suspend(() => {
-                    const guid = this.guidPayload(payload);
-                    return this.executeMutation(description, action, guid, (before) => Effect.succeed({
-                        policy: { action: action === 'post' ? 'post' : 'unpost', input: { document: before! } },
-                        apply: (action === 'post' ? post : unpost)(description, guid),
-                    }));
-                });
+                case 'post': return this.mutatePost(description, payload);
+                case 'unpost': return this.mutateUnpost(description, payload);
             }
         }
         if (description.kind === 'register') {
@@ -194,30 +178,81 @@ export class DataService {
         return guidValue(objectValue(payload, 'payload')['guid'], 'payload.guid');
     }
 
+    /** Сохраняет запись через общий конвейер; новый объект ещё не имеет существующей записи. */
+    private mutateSave(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+        return Effect.suspend(() => {
+            const guid = objectValue(payload, 'payload')['guid'] === undefined ? undefined : this.guidPayload(payload);
+            return this.mutate(description, 'save', guid, (existingRecord) => this.prepareSave(description, payload, existingRecord));
+        });
+    }
+
+    /** Помечает существующую запись на удаление после проверки её политик. */
+    private mutateMarkDeleted(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+        return Effect.suspend(() => {
+            const guid = this.guidPayload(payload);
+            return this.mutate(description, 'markDeleted', guid, (existingRecord) => Effect.succeed({
+                policyArguments: { action: 'markDeleted', input: { record: existingRecord! } },
+                execute: markDeleted(description, guid, true),
+            }));
+        });
+    }
+
+    /** Снимает пометку удаления после проверки политик существующей записи. */
+    private mutateUnmarkDeleted(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+        return Effect.suspend(() => {
+            const guid = this.guidPayload(payload);
+            return this.mutate(description, 'unmarkDeleted', guid, (existingRecord) => Effect.succeed({
+                policyArguments: { action: 'unmarkDeleted', input: { record: existingRecord! } },
+                execute: markDeleted(description, guid, false),
+            }));
+        });
+    }
+
+    /** Проводит существующий документ после проверки его политик. */
+    private mutatePost(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+        return Effect.suspend(() => {
+            const guid = this.guidPayload(payload);
+            return this.mutate(description, 'post', guid, (existingRecord) => Effect.succeed({
+                policyArguments: { action: 'post', input: { document: existingRecord! } },
+                execute: post(description, guid),
+            }));
+        });
+    }
+
+    /** Отменяет проведение существующего документа после проверки его политик. */
+    private mutateUnpost(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+        return Effect.suspend(() => {
+            const guid = this.guidPayload(payload);
+            return this.mutate(description, 'unpost', guid, (existingRecord) => Effect.succeed({
+                policyArguments: { action: 'unpost', input: { document: existingRecord! } },
+                execute: unpost(description, guid),
+            }));
+        });
+    }
+
     /**
-     * Выполняет общий конвейер изменения: читает запись, готовит действие, вызывает его политики,
-     * применяет действие и пишет одну строку журнала. Подготовка не изменяет базу. Любая ошибка
-     * прерывает конвейер и откатывает транзакцию запроса вместе с вложенными действиями.
+     * Читает запись, строит команду, вызывает все политики, исполняет её и пишет результат в журнал.
+     * Построение команды не меняет базу; ошибка откатывает всю транзакцию, включая вложенные действия.
      */
-    private executeMutation(
+    private mutate(
         description: ObjectDescription,
         action: string,
         guid: string | undefined,
-        prepare: (before: RecordValue | undefined) => Effect.Effect<PreparedMutation, unknown, ActionRequirements>,
+        createOperation: (existingRecord: RecordValue | undefined) => Effect.Effect<MutationOperation, unknown, ActionRequirements>,
     ): Effect.Effect<RecordValue, unknown, ActionRequirements> {
         return Effect.gen(function* () {
             const occurredAt = new Date().toISOString();
-            const before = guid === undefined ? undefined : yield* loadRecord(description, guid);
-            const prepared = yield* prepare(before);
-            yield* enforcePolicies(description, prepared.policy);
-            const after = yield* prepared.apply;
+            const existingRecord = guid === undefined ? undefined : yield* loadRecord(description, guid);
+            const operation = yield* createOperation(existingRecord);
+            yield* enforcePolicies(description, operation.policyArguments);
+            const resultRecord = yield* operation.execute;
             yield* writeJournal({
                 occurredAt,
-                target: { kind: description.kind, name: description.name, guid: after['guid'] as string },
+                target: { kind: description.kind, name: description.name, guid: resultRecord['guid'] as string },
                 action,
-                changes: recordChanges(description, before, after),
+                changes: recordChanges(description, existingRecord, resultRecord),
             });
-            return after;
+            return resultRecord;
         });
     }
 
@@ -341,7 +376,7 @@ export class DataService {
      * Проверяет полное состояние полей и частей до записи и собирает план сохранения. Новый
      * документ получает номер внутри транзакции, но изменяющие запросы выполняются после политик.
      */
-    private prepareSave(description: ObjectDescription, payload: unknown, before: RecordValue | undefined): Effect.Effect<PreparedMutation, unknown, ActionRequirements> {
+    private prepareSave(description: ObjectDescription, payload: unknown, existingRecord: RecordValue | undefined): Effect.Effect<MutationOperation, unknown, ActionRequirements> {
         return Effect.gen(function* (this: DataService) {
             const request = objectValue(payload, 'payload');
             const guid = request['guid'] === undefined ? newGuid() : stringValue(request['guid'], 'payload.guid');
@@ -356,20 +391,20 @@ export class DataService {
                 values['number'] = yield* this.nextNumber(description);
                 values['posted'] = 0;
             }
-            const proposed: RecordValue = {
-                ...before,
+            const proposedRecord: RecordValue = {
+                ...existingRecord,
                 ...input,
                 guid,
-                deletedAt: before?.['deletedAt'] ?? null,
+                deletedAt: existingRecord?.['deletedAt'] ?? null,
                 ...(description.kind === 'document' ? {
-                    number: before?.['number'] ?? values['number'],
-                    posted: before?.['posted'] ?? false,
+                    number: existingRecord?.['number'] ?? values['number'],
+                    posted: existingRecord?.['posted'] ?? false,
                 } : {}),
             };
             return {
-                policy: { action: 'save', input: { before: before ?? null, after: proposed } },
-                apply: this.applySave(description, guid, input, values, creating),
-            } satisfies PreparedMutation;
+                policyArguments: { action: 'save', input: { existingRecord: existingRecord ?? null, proposedRecord } },
+                execute: this.applySave(description, guid, input, values, creating),
+            } satisfies MutationOperation;
         }.bind(this));
     }
 

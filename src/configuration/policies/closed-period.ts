@@ -32,7 +32,7 @@ export function closedPeriodPolicy<Record>(affectedDates: (record: Record) => re
     const checkRecord = (record: Record) => checkDates(affectedDates(record));
     return {
         name: 'closed-period',
-        save: ({ before, after }) => checkDates([...(before === null ? [] : affectedDates(before)), ...affectedDates(after)]),
+        save: ({ existingRecord, proposedRecord }) => checkDates([...(existingRecord === null ? [] : affectedDates(existingRecord)), ...affectedDates(proposedRecord)]),
         post: ({ document }) => checkRecord(document),
         unpost: ({ document }) => checkRecord(document),
         markDeleted: ({ record }) => checkRecord(record),

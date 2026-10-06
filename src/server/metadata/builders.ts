@@ -210,10 +210,10 @@ export class FormBuilder<Names extends string> {
     }
 }
 
-/** Данные для проверки сохранения до выполнения изменяющих запросов. */
+/** Существующая и предлагаемая записи для проверки сохранения до изменяющих запросов. */
 export interface SavePolicyInput<Record> {
-    readonly before: Record | null;
-    readonly after: Record;
+    readonly existingRecord: Record | null;
+    readonly proposedRecord: Record;
 }
 
 /** Данные для проверки проведения или отмены проведения существующего документа. */

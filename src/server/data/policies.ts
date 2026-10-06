@@ -13,7 +13,7 @@ type PolicyRequirements = Database | Metadata | ActionContext | ActionDispatcher
 
 /** Действие выбирает собственный контракт входных данных политики. */
 export type PolicyInvocation =
-    | { readonly action: 'save'; readonly input: { readonly before: RecordValue | null; readonly after: RecordValue } }
+    | { readonly action: 'save'; readonly input: { readonly existingRecord: RecordValue | null; readonly proposedRecord: RecordValue } }
     | { readonly action: 'post' | 'unpost'; readonly input: { readonly document: RecordValue } }
     | { readonly action: 'markDeleted' | 'unmarkDeleted'; readonly input: { readonly record: RecordValue } };
 
