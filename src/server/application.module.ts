@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthenticationModule } from './authentication/authentication.module.js';
+import { AuthorizationModule } from './authorization/authorization.module.js';
 import { ClientModule } from './client/client.module.js';
 import { DataModule } from './data/data.module.js';
 import { DatabaseModule } from './database/database.module.js';
@@ -11,6 +12,6 @@ import { UiModule } from './ui/ui.module.js';
 
 /** Корневой модуль связывает API данных и описания интерфейса с общими сервисами базы и метаданных. */
 @Module({
-    imports: [SettingsModule, DatabaseModule, MetadataModule, SchemaModule, AuthenticationModule, DataModule, UiModule, HealthModule, ClientModule],
+    imports: [SettingsModule, DatabaseModule, MetadataModule, SchemaModule, AuthorizationModule, AuthenticationModule, DataModule, UiModule, HealthModule, ClientModule],
 })
 export class ApplicationModule {}

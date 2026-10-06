@@ -228,6 +228,8 @@ export interface ObjectBuilder<Kind extends ObjectKind = ObjectKind, Name extend
     readonly '~fields': FieldMap;
     /** Только для вывода типов: табличные части. */
     readonly '~tableParts': TablePartMap;
+    /** Только для вывода типов: имена собственных действий. По ним выводятся права на эти действия. */
+    readonly '~actions': string;
     readonly '~state': ObjectState;
 
     /**
@@ -250,49 +252,52 @@ export interface RecordObjectBuilder<
     Name extends string,
     Fields extends FieldMap,
     Parts extends TablePartMap,
+    Actions extends string = never,
 > extends ObjectBuilder<Kind, Name> {
     readonly '~fields': Fields;
     readonly '~tableParts': Parts;
+    readonly '~actions': Actions;
 
     /** Заголовок объекта в интерфейсе. Если он не задан, используется имя. */
-    title(title: string): RecordBuilderOf<Kind, Name, Fields, Parts>;
+    title(title: string): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 
     /** Реквизит объекта. Имя и тип поля попадают в тип записи. */
     field<const FieldName extends string, Field extends AnyFieldBuilder>(
         name: FieldName,
         define: (field: FieldFactory) => Field,
-    ): RecordBuilderOf<Kind, Name, Fields & { readonly [K in FieldName]: Field }, Parts>;
+    ): RecordBuilderOf<Kind, Name, Fields & { readonly [K in FieldName]: Field }, Parts, Actions>;
 
     /** Табличная часть; в записи она представлена массивом строк. */
     tablePart<const PartName extends string, PartFields extends FieldMap>(
         name: PartName,
         define: (part: TablePartBuilder) => TablePartBuilder<PartFields>,
-    ): RecordBuilderOf<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }>;
+    ): RecordBuilderOf<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }, Actions>;
 
-    /** Собственное действие, доступное через единый эндпоинт. */
-    action<Input extends FieldMap>(
-        name: string,
+    /** Собственное действие, доступное через единый эндпоинт. Имя попадает в тип билдера: по нему выводится право на действие. */
+    action<const ActionName extends string, Input extends FieldMap>(
+        name: ActionName,
         define: (action: ActionBuilder) => ActionBuilder<Input>,
-    ): RecordBuilderOf<Kind, Name, Fields, Parts>;
+    ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions | ActionName>;
 
     /** Переопределение формы. Повторный вызов заменяет предыдущее. */
     form(
         define: (form: FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>) => FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>,
-    ): RecordBuilderOf<Kind, Name, Fields, Parts>;
+    ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 
     /** Политика записи. Политики из нескольких вызовов выполняются по порядку. */
-    policy(policy: WritePolicy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts>;
+    policy(policy: WritePolicy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 }
 
 /** Билдер справочника; его создаёт `catalog(name)`. */
-export type CatalogBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap> = RecordObjectBuilder<'catalog', Name, Fields, Parts>;
+export type CatalogBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string = never> =
+    RecordObjectBuilder<'catalog', Name, Fields, Parts, Actions>;
 
 /**
  * Билдер того же вида, что и исходный. Методы общего интерфейса возвращают его, чтобы после
  * `.field(...)` у документа остался метод `.posting(...)`, которого нет у справочника.
  */
-type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, Fields extends FieldMap, Parts extends TablePartMap> =
-    Kind extends 'document' ? DocumentBuilder<Name, Fields, Parts> : CatalogBuilder<Name, Fields, Parts>;
+type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string> =
+    Kind extends 'document' ? DocumentBuilder<Name, Fields, Parts, Actions> : CatalogBuilder<Name, Fields, Parts, Actions>;
 
 /**
  * Обработчик проведения получает сохранённую запись документа с табличными частями и возвращает
@@ -303,14 +308,14 @@ type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, F
 export type PostingHandler<Record> = (record: Record) => Effect.Effect<ReadonlyArray<RegisterMovements>, unknown, unknown>;
 
 /** Билдер документа; его создаёт `document(name)`. */
-export interface DocumentBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap>
-    extends RecordObjectBuilder<'document', Name, Fields, Parts> {
+export interface DocumentBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string = never>
+    extends RecordObjectBuilder<'document', Name, Fields, Parts, Actions> {
     /**
      * Обработчик проведения. Платформа удаляет прежние движения документа во всех регистрах
      * и записывает строки, которые вернул обработчик, поэтому повторное проведение их не дублирует.
      * Повторный вызов заменяет обработчик.
      */
-    posting(handler: PostingHandler<ObjectRecord<'document', Fields, Parts>>): DocumentBuilder<Name, Fields, Parts>;
+    posting(handler: PostingHandler<ObjectRecord<'document', Fields, Parts>>): DocumentBuilder<Name, Fields, Parts, Actions>;
 }
 
 /** Ресурс регистра — число или деньги: только такие значения можно суммировать при расчёте оборотов. */
@@ -320,6 +325,8 @@ type ResourceFieldBuilder = NumberFieldBuilder | MoneyFieldBuilder;
 export interface RegisterBuilder<Name extends string, Fields extends FieldMap> extends ObjectBuilder<'register', Name> {
     readonly '~fields': Fields;
     readonly '~tableParts': {};
+    /** У регистра нет собственных действий. */
+    readonly '~actions': never;
 
     title(title: string): RegisterBuilder<Name, Fields>;
 
@@ -362,6 +369,7 @@ class ObjectBuilderImplementation {
     /** Только для вывода типов: во время выполнения свойств нет. */
     declare readonly '~fields': FieldMap;
     declare readonly '~tableParts': TablePartMap;
+    declare readonly '~actions': string;
     readonly '~state': ObjectState;
 
     constructor(state: ObjectState) {

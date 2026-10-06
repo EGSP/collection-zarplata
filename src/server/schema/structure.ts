@@ -97,7 +97,9 @@ const platformTables: readonly TableStructure[] = [
         ],
     },
     { name: 'platform_users', columns: [column('guid', 'TEXT', true), column('name', 'TEXT', true), column('pinHash', 'TEXT', true), column('disabledAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_users', 'pinHash', ['pinHash'], true)] },
-    { name: 'platform_tokens', columns: [column('guid', 'TEXT', true), column('userGuid', 'TEXT', true), column('expiresAt', 'TEXT', true), column('revokedAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_tokens', 'userGuid', ['userGuid'])] },
+    // Первичный ключ начинается с пользователя и покрывает единственный способ чтения: роли одного пользователя.
+    { name: 'platform_user_roles', columns: [column('userGuid', 'TEXT', true), column('role', 'TEXT', true)], primaryKey: ['userGuid', 'role'], indexes: [] },
+    { name: 'platform_tokens',columns: [column('guid', 'TEXT', true), column('userGuid', 'TEXT', true), column('expiresAt', 'TEXT', true), column('revokedAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_tokens', 'userGuid', ['userGuid'])] },
 ];
 
 /** Строит все прикладные и служебные таблицы в устойчивом порядке; имена проверяются при построении SQL. */

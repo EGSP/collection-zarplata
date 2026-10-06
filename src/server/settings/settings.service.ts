@@ -22,6 +22,8 @@ export type DatabaseLocation =
 export interface InitialUser {
     readonly name: string;
     readonly pin: string;
+    /** Имена ролей пользователя. Без них пользователь получает все роли конфигурации. */
+    readonly roles: ReadonlyArray<string> | undefined;
 }
 
 interface Settings {
@@ -29,7 +31,7 @@ interface Settings {
     readonly port: number;
     readonly database: DatabaseLocation;
     readonly pinHmacSecret: string;
-    readonly initialUser: InitialUser | undefined;
+    readonly initialUsers: ReadonlyArray<InitialUser>;
 }
 
 function readSettingsFile(directory: string): Settings {
@@ -67,13 +69,21 @@ function readSettingsFile(directory: string): Settings {
         || !pinPattern.test((initialUser as { pin: string }).pin))) {
         throw new Error(`В файле настроек ${filePath} initialUser должен содержать имя и PIN из 4–12 цифр`);
     }
+    const roles = (initialUser as Record<string, unknown> | undefined)?.['roles'];
+    if (roles !== undefined && (!Array.isArray(roles) || roles.some((role) => typeof role !== 'string'))) {
+        throw new Error(`В файле настроек ${filePath} initialUser.roles должен быть списком имён ролей`);
+    }
 
     return {
         host: settings['host'],
         port: settings['port'],
         database: { kind: 'file', path: path.resolve(directory, settings['databasePath']) },
         pinHmacSecret: settings['pinHmacSecret'],
-        initialUser: initialUser as InitialUser | undefined,
+        initialUsers: initialUser === undefined ? [] : [{
+            name: (initialUser as { name: string }).name,
+            pin: (initialUser as { pin: string }).pin,
+            roles: roles as ReadonlyArray<string> | undefined,
+        }],
     };
 }
 
@@ -87,7 +97,11 @@ function memorySettings(launch: LaunchArguments): Settings {
         port: memoryDefaultPort,
         database: { kind: 'memory' },
         pinHmacSecret: randomBytes(32).toString('hex'),
-        initialUser: launch.testPin === undefined ? undefined : { name: 'Тестовый пользователь', pin: launch.testPin },
+        initialUsers: launch.testUsers.map((user) => ({
+            name: user.roles === undefined ? 'Тестовый пользователь' : `Тестовый пользователь (${user.roles.join(', ')})`,
+            pin: user.pin,
+            roles: user.roles,
+        })),
     };
 }
 
@@ -100,7 +114,7 @@ function readSettings(launch: LaunchArguments): Settings {
  * Настройки запуска. Обычно они читаются из файла JSON рядом с исполняемым файлом или в корне
  * проекта при разработке; ошибка в файле останавливает запуск. Параметр `--database=memory`
  * запускает приложение на пустой базе в памяти без файла настроек, а `--test-pin` создаёт в ней
- * тестового пользователя. Порт из настроек может заменить параметр `--port`: порт, который
+ * тестовых пользователей. Порт из настроек может заменить параметр `--port`: порт, который
  * слушает сервер, выбирает провайдер `ServerPort`.
  */
 @Injectable()
@@ -111,8 +125,8 @@ export class SettingsService {
     readonly port: number;
     readonly database: DatabaseLocation;
     readonly pinHmacSecret: string;
-    /** Первый пользователь из файла настроек либо тестовый пользователь режима памяти. */
-    readonly initialUser: InitialUser | undefined;
+    /** Первый пользователь из файла настроек либо тестовые пользователи режима памяти. */
+    readonly initialUsers: ReadonlyArray<InitialUser>;
     readonly webRootPath = isSea() ? '' : path.resolve(import.meta.dirname, '../../web');
 
     constructor(@Inject(LaunchArguments) launch: LaunchArguments) {
@@ -121,6 +135,6 @@ export class SettingsService {
         this.port = this.settings.port;
         this.database = this.settings.database;
         this.pinHmacSecret = this.settings.pinHmacSecret;
-        this.initialUser = this.settings.initialUser;
+        this.initialUsers = this.settings.initialUsers;
     }
 }

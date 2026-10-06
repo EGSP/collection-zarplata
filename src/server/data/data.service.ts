@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Effect } from 'effect';
+import { platformRights, requiredRight } from '../authorization/rights.js';
+import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
 import { newGuid } from '../common/guid.js';
 import { DatabaseService } from '../database/database.service.js';
 import { Database } from '../database/database.effect.js';
@@ -62,13 +64,19 @@ const journalTarget = { kind: 'platform', name: 'journal' } as const;
 
 /**
  * Диспетчер выполняет операции в одной транзакции и предоставляет собственным обработчикам
- * контекст и повторный вход через Effect. Каждое изменяющее действие, в том числе вложенное,
- * записывает строку журнала в той же транзакции. Отсутствующие пока права и политики
- * подключатся к этому пути выполнения в отдельных задачах.
+ * контекст и повторный вход через Effect. Перед каждой операцией, в том числе вложенной,
+ * бизнес-гвард проверяет право пользователя на неё: цель операции известна только из тела
+ * запроса, поэтому проверить право на маршруте нельзя. Каждое изменяющее действие, в том числе
+ * вложенное, записывает строку журнала в той же транзакции. Отсутствующие пока политики
+ * подключатся к этому пути выполнения в отдельной задаче.
  */
 @Injectable()
 export class DataService {
-    constructor(private readonly metadata: MetadataService, private readonly database: DatabaseService) {}
+    constructor(
+        private readonly metadata: MetadataService,
+        private readonly database: DatabaseService,
+        private readonly rightsGuard: RightsGuardPlatform,
+    ) {}
 
     /**
      * Принимает одну операцию или непустой пакет. Вся цепочка использует одну транзакцию;
@@ -99,21 +107,31 @@ export class DataService {
         return work.pipe(Effect.provideService(Database, this.database.effect), Effect.provideService(Metadata, this.metadata));
     }
 
-    /** Находит цель и даёт каждому действию свой контекст, наследуя трассу и пользователя у вложенного. */
+    /**
+     * Находит цель, проверяет право пользователя на действие и даёт каждому действию свой контекст,
+     * наследуя трассу и пользователя у вложенного. Вложенное действие проверяется по правам того же
+     * пользователя: собственное действие не даёт доступа к объектам, на которые у него нет прав.
+     * Отказ завершает операцию `RightsDeniedError` и откатывает всю транзакцию запроса.
+     */
     private execute(value: unknown, userGuid: string | null = null): Effect.Effect<unknown, unknown, Exclude<ActionRequirements, ActionContext>> {
         return Effect.gen(function* (this: DataService) {
             const operation = parseOperation(value);
+            // У внешней операции родителя нет; вложенная получает текущий контекст из Effect.
+            const parent = yield* Effect.serviceOption(ActionContext);
+            const user = parent._tag === 'Some' ? parent.value.userGuid : userGuid;
             if (operation.target.kind === journalTarget.kind && operation.target.name === journalTarget.name) {
+                yield* this.rightsGuard.require(user, platformRights.journal.read);
                 return yield* readJournal(operation.action, operation.payload);
             }
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
             if (description === undefined) {
                 return yield* new DataNotFoundError({ message: `Объект ${operation.target.kind}.${operation.target.name} не найден` });
             }
-            // У внешней операции родителя нет; вложенная получает текущий контекст из Effect.
-            const parent = yield* Effect.serviceOption(ActionContext);
+            // Действия, которого у объекта нет, право не защищает: диспетчер ответит, что оно не найдено.
+            const right = requiredRight(description, operation.action);
+            if (right !== undefined) yield* this.rightsGuard.require(user, right);
             const context: ActionContext = {
-                userGuid: parent._tag === 'Some' ? parent.value.userGuid : userGuid,
+                userGuid: user,
                 traceGuid: parent._tag === 'Some' ? parent.value.traceGuid : newGuid(),
                 actionGuid: newGuid(),
                 parentActionGuid: parent._tag === 'Some' ? parent.value.actionGuid : null,

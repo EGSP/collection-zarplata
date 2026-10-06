@@ -7,6 +7,7 @@
  * Проверку переопределений (существование имён, однозначность групп) уже выполнил `commit()`,
  * поэтому построение не завершается ошибкой.
  */
+import { readRight, requiredRight, type Right } from '../authorization/rights.js';
 import type { FieldDescription, FormOverride, ObjectDescription } from '../metadata/descriptions.js';
 import { formHiddenStandardFields } from '../metadata/standard-fields.js';
 import {
@@ -156,4 +157,20 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
         form: object.kind === 'register' ? null : buildForm({ ...object, kind: object.kind }),
         list: buildList(object),
     };
+}
+
+/**
+ * Описание объекта для пользователя с учётом его прав. Возвращает `null`, если у пользователя
+ * нет права чтения: такой объект клиенту не показывается вовсе. Из действий формы остаются
+ * только те, которые диспетчер примет от этого пользователя: право для действия определяет та же
+ * функция, что и в диспетчере. Форма без действия `save` доступна только для просмотра.
+ */
+export function restrictObjectView(object: ObjectDescription, view: ObjectView, allows: (right: Right) => boolean): ObjectView | null {
+    if (!allows(readRight(object))) return null;
+    if (view.form === null) return view;
+    const actions = view.form.actions.filter((action) => {
+        const right = requiredRight(object, action.name);
+        return right !== undefined && allows(right);
+    });
+    return { ...view, form: { ...view.form, actions } };
 }
