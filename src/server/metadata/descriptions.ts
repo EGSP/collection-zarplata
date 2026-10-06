@@ -104,7 +104,11 @@ export interface FormDescription {
 /** Политика объекта; тип записи скрыт после сборки разнородных описаний конфигурации. */
 export interface PolicyDescription {
     readonly name: string;
-    readonly check: (change: never) => unknown;
+    readonly save: ((input: never) => unknown) | null;
+    readonly post: ((input: never) => unknown) | null;
+    readonly unpost: ((input: never) => unknown) | null;
+    readonly markDeleted: ((input: never) => unknown) | null;
+    readonly unmarkDeleted: ((input: never) => unknown) | null;
 }
 
 /**

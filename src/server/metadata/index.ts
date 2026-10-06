@@ -20,8 +20,10 @@ export {
     type RecordOf,
     type RegisterBuilder,
     type TablePartMap,
-    type WritePolicy,
-    type WriteChange,
+    type Policy,
+    type SavePolicyInput,
+    type PostingPolicyInput,
+    type DeletionPolicyInput,
 } from './builders.js';
 export { commitConfiguration } from './commit.js';
 export type * from './descriptions.js';

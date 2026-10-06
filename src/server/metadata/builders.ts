@@ -210,17 +210,33 @@ export class FormBuilder<Names extends string> {
     }
 }
 
-/** Состояние записи до и после одного изменяющего действия. */
-export interface WriteChange<Record> {
-    readonly action: string;
+/** Данные для проверки сохранения до выполнения изменяющих запросов. */
+export interface SavePolicyInput<Record> {
     readonly before: Record | null;
     readonly after: Record;
 }
 
-/** Проверка конфигурации перед изменением записи; отказ возвращается ошибкой Effect. */
-export interface WritePolicy<Record> {
+/** Данные для проверки проведения или отмены проведения существующего документа. */
+export interface PostingPolicyInput<Record> {
+    readonly document: Record;
+}
+
+/** Данные для проверки изменения пометки удаления существующей записи. */
+export interface DeletionPolicyInput<Record> {
+    readonly record: Record;
+}
+
+/**
+ * Прикладные проверки перед стандартными изменяющими действиями. Каждый обработчик необязателен;
+ * отсутствие обработчика означает, что политика не ограничивает соответствующее действие.
+ */
+export interface Policy<Record> {
     readonly name: string;
-    readonly check: (change: WriteChange<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly save?: (input: SavePolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly post?: (input: PostingPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly unpost?: (input: PostingPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly markDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly unmarkDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
 }
 
 /**
@@ -286,8 +302,8 @@ export interface RecordObjectBuilder<
         define: (form: FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>) => FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>,
     ): RecordBuilderOf<Kind, Name, Fields, Parts>;
 
-    /** Политика записи. Политики из нескольких вызовов выполняются по порядку. */
-    policy(policy: WritePolicy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts>;
+    /** Политика объекта. Политики из нескольких вызовов выполняются по порядку. */
+    policy(policy: Policy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts>;
 }
 
 /** Билдер справочника; его создаёт `catalog(name)`. */
@@ -413,8 +429,15 @@ class ObjectBuilderImplementation {
         return this.with({ form: define(new FormBuilder())['~overrides'] });
     }
 
-    policy(policy: WritePolicy<never>): this {
-        const description: PolicyDescription = { name: policy.name, check: policy.check };
+    policy(policy: Policy<never>): this {
+        const description: PolicyDescription = {
+            name: policy.name,
+            save: policy.save ?? null,
+            post: policy.post ?? null,
+            unpost: policy.unpost ?? null,
+            markDeleted: policy.markDeleted ?? null,
+            unmarkDeleted: policy.unmarkDeleted ?? null,
+        };
         return this.with({ policies: [...this['~state'].policies, description] });
     }
 

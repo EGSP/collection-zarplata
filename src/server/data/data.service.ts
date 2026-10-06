@@ -15,10 +15,15 @@ import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
 import { guidValue, loadRecord, objectValue, pageOptions, recordFromRow, sqlValue, stringValue, tableName, validated, type RecordValue } from './records.js';
 import { readOnlyDatabase } from './read-only-database.js';
-import { checkWritePolicies } from './write-policies.js';
+import { enforcePolicies, type PolicyInvocation } from './policies.js';
 
 /** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
 type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher;
+/** Подготовленное действие: аргументы политики и запись, которую можно выполнить после проверки. */
+type PreparedMutation = {
+    readonly policy: PolicyInvocation;
+    readonly apply: Effect.Effect<RecordValue, unknown, ActionRequirements>;
+};
 /** Внешний запрос после проверки обязательных полей оболочки; payload проверяется для выбранного действия. */
 type Operation = { readonly target: { readonly kind: string; readonly name: string }; readonly action: string; readonly payload: unknown };
 /**
@@ -65,8 +70,7 @@ const journalTarget = { kind: 'platform', name: 'journal' } as const;
 /**
  * Диспетчер выполняет операции в одной транзакции и предоставляет собственным обработчикам
  * контекст и повторный вход через Effect. Каждое изменяющее действие, в том числе вложенное,
- * записывает строку журнала в той же транзакции. Отсутствующие пока права и политики
- * подключатся к этому пути выполнения в отдельных задачах.
+ * записывает строку журнала в той же транзакции. Права добавит отдельная задача.
  */
 @Injectable()
 export class DataService {
@@ -132,20 +136,15 @@ export class DataService {
                 case 'get': return this.get(description, payload);
                 case 'save': return Effect.suspend(() => {
                     const guid = objectValue(payload, 'payload')['guid'] === undefined ? undefined : this.guidPayload(payload);
-                    return this.journaled(description, action, guid, (before) => this.save(description, payload, before));
+                    return this.executeMutation(description, action, guid, (before) => this.prepareSave(description, payload, before));
                 });
                 case 'markDeleted':
                 case 'unmarkDeleted': return Effect.suspend(() => {
                     const guid = this.guidPayload(payload);
-                    return this.journaled(description, action, guid, (before) => Effect.gen(function* () {
-                        const marked = action === 'markDeleted';
-                        yield* checkWritePolicies(description, {
-                            action,
-                            before: before!,
-                            after: { ...before, deletedAt: marked ? new Date().toISOString() : null,
-                                ...(marked && before!['posted'] === true ? { posted: false } : {}) },
-                        });
-                        return yield* markDeleted(description, guid, marked);
+                    const marked = action === 'markDeleted';
+                    return this.executeMutation(description, action, guid, (before) => Effect.succeed({
+                        policy: { action: marked ? 'markDeleted' : 'unmarkDeleted', input: { record: before! } },
+                        apply: markDeleted(description, guid, marked),
                     }));
                 });
             }
@@ -155,13 +154,9 @@ export class DataService {
                 case 'post':
                 case 'unpost': return Effect.suspend(() => {
                     const guid = this.guidPayload(payload);
-                    return this.journaled(description, action, guid, (before) => Effect.gen(function* () {
-                        yield* checkWritePolicies(description, {
-                            action,
-                            before: before!,
-                            after: { ...before, posted: action === 'post' },
-                        });
-                        return yield* (action === 'post' ? post : unpost)(description, guid);
+                    return this.executeMutation(description, action, guid, (before) => Effect.succeed({
+                        policy: { action: action === 'post' ? 'post' : 'unpost', input: { document: before! } },
+                        apply: (action === 'post' ? post : unpost)(description, guid),
                     }));
                 });
             }
@@ -200,21 +195,22 @@ export class DataService {
     }
 
     /**
-     * Выполняет изменяющее действие над записью и пишет о нём одну строку журнала: запись
-     * читается до действия и сравнивается с записью, которую действие вернуло. Без `guid`
-     * создаётся новый объект, и журнал получает все его заполненные поля. Отсутствующая запись
-     * даёт 404 при чтении «до», как дало бы и само действие. Ошибка действия строку не пишет.
+     * Выполняет общий конвейер изменения: читает запись, готовит действие, вызывает его политики,
+     * применяет действие и пишет одну строку журнала. Подготовка не изменяет базу. Любая ошибка
+     * прерывает конвейер и откатывает транзакцию запроса вместе с вложенными действиями.
      */
-    private journaled(
+    private executeMutation(
         description: ObjectDescription,
         action: string,
         guid: string | undefined,
-        work: (before: RecordValue | undefined) => Effect.Effect<RecordValue, unknown, ActionRequirements>,
+        prepare: (before: RecordValue | undefined) => Effect.Effect<PreparedMutation, unknown, ActionRequirements>,
     ): Effect.Effect<RecordValue, unknown, ActionRequirements> {
         return Effect.gen(function* () {
             const occurredAt = new Date().toISOString();
             const before = guid === undefined ? undefined : yield* loadRecord(description, guid);
-            const after = yield* work(before);
+            const prepared = yield* prepare(before);
+            yield* enforcePolicies(description, prepared.policy);
+            const after = yield* prepared.apply;
             yield* writeJournal({
                 occurredAt,
                 target: { kind: description.kind, name: description.name, guid: after['guid'] as string },
@@ -342,12 +338,10 @@ export class DataService {
     }
 
     /**
-     * Создаёт запись без guid или заменяет значения существующей записи с guid. Клиент передаёт
-     * полное состояние заполняемых полей и табличных частей; ошибочные значения откатывают запись.
-     * Новый документ получает следующий номер и не проведён. Проведённый документ после записи
-     * проводится заново, чтобы движения соответствовали новым данным. Запись с неизвестным guid даёт 404.
+     * Проверяет полное состояние полей и частей до записи и собирает план сохранения. Новый
+     * документ получает номер внутри транзакции, но изменяющие запросы выполняются после политик.
      */
-    private save(description: ObjectDescription, payload: unknown, before: RecordValue | undefined): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+    private prepareSave(description: ObjectDescription, payload: unknown, before: RecordValue | undefined): Effect.Effect<PreparedMutation, unknown, ActionRequirements> {
         return Effect.gen(function* (this: DataService) {
             const request = objectValue(payload, 'payload');
             const guid = request['guid'] === undefined ? newGuid() : stringValue(request['guid'], 'payload.guid');
@@ -357,26 +351,39 @@ export class DataService {
             for (const field of description.fields) {
                 if (!field.managed) values[field.name] = sqlValue(input[field.name]);
             }
-            const database = this.database.effect;
-            if (request['guid'] === undefined && description.kind === 'document') {
+            const creating = request['guid'] === undefined;
+            if (creating && description.kind === 'document') {
                 values['number'] = yield* this.nextNumber(description);
                 values['posted'] = 0;
             }
-            yield* checkWritePolicies(description, {
-                action: 'save',
-                before: before ?? null,
-                after: {
-                    ...before,
-                    ...input,
-                    guid,
-                    deletedAt: before?.['deletedAt'] ?? null,
-                    ...(description.kind === 'document' ? {
-                        number: before?.['number'] ?? values['number'],
-                        posted: before?.['posted'] ?? false,
-                    } : {}),
-                },
-            });
-            if (request['guid'] === undefined) {
+            const proposed: RecordValue = {
+                ...before,
+                ...input,
+                guid,
+                deletedAt: before?.['deletedAt'] ?? null,
+                ...(description.kind === 'document' ? {
+                    number: before?.['number'] ?? values['number'],
+                    posted: before?.['posted'] ?? false,
+                } : {}),
+            };
+            return {
+                policy: { action: 'save', input: { before: before ?? null, after: proposed } },
+                apply: this.applySave(description, guid, input, values, creating),
+            } satisfies PreparedMutation;
+        }.bind(this));
+    }
+
+    /** Сохраняет подготовленные поля и части; проведённый документ затем проводит заново. */
+    private applySave(
+        description: ObjectDescription,
+        guid: string,
+        input: RecordValue,
+        values: Record<string, SqlValue>,
+        creating: boolean,
+    ): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+        return Effect.gen(function* (this: DataService) {
+            const database = this.database.effect;
+            if (creating) {
                 yield* database.run(insert(tableName(description), values));
             } else {
                 // Обновление не снимает ранее установленную пометку удаления.
