@@ -142,7 +142,8 @@ export class ActionInputBuilder<Fields extends FieldMap = {}> {
 /**
  * Обработчик собственного действия получает проверенные входные данные и возвращает Effect.
  * Его ошибки прерывают всю транзакцию запроса. Через окружение ему доступны контекст действия,
- * диспетчер вложенных вызовов и база данных.
+ * диспетчер вложенных вызовов и чтение базы данных. Запись через Database запрещена;
+ * для изменения объектов обработчик вызывает ActionDispatcher.
  */
 export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, unknown>;
 
@@ -209,12 +210,33 @@ export class FormBuilder<Names extends string> {
     }
 }
 
-/** Политика записи объекта. Заготовка: порядок выполнения и способ отказа уточнит #10. */
-export interface WritePolicy<Record> {
-    /** Решает, можно ли записать объект в таком виде. */
-    readonly canWrite?: (record: Record) => Effect.Effect<boolean, unknown, unknown>;
-    /** Выполняется перед записью, например чтобы проверить связанные данные. */
-    readonly beforeWrite?: (record: Record) => Effect.Effect<unknown, unknown, unknown>;
+/** Существующая и предлагаемая записи для проверки сохранения до изменяющих запросов. */
+export interface SavePolicyInput<Record> {
+    readonly existingRecord: Record | null;
+    readonly proposedRecord: Record;
+}
+
+/** Данные для проверки проведения или отмены проведения существующего документа. */
+export interface PostingPolicyInput<Record> {
+    readonly document: Record;
+}
+
+/** Данные для проверки изменения пометки удаления существующей записи. */
+export interface DeletionPolicyInput<Record> {
+    readonly record: Record;
+}
+
+/**
+ * Прикладные проверки перед стандартными изменяющими действиями. Каждый обработчик необязателен;
+ * отсутствие обработчика означает, что политика не ограничивает соответствующее действие.
+ */
+export interface Policy<Record> {
+    readonly name: string;
+    readonly save?: (input: SavePolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly post?: (input: PostingPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly unpost?: (input: PostingPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly markDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly unmarkDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
 }
 
 /**
@@ -284,8 +306,8 @@ export interface RecordObjectBuilder<
         define: (form: FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>) => FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>,
     ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 
-    /** Политика записи. Политики из нескольких вызовов выполняются по порядку. */
-    policy(policy: WritePolicy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+    /** Политика объекта. Политики из нескольких вызовов выполняются по порядку. */
+    policy(policy: Policy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 }
 
 /** Билдер справочника; его создаёт `catalog(name)`. */
@@ -302,7 +324,7 @@ type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, F
 /**
  * Обработчик проведения получает сохранённую запись документа с табличными частями и возвращает
  * строки регистров, собранные функцией `movements(...)`. Через окружение ему доступны контекст
- * действия, диспетчер вложенных вызовов и база данных. Ошибка обработчика отменяет проведение
+ * действия, диспетчер вложенных вызовов и чтение базы данных. Ошибка обработчика отменяет проведение
  * вместе со всей транзакцией запроса.
  */
 export type PostingHandler<Record> = (record: Record) => Effect.Effect<ReadonlyArray<RegisterMovements>, unknown, unknown>;
@@ -415,8 +437,15 @@ class ObjectBuilderImplementation {
         return this.with({ form: define(new FormBuilder())['~overrides'] });
     }
 
-    policy(policy: WritePolicy<never>): this {
-        const description: PolicyDescription = { canWrite: policy.canWrite ?? null, beforeWrite: policy.beforeWrite ?? null };
+    policy(policy: Policy<never>): this {
+        const description: PolicyDescription = {
+            name: policy.name,
+            save: policy.save ?? null,
+            post: policy.post ?? null,
+            unpost: policy.unpost ?? null,
+            markDeleted: policy.markDeleted ?? null,
+            unmarkDeleted: policy.unmarkDeleted ?? null,
+        };
         return this.with({ policies: [...this['~state'].policies, description] });
     }
 
