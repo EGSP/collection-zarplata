@@ -9,11 +9,65 @@ import { Effect, Schema } from 'effect';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
 import { select, type SqlValue } from '../database/sql.builder.js';
+import { guidPattern } from '../common/guid.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 
 /** Представление строки после чтения из базы или проверки входных данных. */
 export type RecordValue = Record<string, unknown>;
+
+/** Страница списка после проверки: номер с единицы, размер от 1 до 500 и смещение первой строки. */
+export interface PageOptions {
+    readonly page: number;
+    readonly pageSize: number;
+    readonly offset: number;
+}
+
+/** Отклоняет массив и null до обращения к полям тела запроса; location попадает в ответ 400. */
+export function objectValue(value: unknown, location: string): RecordValue {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new DataValidationError({ message: `Ожидается объект: ${location}`, fields: [location] });
+    }
+    return value as RecordValue;
+}
+
+/** Извлекает обязательную непустую строку из непроверенного тела запроса. */
+export function stringValue(value: unknown, location: string): string {
+    if (typeof value !== 'string' || value.length === 0) {
+        throw new DataValidationError({ message: `Нужно указать ${location}`, fields: [location] });
+    }
+    return value;
+}
+
+/** Извлекает обязательный guid; неверный формат даёт 400 до запроса к базе, а не пустой результат. */
+export function guidValue(value: unknown, location: string): string {
+    const guid = stringValue(value, location);
+    if (!guidPattern.test(guid)) throw new DataValidationError({ message: 'Ожидается guid', fields: [location] });
+    return guid;
+}
+
+/** Принимает только точно представимое целое число; значение по умолчанию действует лишь при отсутствии поля. */
+function nonnegative(value: unknown, location: string, fallback: number): number {
+    if (value === undefined) return fallback;
+    if (!Number.isSafeInteger(value) || (value as number) < 0) {
+        throw new DataValidationError({ message: `${location}: ожидается неотрицательное целое число`, fields: [location] });
+    }
+    return value as number;
+}
+
+/**
+ * Проверяет `page` и `pageSize` из payload списка. Без них действует первая страница по 50 строк;
+ * размер ограничен 500 строками, чтобы один запрос не выгружал таблицу целиком.
+ */
+export function pageOptions(options: RecordValue): PageOptions {
+    const page = nonnegative(options['page'], 'payload.page', 1);
+    if (page < 1) throw new DataValidationError({ message: 'Номер страницы должен быть больше нуля', fields: ['payload.page'] });
+    const pageSize = nonnegative(options['pageSize'], 'payload.pageSize', 50);
+    if (pageSize < 1 || pageSize > 500) throw new DataValidationError({ message: 'Размер страницы должен быть от 1 до 500', fields: ['payload.pageSize'] });
+    const offset = (page - 1) * pageSize;
+    if (!Number.isSafeInteger(offset)) throw new DataValidationError({ message: 'Номер страницы слишком велик', fields: ['payload.page'] });
+    return { page, pageSize, offset };
+}
 
 /** Имя таблицы выводится только из проверенных метаданных, а не из произвольной строки запроса. */
 export function tableName(description: ObjectDescription): string {

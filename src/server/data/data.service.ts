@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
 import { Effect } from 'effect';
+import { newGuid } from '../common/guid.js';
 import { DatabaseService } from '../database/database.service.js';
 import { Database } from '../database/database.effect.js';
 import { insert, remove, select, sqlIdentifier, update, type SqlCondition, type SqlFilter, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
@@ -8,11 +8,12 @@ import type { ObjectDescription } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { MetadataService } from '../metadata/metadata.service.js';
 import { actionInputSchema, fieldSchema, inputSchema } from '../metadata/schema.js';
+import { readJournal, recordChanges, writeJournal } from '../journal/journal.js';
 import { filterOperators, type FilterOperator } from '../ui/descriptions.js';
 import { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
-import { loadRecord, recordFromRow, sqlValue, tableName, validated, type RecordValue } from './records.js';
+import { guidValue, loadRecord, objectValue, pageOptions, recordFromRow, sqlValue, stringValue, tableName, validated, type RecordValue } from './records.js';
 
 /** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
 type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher;
@@ -45,45 +46,6 @@ function searchText(value: string): string {
     return value.normalize('NFC').toLowerCase();
 }
 
-/**
- * Создаёт UUIDv7: первые шесть байт содержат время, остальные заполняются случайными байтами.
- * Версия и вариант задаются отдельно, чтобы идентификаторы оставались совместимыми с UUID.
- */
-function newGuid(): string {
-    const bytes = randomBytes(16);
-    const time = Date.now();
-    for (let index = 5; index >= 0; index--) bytes[index] = Math.floor(time / 2 ** ((5 - index) * 8)) & 255;
-    bytes[6] = (bytes[6]! & 15) | 0x70;
-    bytes[8] = (bytes[8]! & 63) | 0x80;
-    const hex = bytes.toString('hex');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-/** Отклоняет массив и null до обращения к полям тела запроса; location попадает в ответ 400. */
-function objectValue(value: unknown, location: string): RecordValue {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-        throw new DataValidationError({ message: `Ожидается объект: ${location}`, fields: [location] });
-    }
-    return value as RecordValue;
-}
-
-/** Извлекает обязательную непустую строку из непроверенного тела запроса. */
-function stringValue(value: unknown, location: string): string {
-    if (typeof value !== 'string' || value.length === 0) {
-        throw new DataValidationError({ message: `Нужно указать ${location}`, fields: [location] });
-    }
-    return value;
-}
-
-/** Принимает только точно представимое целое число; значение по умолчанию действует лишь при отсутствии поля. */
-function nonnegative(value: unknown, location: string, fallback: number): number {
-    if (value === undefined) return fallback;
-    if (!Number.isSafeInteger(value) || (value as number) < 0) {
-        throw new DataValidationError({ message: `${location}: ожидается неотрицательное целое число`, fields: [location] });
-    }
-    return value as number;
-}
-
 /** Проверяет оболочку операции, оставляя проверку payload схеме конкретного действия. */
 function parseOperation(value: unknown): Operation {
     const operation = objectValue(value, 'операция');
@@ -95,9 +57,13 @@ function parseOperation(value: unknown): Operation {
     };
 }
 
+/** Цель операции чтения журнала. Вид `platform` не совпадает ни с одним видом объектов конфигурации. */
+const journalTarget = { kind: 'platform', name: 'journal' } as const;
+
 /**
  * Диспетчер выполняет операции в одной транзакции и предоставляет собственным обработчикам
- * контекст и повторный вход через Effect. Отсутствующие пока права, политики и журнал
+ * контекст и повторный вход через Effect. Каждое изменяющее действие, в том числе вложенное,
+ * записывает строку журнала в той же транзакции. Отсутствующие пока права и политики
  * подключатся к этому пути выполнения в отдельных задачах.
  */
 @Injectable()
@@ -137,6 +103,9 @@ export class DataService {
     private execute(value: unknown, userGuid: string | null = null): Effect.Effect<unknown, unknown, Exclude<ActionRequirements, ActionContext>> {
         return Effect.gen(function* (this: DataService) {
             const operation = parseOperation(value);
+            if (operation.target.kind === journalTarget.kind && operation.target.name === journalTarget.name) {
+                return yield* readJournal(operation.action, operation.payload);
+            }
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
             if (description === undefined) {
                 return yield* new DataNotFoundError({ message: `Объект ${operation.target.kind}.${operation.target.name} не найден` });
@@ -159,15 +128,24 @@ export class DataService {
             switch (action) {
                 case 'list': return this.list(description, payload);
                 case 'get': return this.get(description, payload);
-                case 'save': return this.save(description, payload);
-                case 'markDeleted': return Effect.suspend(() => markDeleted(description, this.guidPayload(payload), true));
-                case 'unmarkDeleted': return Effect.suspend(() => markDeleted(description, this.guidPayload(payload), false));
+                case 'save': return Effect.suspend(() => {
+                    const guid = objectValue(payload, 'payload')['guid'] === undefined ? undefined : this.guidPayload(payload);
+                    return this.journaled(description, action, guid, this.save(description, payload));
+                });
+                case 'markDeleted':
+                case 'unmarkDeleted': return Effect.suspend(() => {
+                    const guid = this.guidPayload(payload);
+                    return this.journaled(description, action, guid, markDeleted(description, guid, action === 'markDeleted'));
+                });
             }
         }
         if (description.kind === 'document') {
             switch (action) {
-                case 'post': return Effect.suspend(() => post(description, this.guidPayload(payload)));
-                case 'unpost': return Effect.suspend(() => unpost(description, this.guidPayload(payload)));
+                case 'post':
+                case 'unpost': return Effect.suspend(() => {
+                    const guid = this.guidPayload(payload);
+                    return this.journaled(description, action, guid, (action === 'post' ? post : unpost)(description, guid));
+                });
             }
         }
         if (description.kind === 'register') {
@@ -182,12 +160,17 @@ export class DataService {
         const custom = description.actions.find((candidate) => candidate.name === action);
         if (custom !== undefined && custom.handler !== null) {
             return Effect.gen(function* () {
+                const occurredAt = new Date().toISOString();
                 const schema = actionInputSchema(description, action)!;
                 const input = yield* validated(schema, payload, 'payload');
                 // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
                 const result = custom.handler!(input as never);
                 if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик действия должен вернуть Effect'));
-                return yield* result as Effect.Effect<unknown, unknown, ActionRequirements>;
+                const value = yield* result as Effect.Effect<unknown, unknown, ActionRequirements>;
+                // Платформа не знает, что именно изменил обработчик: изменения записей попадают в журнал
+                // строками вложенных действий, а эта строка связывает их с вызовом через parentActionGuid.
+                yield* writeJournal({ occurredAt, target: { kind: description.kind, name: description.name, guid: null }, action, changes: null });
+                return value;
             }.bind(this));
         }
         return Effect.fail(new DataNotFoundError({ message: `Действие «${action}» для ${description.kind}.${description.name} не найдено` }));
@@ -195,12 +178,33 @@ export class DataService {
 
     /** Проверяет идентификатор в действиях чтения и пометки до запроса к базе. */
     private guidPayload(payload: unknown): string {
-        const value = objectValue(payload, 'payload');
-        const guid = stringValue(value['guid'], 'payload.guid');
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(guid)) {
-            throw new DataValidationError({ message: 'Ожидается guid', fields: ['payload.guid'] });
-        }
-        return guid;
+        return guidValue(objectValue(payload, 'payload')['guid'], 'payload.guid');
+    }
+
+    /**
+     * Выполняет изменяющее действие над записью и пишет о нём одну строку журнала: запись
+     * читается до действия и сравнивается с записью, которую действие вернуло. Без `guid`
+     * создаётся новый объект, и журнал получает все его заполненные поля. Отсутствующая запись
+     * даёт 404 при чтении «до», как дало бы и само действие. Ошибка действия строку не пишет.
+     */
+    private journaled(
+        description: ObjectDescription,
+        action: string,
+        guid: string | undefined,
+        work: Effect.Effect<RecordValue, unknown, ActionRequirements>,
+    ): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+        return Effect.gen(function* () {
+            const occurredAt = new Date().toISOString();
+            const before = guid === undefined ? undefined : yield* loadRecord(description, guid);
+            const after = yield* work;
+            yield* writeJournal({
+                occurredAt,
+                target: { kind: description.kind, name: description.name, guid: after['guid'] as string },
+                action,
+                changes: recordChanges(description, before, after),
+            });
+            return after;
+        });
     }
 
     /** Читает одну запись вместе со всеми табличными частями; отсутствующая запись даёт 404. */
@@ -217,12 +221,7 @@ export class DataService {
     private list(description: ObjectDescription, payload: unknown): Effect.Effect<unknown, unknown> {
         return Effect.gen(function* (this: DataService) {
             const options = objectValue(payload, 'payload');
-            const page = nonnegative(options['page'], 'payload.page', 1);
-            if (page < 1) return yield* new DataValidationError({ message: 'Номер страницы должен быть больше нуля', fields: ['payload.page'] });
-            const pageSize = nonnegative(options['pageSize'], 'payload.pageSize', 50);
-            if (pageSize < 1 || pageSize > 500) return yield* new DataValidationError({ message: 'Размер страницы должен быть от 1 до 500', fields: ['payload.pageSize'] });
-            const offset = (page - 1) * pageSize;
-            if (!Number.isSafeInteger(offset)) return yield* new DataValidationError({ message: 'Номер страницы слишком велик', fields: ['payload.page'] });
+            const { page, pageSize, offset } = pageOptions(options);
             const filters = options['filter'] ?? [];
             const sorting = options['sort'] ?? [];
             if (!Array.isArray(filters) || !Array.isArray(sorting)) return yield* new DataValidationError({ message: 'Отбор и сортировка должны быть списками', fields: ['payload.filter', 'payload.sort'] });
