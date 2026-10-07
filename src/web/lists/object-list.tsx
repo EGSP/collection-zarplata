@@ -1,7 +1,7 @@
 import { CheckCircleOutlined, DeleteOutlined, MoreOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTable, type CrudSort } from '@refinedev/core';
-import { Alert, Button, Dropdown, Flex, Table, theme, Typography, type TableProps } from 'antd';
-import { useMemo } from 'react';
+import { Alert, Button, Dropdown, Flex, Input, Table, theme, Typography, type TableProps } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import type { ListColumn, ObjectView } from '../../server/ui/descriptions';
 import type { ApiError } from '../common/api';
@@ -12,6 +12,8 @@ import { resourceName } from '../data-provider/perform';
 import { recordGuid, type RecordData } from '../data-provider/records';
 import { FieldDisplay } from '../widgets/registry';
 import { ListFilters } from './list-filters';
+import { ListPresentationsContext } from '../references/presentation';
+import type { ReferencePresentations } from '../../server/ui/reference-presentation';
 
 /** Размеры страницы, которые предлагает список, и размер при открытии. */
 const pageSizes = [20, 50, 100];
@@ -39,6 +41,8 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
     const performAction = useAction();
     const resource = resourceName(object);
     const { list, form } = object;
+    const [searchInput, setSearchInput] = useState('');
+    const [search, setSearch] = useState('');
 
     const { tableQuery, result, sorters, setSorters, filters, setFilters, currentPage, setCurrentPage, pageSize, setPageSize } = useTable<RecordData, ApiError>({
         resource,
@@ -46,7 +50,17 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
         pagination: { pageSize: defaultPageSize },
         sorters: { initial: list.defaultSort.map(crudSort) },
         filters: { defaultBehavior: 'replace' },
+        meta: { search },
     });
+
+    useEffect(() => {
+        if (searchInput === search) return;
+        const timer = setTimeout(() => {
+            setCurrentPage(1);
+            setSearch(searchInput);
+        }, searchInput === '' ? 0 : 300);
+        return () => clearTimeout(timer);
+    }, [searchInput, search, setCurrentPage]);
 
     const formActions = useMemo(() => new Set(form?.actions.map((action) => action.name)), [form]);
     const listState: ListLocationState = { list: location.pathname + location.search };
@@ -141,6 +155,13 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
                     </Button>
                 )}
             </Flex>
+            <Input
+                aria-label="Поиск"
+                placeholder="Поиск"
+                allowClear
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+            />
             <ListFilters
                 filters={list.filters}
                 applied={filters}
@@ -151,27 +172,29 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
                 }}
             />
             {tableQuery.isError && <Alert type="error" showIcon title="Не удалось загрузить список" description={tableQuery.error.message} />}
-            <Table<RecordData>
-                size="small"
-                rowKey={(record) => rowKey(object, record)}
-                columns={columns}
-                dataSource={result.data}
-                loading={tableQuery.isFetching}
-                onChange={onTableChange}
-                pagination={{
-                    current: currentPage,
-                    pageSize,
-                    total: result.total ?? 0,
-                    showSizeChanger: true,
-                    pageSizeOptions: pageSizes,
-                    showTotal: (total) => `Записей: ${total}`,
-                }}
-                onRow={(record) => ({
-                    ...(form === null ? {} : { onDoubleClick: () => openRecord(record) }),
-                    // Помеченная на удаление запись остаётся в списке, но её строка бледнее обычной.
-                    ...(list.deletionMark && isMarkedDeleted(record) ? { style: { color: token.colorTextDisabled } } : {}),
-                })}
-            />
+            <ListPresentationsContext.Provider value={result['presentations'] as ReferencePresentations | undefined}>
+                <Table<RecordData>
+                    size="small"
+                    rowKey={(record) => rowKey(object, record)}
+                    columns={columns}
+                    dataSource={result.data}
+                    loading={tableQuery.isFetching}
+                    onChange={onTableChange}
+                    pagination={{
+                        current: currentPage,
+                        pageSize,
+                        total: result.total ?? 0,
+                        showSizeChanger: true,
+                        pageSizeOptions: pageSizes,
+                        showTotal: (total) => `Записей: ${total}`,
+                    }}
+                    onRow={(record) => ({
+                        ...(form === null ? {} : { onDoubleClick: () => openRecord(record) }),
+                        // Помеченная на удаление запись остаётся в списке, но её строка бледнее обычной.
+                        ...(list.deletionMark && isMarkedDeleted(record) ? { style: { color: token.colorTextDisabled } } : {}),
+                    })}
+                />
+            </ListPresentationsContext.Provider>
         </Flex>
     );
 }

@@ -3,7 +3,7 @@
  * то есть в ячейке списка и на форме у полей только для чтения. Отображение ссылки и регистратора
  * лежит отдельно (`references/reference-display.tsx`). Незаполненное значение ничего не выводит.
  */
-import { formatDate, formatDateTime, formatMoney, formatNumber } from './format';
+import { formatBoolean, formatDate, formatDateTime, formatMoney, formatNumber } from './format';
 import type { DisplayProperties } from './widget';
 
 /** Отображение строки и `guid`: значение выводится как есть. */
@@ -30,5 +30,5 @@ export function DateTimeDisplay({ value }: DisplayProperties<string>) {
 
 /** Отображение логического значения словами «Да» и «Нет». */
 export function BooleanDisplay({ value }: DisplayProperties<boolean>) {
-    return <>{value === null || value === undefined ? '' : value ? 'Да' : 'Нет'}</>;
+    return <>{value === null || value === undefined ? '' : formatBoolean(value)}</>;
 }

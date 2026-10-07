@@ -2,27 +2,26 @@
  * Представление записи: текст, по которому человек узнаёт запись.
  *
  * Ссылка хранит `guid`, который пользователю ничего не говорит, поэтому везде вместо него
- * выводится представление. Оно вычисляется на клиенте по описанию объекта и записи только
- * здесь: в поле ссылки, в ячейке списка, в колонке регистратора и в заголовке формы запись
- * называется одинаково.
+ * выводится представление. Общий формат используется сервером и клиентом; в списке
+ * сервер передаёт актуальные представления вместе со страницей, а вне списка клиент читает запись.
  */
 import { useMany } from '@refinedev/core';
 import type { ObjectView } from '../../server/ui/descriptions';
 import type { ApiError } from '../common/api';
 import { resourceName } from '../data-provider/perform';
 import type { RecordData } from '../data-provider/records';
-import { formatDate } from '../widgets/format';
+import { createContext, useContext } from 'react';
+import { recordPresentation as formatPresentation, referenceKey, type ReferencePresentations } from '../../server/ui/reference-presentation';
+
+/** Представления текущей страницы; вне списка ссылки используют обычное чтение записи. */
+export const ListPresentationsContext = createContext<ReferencePresentations | undefined>(undefined);
 
 /**
  * Представление записи справочника или документа. У справочника это наименование, у документа:
  * «<заголовок объекта> № <номер> от <дата>».
  */
 export function recordPresentation(object: ObjectView, record: RecordData): string {
-    if (object.kind === 'document') {
-        const date = record['date'];
-        return `${object.title} № ${String(record['number'] ?? '')} от ${typeof date === 'string' ? formatDate(date) : ''}`;
-    }
-    return String(record['name'] ?? '');
+    return formatPresentation({ kind: object.kind === 'document' ? 'document' : 'catalog', name: object.name, title: object.title }, record);
 }
 
 /**
@@ -38,7 +37,8 @@ export function recordTitle(object: ObjectView, record: RecordData | null): stri
  * Сколько миллисекунд прочитанная по ссылке запись считается свежей. В этот срок та же запись
  * повторно не запрашивается, даже если ссылка на неё встретилась на другой странице. Изменение
  * записи самим пользователем сбрасывает сохранённые ответы раньше срока, а чужое изменение
- * наименования пользователь увидит не позже чем через этот срок.
+ * наименования вне списка пользователь увидит не позже чем через этот срок.
+ * Список получает представления с сервера при каждом чтении страницы.
  */
 const presentationStaleTime = 60_000;
 
@@ -53,14 +53,18 @@ export interface ReferencePresentation {
 /**
  * Читает запись по ссылке и возвращает её представление. Записи всех ссылок страницы читаются
  * одним запросом (`getMany` data provider) и хранятся в общем кеше запросов. При `guid`, равном
- * `null`, запрос не отправляется.
+ * `null`, запрос не отправляется. В списке приоритет имеют представления его страницы:
+ * они уже учитывают права и состояние данных на момент серверного поиска.
  */
 export function useReferencePresentation(object: ObjectView, guid: string | null): ReferencePresentation {
+    const presentations = useContext(ListPresentationsContext);
+    const key = guid === null ? null : referenceKey({ kind: object.kind === 'document' ? 'document' : 'catalog', name: object.name, guid });
+    const fromList = key !== null && presentations !== undefined && Object.hasOwn(presentations, key);
     const { query } = useMany<RecordData, ApiError>({
         resource: resourceName(object),
         ids: guid === null ? [] : [guid],
         queryOptions: {
-            enabled: guid !== null,
+            enabled: guid !== null && !fromList,
             staleTime: presentationStaleTime,
             // Общая настройка клиента запросов оставляет на экране прежние данные, пока идёт запрос.
             // Для ссылки это показало бы представление другой записи.
@@ -71,6 +75,10 @@ export function useReferencePresentation(object: ObjectView, guid: string | null
     });
     const record = query.data?.data[0];
     if (guid === null) return { text: '', loaded: false };
+    if (key !== null && presentations !== undefined && fromList) {
+        const text = presentations[key];
+        return { text: text ?? 'Запись недоступна', loaded: text !== null && text !== undefined };
+    }
     if (record !== undefined) return { text: recordPresentation(object, record), loaded: true };
     return { text: query.isError ? 'Не удалось прочитать запись' : 'Загрузка…', loaded: false };
 }
