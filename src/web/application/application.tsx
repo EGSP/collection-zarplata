@@ -1,20 +1,22 @@
 import { Authenticated, Refine } from '@refinedev/core';
-import routerProvider from '@refinedev/react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { App as AntdApplication, ConfigProvider } from 'antd';
 import ruRU from 'antd/locale/ru_RU';
 import { useMemo } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router';
+import { createBrowserRouter, Route, RouterProvider, Routes } from 'react-router';
 import { createAuthenticationProvider } from '../authentication/authentication-provider';
 import { LoginPage } from '../authentication/login-page';
+import { NotFoundPage } from '../common/not-found';
 import { Pending } from '../common/pending';
 import { dataProvider } from '../data-provider/data-provider';
 import { metadataQuery, useMetadata } from '../data-provider/metadata';
+import { RecordPage } from '../forms/record-page';
 import { ApplicationLayout } from './layout';
 import { i18nProvider, useNotificationProvider } from './notifications';
-import { NotFoundPage, ObjectPage, StartPage } from './pages';
+import { ObjectPage, StartPage } from './pages';
 import { queryClient } from './query-client';
 import { objectResources } from './resources';
+import { applicationRouterProvider } from './router-provider';
 
 // При открытии приложения действие cookie проверяется загрузкой описаний объектов: они всё равно
 // нужны сразу после входа, а отдельного запроса «кто я» у сервера нет.
@@ -31,18 +33,29 @@ const refineOptions = {
     reactQuery: { clientConfig: queryClient },
 };
 
-/** Корень клиента: провайдеры маршрутизации, Ant Design и запросов вокруг приложения Refine. */
+/**
+ * Маршрутизатор приложения. Нужен именно маршрутизатор с данными: только он умеет остановить
+ * переход, а форме это нужно, чтобы спросить подтверждение при несохранённых изменениях.
+ * Маршрут у него один на все адреса, а страницы по адресам раскладывает `RefineApplication`:
+ * маршруты страниц должны лежать внутри `<Refine>`.
+ */
+const router = createBrowserRouter([{ path: '*', element: <Providers /> }]);
+
+/** Корень клиента. */
 export function Application() {
+    return <RouterProvider router={router} />;
+}
+
+/** Провайдеры Ant Design и запросов вокруг приложения Refine. */
+function Providers() {
     return (
-        <BrowserRouter>
-            <ConfigProvider locale={ruRU}>
-                <AntdApplication>
-                    <QueryClientProvider client={queryClient}>
-                        <RefineApplication />
-                    </QueryClientProvider>
-                </AntdApplication>
-            </ConfigProvider>
-        </BrowserRouter>
+        <ConfigProvider locale={ruRU}>
+            <AntdApplication>
+                <QueryClientProvider client={queryClient}>
+                    <RefineApplication />
+                </QueryClientProvider>
+            </AntdApplication>
+        </ConfigProvider>
     );
 }
 
@@ -59,7 +72,7 @@ function RefineApplication() {
     const resources = useMemo(() => objectResources(metadata.data?.objects ?? []), [metadata.data]);
     return (
         <Refine
-            routerProvider={routerProvider}
+            routerProvider={applicationRouterProvider}
             dataProvider={dataProvider}
             authProvider={authenticationProvider}
             notificationProvider={useNotificationProvider}
@@ -77,6 +90,7 @@ function RefineApplication() {
                 >
                     <Route index element={<StartPage />} />
                     <Route path=":kind/:name" element={<ObjectPage />} />
+                    <Route path=":kind/:name/:guid" element={<RecordPage />} />
                     <Route path="*" element={<NotFoundPage />} />
                 </Route>
             </Routes>

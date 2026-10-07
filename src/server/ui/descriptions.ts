@@ -9,9 +9,9 @@
  * Описание уже учитывает переопределения формы из конфигурации: клиенту не нужно знать,
  * что задано по умолчанию, а что переопределено.
  */
-import type { FieldKind, ObjectKind, ObjectTarget } from '../metadata/descriptions.js';
+import type { FieldKind, ObjectKind, ObjectTarget, RecorderValue } from '../metadata/descriptions.js';
 
-export type { FieldKind, ObjectKind, ObjectTarget };
+export type { FieldKind, ObjectKind, ObjectTarget, RecorderValue };
 
 /**
  * Правила проверки значения поля. Клиент проверяет по ним ввод до отправки, окончательную
