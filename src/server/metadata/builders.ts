@@ -98,6 +98,20 @@ export type RecordOf<Builder extends ObjectBuilder> = ObjectRecord<Builder['kind
 /** Имена полей объекта, включая стандартные. */
 type FieldNames<Kind extends ObjectKind, Fields extends FieldMap> = keyof StandardFields[Kind] & string | keyof Fields & string;
 
+/**
+ * Ограничение имени с причиной в сообщении компилятора. Широкий string не раскрывает
+ * конкретное имя; если накопленные ключи уже расширены до string, повторы проверяет commit().
+ * Пересечение сохраняет литеральный тип имени, а текст причины объясняет конфликт вместо never.
+ */
+type AvailableName<Name extends string, Existing extends PropertyKey, Reason extends string> =
+    string extends Name ? unknown : string extends Existing ? unknown :
+    [Extract<Name, Existing>] extends [never] ? unknown : { readonly nameError: Reason; readonly conflictingName: Extract<Name, Existing> };
+
+/** Стандартные поля проверяются отдельно: широкие прикладные имена не отменяют этот запрет. */
+type AvailableFieldName<Name extends string, Kind extends ObjectKind, Fields extends FieldMap> = Name
+    & AvailableName<NoInfer<Name>, keyof StandardFields[Kind], 'имя поля совпадает со стандартным полем'>
+    & AvailableName<NoInfer<Name>, keyof Fields, 'имя поля повторяется'>;
+
 /** Билдер табличной части: заголовок и поля строки. */
 export class TablePartBuilder<Fields extends FieldMap = {}> {
     /** Только для вывода типов: во время выполнения свойства нет. */
@@ -114,8 +128,9 @@ export class TablePartBuilder<Fields extends FieldMap = {}> {
         return new TablePartBuilder(title, this['~entries']);
     }
 
+    /** Поле строки с уникальным литеральным именем; широкие имена проверяет сборка описания. */
     field<const Name extends string, Field extends AnyFieldBuilder>(
-        name: Name,
+        name: Name & AvailableName<NoInfer<Name>, keyof Fields, 'имя поля повторяется'>,
         define: (field: FieldFactory) => Field,
     ): TablePartBuilder<Fields & { readonly [K in Name]: Field }> {
         return new TablePartBuilder(this['~title'], [...this['~entries'], attribute(name, define)]);
@@ -132,8 +147,9 @@ export class ActionInputBuilder<Fields extends FieldMap = {}> {
         this['~entries'] = entries;
     }
 
+    /** Поле входных данных с уникальным литеральным именем в пределах этого действия. */
     field<const Name extends string, Field extends AnyFieldBuilder>(
-        name: Name,
+        name: Name & AvailableName<NoInfer<Name>, keyof Fields, 'имя поля повторяется'>,
         define: (field: FieldFactory) => Field,
     ): ActionInputBuilder<Fields & { readonly [K in Name]: Field }> {
         return new ActionInputBuilder([...this['~entries'], attribute(name, define)]);
@@ -286,21 +302,21 @@ export interface RecordObjectBuilder<
     /** Заголовок объекта в интерфейсе. Если он не задан, используется имя. */
     title(title: string): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 
-    /** Реквизит объекта. Имя и тип поля попадают в тип записи. */
+    /** Реквизит объекта. Литеральное имя проверяется на повтор и совпадение со стандартным полем. */
     field<const FieldName extends string, Field extends AnyFieldBuilder>(
-        name: FieldName,
+        name: AvailableFieldName<FieldName, Kind, Fields>,
         define: (field: FieldFactory) => Field,
     ): RecordBuilderOf<Kind, Name, Fields & { readonly [K in FieldName]: Field }, Parts, Actions>;
 
-    /** Табличная часть; в записи она представлена массивом строк. */
+    /** Табличная часть с уникальным литеральным именем; в записи представлена массивом строк. */
     tablePart<const PartName extends string, PartFields extends FieldMap>(
-        name: PartName,
+        name: PartName & AvailableName<NoInfer<PartName>, keyof Parts, 'имя табличной части повторяется'>,
         define: (part: TablePartBuilder) => TablePartBuilder<PartFields>,
     ): RecordBuilderOf<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }, Actions>;
 
-    /** Собственное действие, доступное через единый эндпоинт. Имя попадает в тип билдера: по нему выводится право на действие. */
+    /** Собственное действие с уникальным литеральным именем; имя также определяет право на действие. */
     action<const ActionName extends string, Input extends FieldMap>(
-        name: ActionName,
+        name: ActionName & AvailableName<NoInfer<ActionName>, Actions, 'имя собственного действия повторяется'>,
         define: (action: ActionBuilder) => ActionBuilder<Input>,
     ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions | ActionName>;
 
@@ -359,12 +375,12 @@ export interface InformationRegisterBuilder<Name extends string, Fields extends 
     title(title: string): InformationRegisterBuilder<Name, Fields>;
     /** Часть ключа; обязательность добавляется независимо от вызова required(). */
     dimension<const FieldName extends string, Field extends AnyFieldBuilder>(
-        name: FieldName,
+        name: AvailableFieldName<FieldName, 'informationRegister', Fields>,
         define: (field: FieldFactory) => Field,
     ): InformationRegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field & RequiredField }>;
     /** Хранимое значение, которое save заменяет вместе с остальными ресурсами. */
     resource<const FieldName extends string, Field extends AnyFieldBuilder>(
-        name: FieldName,
+        name: AvailableFieldName<FieldName, 'informationRegister', Fields>,
         define: (field: FieldFactory) => Field,
     ): InformationRegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }>;
     /** Прикладные проверки записи и физического удаления. */
@@ -382,13 +398,13 @@ export interface RegisterBuilder<Name extends string, Fields extends FieldMap> e
 
     /** Измерение: разрез, по которому отбирают и группируют строки. */
     dimension<const FieldName extends string, Field extends AnyFieldBuilder>(
-        name: FieldName,
+        name: AvailableFieldName<FieldName, 'register', Fields>,
         define: (field: FieldFactory) => Field,
     ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }>;
 
     /** Ресурс: число или деньги, которые суммируются. */
     resource<const FieldName extends string, Field extends ResourceFieldBuilder>(
-        name: FieldName,
+        name: AvailableFieldName<FieldName, 'register', Fields>,
         define: (field: FieldFactory) => Field,
     ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }>;
 }
