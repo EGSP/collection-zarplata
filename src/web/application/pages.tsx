@@ -6,9 +6,13 @@ import { useMetadata, useObjectView } from '../data-provider/metadata';
 import { resourceName } from '../data-provider/perform';
 import { ObjectList } from '../lists/object-list';
 
-/** Начальная страница: открывает первый доступный объект. У пользователя без прав объектов нет. */
+/**
+ * Начальная страница: открывает первый объект первой подсистемы. Объект берётся из схемы оболочки,
+ * а не из списка описаний: объект, убранный из схемы намеренно, не должен открываться сам.
+ * У пользователя без прав подсистем нет.
+ */
 export function StartPage() {
-    const first = useMetadata().data?.objects[0];
+    const first = useMetadata().data?.shell.subsystems[0]?.groups[0]?.objects[0];
     if (first === undefined) return <Empty description="Нет доступных объектов" />;
     return <Navigate to={objectPath(first)} replace />;
 }

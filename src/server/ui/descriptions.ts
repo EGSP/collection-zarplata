@@ -188,7 +188,39 @@ export interface ObjectView {
     readonly list: ListView;
 }
 
-/** Ответ `GET /api/metadata`: объекты конфигурации, которые пользователь вправе читать, в порядке файлов реестра. */
+/** Ссылка на объект конфигурации в схеме оболочки. Заголовок и вид для иконки клиент берёт из описания объекта. */
+export interface ShellObject {
+    readonly kind: ObjectKind;
+    readonly name: string;
+}
+
+/** Группа подсистемы: заголовок и объекты в порядке показа. */
+export interface ShellGroup {
+    readonly title: string;
+    readonly objects: ReadonlyArray<ShellObject>;
+}
+
+/** Подсистема оболочки. `name` отличает её от остальных подсистем, пользователю показывается `title`. */
+export interface ShellSubsystem {
+    readonly name: string;
+    readonly title: string;
+    readonly groups: ReadonlyArray<ShellGroup>;
+}
+
+/**
+ * Схема оболочки: подсистемы в порядке показа. Один объект может входить в несколько групп
+ * и подсистем, а объект из `objects` ответа может не входить ни в одну: тогда он открывается
+ * только по адресу и по ссылке из другой записи.
+ */
+export interface ShellView {
+    readonly subsystems: ReadonlyArray<ShellSubsystem>;
+}
+
+/**
+ * Ответ `GET /api/metadata`: объекты конфигурации, которые пользователь вправе читать, в порядке
+ * файлов реестра, и схема оболочки, в которой оставлены только эти объекты.
+ */
 export interface MetadataResponse {
     readonly objects: ReadonlyArray<ObjectView>;
+    readonly shell: ShellView;
 }
