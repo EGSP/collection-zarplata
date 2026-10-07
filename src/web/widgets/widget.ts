@@ -21,6 +21,8 @@ export interface WidgetField {
     readonly kind: FieldKind;
     /** Объект, из записей которого выбирается ссылка. Заполнен только у вида `reference`. */
     readonly target: ObjectTarget | null;
+    /** Допустимые строковые значения для выбора. */
+    readonly choices?: ReadonlyArray<string> | null;
     /** По правилам поле ввода ограничивает сам ввод, например не даёт ввести дробную часть целого числа. */
     readonly rules?: ValidationRules;
 }

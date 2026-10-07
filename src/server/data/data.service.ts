@@ -18,6 +18,7 @@ import { afterSave, markDeleted, post, unpost } from './posting.js';
 import { guidValue, loadRecord, objectValue, pageOptions, recordFromRow, sqlValue, stringValue, tableName, validated, type RecordValue } from './records.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { enforcePolicies, type PolicyInvocation } from './policies.js';
+import { importCatalog } from './import.js';
 import { getInformation, mutateInformation } from './information-register.js';
 
 /** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
@@ -157,6 +158,7 @@ export class DataService {
                 case 'delete': return mutateInformation(description, 'delete', payload);
             }
         }
+        if (description.kind === 'catalog' && action === 'import') return importCatalog(description, payload);
         if (description.kind === 'catalog' || description.kind === 'document') {
             switch (action) {
                 case 'list': return this.list(description, payload);

@@ -27,6 +27,8 @@ export interface FieldState {
     readonly maximum: number | null;
     readonly integer: boolean;
     readonly target: ReferenceTarget | null;
+    /** Допустимые строковые значения; null означает свободный ввод. */
+    readonly choices: ReadonlyArray<string> | null;
 }
 
 /** Метка обязательного поля в типе билдера. Существует только на уровне типов. */
@@ -66,6 +68,11 @@ export abstract class FieldBuilder<Value> {
 
 /** Строка. Длина считается в символах UTF-16, как `String.length`. */
 export class StringFieldBuilder extends FieldBuilder<string> {
+    /** Ограничивает ввод заданными значениями и включает выбор из списка в форме. */
+    choices(values: ReadonlyArray<string>): this {
+        return this.with({ choices: Object.freeze([...values]) });
+    }
+
     minimumLength(minimumLength: number): this {
         return this.with({ minimumLength });
     }
@@ -138,6 +145,7 @@ function initialState(kind: FieldKind): FieldState {
         maximum: null,
         integer: kind === 'money',
         target: null,
+        choices: null,
     };
 }
 

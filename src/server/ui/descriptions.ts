@@ -42,6 +42,8 @@ export interface FormField {
     readonly kind: FieldKind;
     /** Объект, из которого выбирается значение ссылки; заполнен только у полей вида `reference`. */
     readonly target: ObjectTarget | null;
+    /** Допустимые строковые значения для выбора. */
+    readonly choices?: ReadonlyArray<string> | null;
     /** Значение заполняет платформа: поле показывается, но не редактируется и не входит в порядок обхода. */
     readonly readOnly: boolean;
     readonly rules: ValidationRules;
@@ -108,6 +110,8 @@ export interface ListColumn {
     readonly title: string;
     readonly kind: FieldKind;
     readonly target: ObjectTarget | null;
+    /** Допустимые строковые значения для выбора. */
+    readonly choices?: ReadonlyArray<string> | null;
 }
 
 /**
@@ -143,6 +147,8 @@ export interface ListFilter {
     readonly title: string;
     readonly kind: FieldKind;
     readonly target: ObjectTarget | null;
+    /** Допустимые строковые значения для выбора. */
+    readonly choices?: ReadonlyArray<string> | null;
     readonly operators: ReadonlyArray<FilterOperator>;
 }
 

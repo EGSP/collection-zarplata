@@ -37,7 +37,7 @@ const standardPermissions = {
     },
     catalog: {
         read: ['list', 'get'],
-        write: ['save', 'markDeleted', 'unmarkDeleted'],
+        write: ['save', 'markDeleted', 'unmarkDeleted', 'import'],
     },
     document: {
         read: ['list', 'get'],

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Сопоставление полей импорта из 1С",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sourceObject", "targetCatalog", "externalSystem", "fields"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "sourceObject": { "type": "string", "pattern": "^CatalogObject\\.", "maxLength": 200 },
+    "targetCatalog": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9]*$" },
+    "externalSystem": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "fields": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/field" } }
+  },
+  "$defs": {
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["path"], "not": { "required": ["constant"] } },
+        { "required": ["constant"], "not": { "required": ["path"] } }
+      ],
+      "dependentRequired": {
+        "rowPath": ["whereField", "whereValue"],
+        "whereField": ["rowPath", "whereValue"],
+        "whereValue": ["rowPath", "whereField"]
+      },
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "rowPath": { "type": "string", "pattern": "^.+/.+$" },
+        "whereField": { "type": "string", "minLength": 1 },
+        "whereValue": { "type": "string" },
+        "constant": {},
+        "dateOnly": { "type": "boolean" },
+        "values": { "type": "object", "additionalProperties": { "type": ["string", "null"] } }
+      }
+    }
+  }
+}

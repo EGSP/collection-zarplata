@@ -68,6 +68,8 @@ export interface FieldDescription {
     readonly integer: boolean;
     /** Цель ссылки; заполнена только у полей вида `reference`. */
     readonly target: ObjectTarget | null;
+    /** Предопределённые строковые значения либо null для свободного ввода. */
+    readonly choices: ReadonlyArray<string> | null;
 }
 
 /** Табличная часть: список строк внутри объекта. В записи она представлена массивом строк. */

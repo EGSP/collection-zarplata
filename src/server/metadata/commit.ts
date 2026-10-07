@@ -22,7 +22,7 @@ import { checkName } from './names.js';
 import { formHiddenStandardFields, standardFields } from './standard-fields.js';
 
 /** Стандартные действия платформы: собственное действие не может называться так же. */
-const standardActions: ReadonlySet<string> = new Set(['list', 'get', 'save', 'delete', 'markDeleted', 'unmarkDeleted', 'post', 'unpost']);
+const standardActions: ReadonlySet<string> = new Set(['import', 'list', 'get', 'save', 'delete', 'markDeleted', 'unmarkDeleted', 'post', 'unpost']);
 
 /** Названия видов объектов для сообщений об ошибках. */
 const kindTitles: { readonly [Kind in ObjectKind]: string } = {
@@ -146,9 +146,17 @@ function describeFields(
             minimum: state.minimum,
             maximum: state.maximum,
             integer: state.integer,
+            choices: state.choices,
             target: state.kind === 'reference' ? resolveTarget(entry, location, problems, configuration) : null,
         };
         checkBounds(description, location, problems);
+        if (description.choices !== null && (
+            description.kind !== 'string' || description.choices.length === 0 ||
+            new Set(description.choices).size !== description.choices.length ||
+            description.choices.some((value) => value.trim() === '')
+        )) {
+            problems.add(location, 'Предопределённые значения должны быть непустыми уникальными строками');
+        }
         return description;
     });
 }

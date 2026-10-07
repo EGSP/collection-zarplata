@@ -1,0 +1,11 @@
+{
+  "$schema": "../mapping.schema.json",
+  "sourceObject": "CatalogObject.ФизическиеЛица",
+  "targetCatalog": "sample",
+  "externalSystem": "1c-sample-check",
+  "fields": {
+    "name": { "path": "Description" },
+    "active": { "constant": true },
+    "lines": { "constant": [] }
+  }
+}

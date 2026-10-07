@@ -1,0 +1,12 @@
+{
+  "$schema": "../mapping.schema.json",
+  "sourceObject": "CatalogObject.ФизическиеЛица",
+  "targetCatalog": "physicalPersons",
+  "externalSystem": "1c-col3",
+  "fields": {
+    "name": { "path": "Description" },
+    "gender": { "path": "Пол", "values": { "Мужской": "Мужской", "Женский": "Женский" } },
+    "birthDate": { "path": "ДатаРождения", "dateOnly": true },
+    "phoneNumber": { "rowPath": "КонтактнаяИнформация/Row", "whereField": "Тип", "whereValue": "Телефон", "path": "Представление" }
+  }
+}

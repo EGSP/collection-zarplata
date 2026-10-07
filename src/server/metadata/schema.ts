@@ -80,8 +80,9 @@ function numberSchema(field: FieldDescription): Schema.Top {
 }
 
 function stringSchema(field: FieldDescription): Schema.Top {
-    const { minimumLength, maximumLength } = field;
+    const { minimumLength, maximumLength, choices } = field;
     const checks = [
+        ...(choices === null ? [] : [Schema.makeFilter((value: string) => choices.includes(value) || `Ожидается одно из значений: ${choices.join(', ')}`)]),
         // Строка из пробелов в форме выглядит пустой, поэтому обязательное поле она не заполняет.
         ...(field.required ? [Schema.makeFilter((value: string) => value.trim() !== '' || 'значение не заполнено')] : []),
         ...(minimumLength === null ? [] : [Schema.makeFilter((value: string) => value.length >= minimumLength || `длина меньше ${minimumLength}`)]),

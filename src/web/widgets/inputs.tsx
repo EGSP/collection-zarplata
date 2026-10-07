@@ -5,7 +5,7 @@
  * Каждое поле принимает и отдаёт значение в формате сервера (`widget.ts`) и умеет принять фокус
  * по команде извне.
  */
-import { Checkbox, DatePicker, Input, InputNumber } from 'antd';
+import { Checkbox, DatePicker, Input, InputNumber, Select } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useImperativeHandle, useRef, type Ref, type RefCallback } from 'react';
 import { dateFormat, dateTimeFormat } from './format';
@@ -34,9 +34,20 @@ export function defined<Properties extends object>(properties: Properties): { [N
 
 const fullWidth = { width: '100%' };
 
-/** Текстовое поле. Пустое поле означает отсутствие значения, поэтому отдаётся `null`, а не пустая строка. */
-export function StringInput({ value, onChange, disabled, id, ref }: InputProperties<string>) {
+/** Строка со свободным вводом или выбором предопределённого значения. Пустое поле отдаёт null. */
+export function StringInput({ field, value, onChange, disabled, id, ref }: InputProperties<string>) {
     const inner = useInputHandle(ref);
+    if (field.choices != null) return (
+        <Select
+            ref={inner}
+            {...defined({ id, disabled })}
+            style={fullWidth}
+            allowClear
+            value={value ?? undefined}
+            options={field.choices.map((choice) => ({ value: choice, label: choice }))}
+            onChange={(selected: string | undefined) => onChange?.(selected ?? null)}
+        />
+    );
     return (
         <Input
             ref={inner}

@@ -64,6 +64,7 @@ function formField(field: FieldDescription, title: string = field.title): FormFi
         title,
         kind: field.kind,
         target: field.target,
+        choices: field.choices,
         readOnly: field.managed,
         rules: {
             required: field.required,
@@ -136,8 +137,14 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
  */
 export function buildList(object: ObjectDescription): ListView {
     const fields = object.fields.filter((field) => field.role !== 'standard' || !formHiddenStandardFields.has(field.name));
-    const columns: ReadonlyArray<ListColumn> = fields.map((field) => ({ field: field.name, title: field.title, kind: field.kind, target: field.target, role: field.role }));
-    const filters: ReadonlyArray<ListFilter> = fields.map((field) => ({ field: field.name, title: field.title, kind: field.kind, target: field.target, operators: filterOperators[field.kind] }));
+    const columns: ReadonlyArray<ListColumn> = fields.map((field) => ({
+        field: field.name, title: field.title, kind: field.kind, target: field.target,
+        choices: field.choices, role: field.role,
+    }));
+    const filters: ReadonlyArray<ListFilter> = fields.map((field) => ({
+        field: field.name, title: field.title, kind: field.kind, target: field.target,
+        choices: field.choices, operators: filterOperators[field.kind],
+    }));
     // Регистратор состоит из двух значений, и порядок по нему ничего не говорит пользователю.
     const sortable = fields.filter((field) => field.kind !== 'recorder').map((field) => field.name);
     return {
