@@ -2,14 +2,15 @@ import { CheckCircleOutlined, DeleteOutlined, MoreOutlined, PlusOutlined } from 
 import { useTable, type CrudSort } from '@refinedev/core';
 import { Alert, Button, Dropdown, Flex, Input, Table, theme, Typography, type TableProps } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import type { ListColumn, ObjectView } from '../../server/ui/descriptions';
 import type { ApiError } from '../common/api';
-import { newRecordPath, recordPath, type ListLocationState } from '../common/paths';
+import { newRecordPath, recordPath } from '../common/paths';
 import { useAction } from '../data-provider/actions';
 import { crudSort } from '../data-provider/data-provider';
 import { resourceName } from '../data-provider/perform';
 import { recordGuid, type RecordData } from '../data-provider/records';
+import { useTabTitle } from '../tabs/window-tabs';
 import { FieldDisplay } from '../widgets/registry';
 import { ListFilters } from './list-filters';
 import { ListPresentationsContext } from '../references/presentation';
@@ -27,8 +28,8 @@ const rightAligned: ReadonlySet<ListColumn['kind']> = new Set(['number', 'money'
  *
  * Список строится только по описанию с сервера, поэтому новый объект конфигурации получает его
  * без изменений клиента. Сортировку, отбор и номер страницы хранит Refine в адресе страницы:
- * после возврата из формы список открывается в прежнем состоянии, а адрес с отбором можно
- * сохранить в закладки.
+ * адрес с отбором можно сохранить в закладки. Пока вкладка списка открыта, список остаётся
+ * смонтированным и своё состояние, в том числе текст поиска, не теряет.
  *
  * У справочников и документов строка открывает форму записи, а меню строки ставит и снимает
  * пометку удаления. Оба вида регистров показывают список без формы; сведения изменяются
@@ -37,12 +38,12 @@ const rightAligned: ReadonlySet<ListColumn['kind']> = new Set(['number', 'money'
 export function ObjectList({ object }: { readonly object: ObjectView }) {
     const { token } = theme.useToken();
     const navigate = useNavigate();
-    const location = useLocation();
     const performAction = useAction();
     const resource = resourceName(object);
     const { list, form } = object;
     const [searchInput, setSearchInput] = useState('');
     const [search, setSearch] = useState('');
+    useTabTitle(object.title);
 
     const { tableQuery, result, sorters, setSorters, filters, setFilters, currentPage, setCurrentPage, pageSize, setPageSize } = useTable<RecordData, ApiError>({
         resource,
@@ -63,8 +64,7 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
     }, [searchInput, search, setCurrentPage]);
 
     const formActions = useMemo(() => new Set(form?.actions.map((action) => action.name)), [form]);
-    const listState: ListLocationState = { list: location.pathname + location.search };
-    const openRecord = (record: RecordData) => void navigate(recordPath(object, recordGuid(record)), { state: listState });
+    const openRecord = (record: RecordData) => void navigate(recordPath(object, recordGuid(record)));
 
     const toggleDeletionMark = (record: RecordData) => {
         const marked = record['deletedAt'] !== null;
@@ -101,7 +101,7 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
             return (
                 <Flex gap="small" align="center">
                     <RecordMark record={record} />
-                    <Link to={recordPath(object, recordGuid(record))} state={listState}>
+                    <Link to={recordPath(object, recordGuid(record))}>
                         {/* Пустое значение первой колонки не должно скрывать переход к записи. */}
                         {value === null || value === '' ? '(не заполнено)' : display}
                     </Link>
@@ -150,7 +150,7 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
                     {object.title}
                 </Typography.Title>
                 {formActions.has('save') && (
-                    <Button type="primary" icon={<PlusOutlined />} onClick={() => void navigate(newRecordPath(object), { state: listState })}>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={() => void navigate(newRecordPath(object))}>
                         Создать
                     </Button>
                 )}

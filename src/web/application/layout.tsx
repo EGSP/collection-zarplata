@@ -1,13 +1,16 @@
 import { LogoutOutlined } from '@ant-design/icons';
 import { useLogout } from '@refinedev/core';
-import { Button, Flex, Layout, Result, theme, Typography } from 'antd';
-import { Outlet } from 'react-router';
+import { App, Button, Flex, Layout, Result, theme, Typography } from 'antd';
 import { Pending } from '../common/pending';
 import { useMetadata } from '../data-provider/metadata';
+import { TabPages } from '../tabs/tab-pages';
+import { TabStrip } from '../tabs/tab-strip';
+import { useWindowTabs } from '../tabs/window-tabs';
 import { SubsystemList } from './subsystems';
 
 /**
- * Раскладка приложения: слева список подсистем и выход, справа содержимое открытой страницы.
+ * Раскладка приложения: слева список подсистем и выход, справа полоса вкладок и страница
+ * активной вкладки.
  *
  * Страницы строятся по описаниям объектов, поэтому раскладка показывает их только после
  * загрузки описаний: странице не нужно самой обрабатывать ожидание и ошибку загрузки.
@@ -27,8 +30,13 @@ export function ApplicationLayout() {
                     <LogoutButton />
                 </Flex>
             </Layout.Sider>
-            <Layout.Content style={{ overflowY: 'auto', padding: token.paddingLG }}>
-                <PageContent />
+            {/* Без нулевой наименьшей ширины длинная полоса вкладок растянула бы область шире окна. */}
+            <Layout.Content style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <TabStrip />
+                {/* Прокручивается страница вкладки, а не вся область: полоса вкладок остаётся на месте. */}
+                <div style={{ flex: 1, minHeight: 0 }}>
+                    <PageContent />
+                </div>
             </Layout.Content>
         </Layout>
     );
@@ -36,7 +44,7 @@ export function ApplicationLayout() {
 
 function PageContent() {
     const metadata = useMetadata();
-    if (metadata.data !== undefined) return <Outlet />;
+    if (metadata.data !== undefined) return <TabPages />;
     if (!metadata.isError) return <Pending />;
     return (
         <Result
@@ -52,15 +60,28 @@ function PageContent() {
     );
 }
 
+/** Выход закрывает все вкладки, поэтому при несохранённых изменениях на любой из них спрашивает подтверждение. */
 function LogoutButton() {
     const { token } = theme.useToken();
+    const { modal } = App.useApp();
+    const { hasUnsavedChanges } = useWindowTabs();
     const { mutate: logout, isPending } = useLogout();
+    const confirmLogout = () => {
+        if (!hasUnsavedChanges()) return logout();
+        modal.confirm({
+            title: 'Выйти без сохранения?',
+            content: 'На открытых вкладках есть несохранённые изменения. После выхода они будут потеряны.',
+            okText: 'Выйти без сохранения',
+            cancelText: 'Остаться',
+            onOk: () => logout(),
+        });
+    };
     return (
         <Button
             type="text"
             icon={<LogoutOutlined />}
             loading={isPending}
-            onClick={() => logout()}
+            onClick={confirmLogout}
             style={{ margin: token.marginXS, justifyContent: 'flex-start' }}
         >
             Выйти

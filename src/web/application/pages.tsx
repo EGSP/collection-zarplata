@@ -1,24 +1,21 @@
 import { Empty } from 'antd';
-import { Navigate, useParams } from 'react-router';
+import { useParams } from 'react-router';
 import { NotFoundPage } from '../common/not-found';
-import { objectPath } from '../common/paths';
 import { useMetadata, useObjectView } from '../data-provider/metadata';
-import { resourceName } from '../data-provider/perform';
 import { ObjectList } from '../lists/object-list';
 
 /**
- * Начальная страница: открывает первый объект первой подсистемы. Объект берётся из схемы оболочки,
- * а не из списка описаний: объект, убранный из схемы намеренно, не должен открываться сам.
- * У пользователя без прав подсистем нет.
+ * Главный экран: открывается после входа и по адресу `/`. Экран пуст, объекты пользователь
+ * открывает из окон подсистем. У пользователя без прав подсистем нет, и экран объясняет,
+ * почему открывать нечего.
  */
-export function StartPage() {
-    const first = useMetadata().data?.shell.subsystems[0]?.groups[0]?.objects[0];
-    if (first === undefined) return <Empty description="Нет доступных объектов" />;
-    return <Navigate to={objectPath(first)} replace />;
+export function HomePage() {
+    const subsystems = useMetadata().data?.shell.subsystems ?? [];
+    return subsystems.length === 0 ? <Empty description="Нет доступных объектов" /> : null;
 }
 
 /**
- * Страница объекта конфигурации по адресу `/вид/имя`: его список. Объект ищется среди описаний,
+ * Страница вкладки по адресу `/вид/имя`: список объекта конфигурации. Объект ищется среди описаний,
  * которые сервер отдал пользователю: объект, которого нет в конфигурации, и объект без права
  * чтения для клиента неразличимы.
  */
@@ -26,6 +23,5 @@ export function ObjectPage() {
     const { kind, name } = useParams();
     const object = useObjectView(kind === undefined || name === undefined ? null : { kind, name });
     if (object === undefined) return <NotFoundPage />;
-    // Ключ пересоздаёт список при смене объекта: иначе до ответа сервера оставались бы данные прежнего.
-    return <ObjectList key={resourceName(object)} object={object} />;
+    return <ObjectList object={object} />;
 }
