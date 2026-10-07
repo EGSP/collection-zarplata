@@ -18,6 +18,7 @@ import { afterSave, markDeleted, post, unpost } from './posting.js';
 import { guidValue, loadRecord, objectValue, pageOptions, recordFromRow, sqlValue, stringValue, tableName, validated, type RecordValue } from './records.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { enforcePolicies, type PolicyInvocation } from './policies.js';
+import { getInformation, mutateInformation } from './information-register.js';
 
 /** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
 type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher;
@@ -148,7 +149,15 @@ export class DataService {
 
     /** Выбирает стандартное или собственное действие; неизвестное действие возвращает 404. */
     private dispatch(description: ObjectDescription, action: string, payload: unknown): Effect.Effect<unknown, unknown, ActionRequirements> {
-        if (description.kind !== 'register') {
+        if (description.kind === 'informationRegister') {
+            switch (action) {
+                case 'list': return this.list(description, payload);
+                case 'get': return getInformation(description, payload);
+                case 'save': return mutateInformation(description, 'save', payload);
+                case 'delete': return mutateInformation(description, 'delete', payload);
+            }
+        }
+        if (description.kind === 'catalog' || description.kind === 'document') {
             switch (action) {
                 case 'list': return this.list(description, payload);
                 case 'get': return this.get(description, payload);
@@ -354,7 +363,8 @@ export class DataService {
             }
             // При одинаковых значениях сортировки ключ таблицы задаёт однозначный порядок строк.
             // У строки регистра нет guid: её определяют регистратор и номер строки.
-            const key = description.kind === 'register' ? ['recorderDocument', 'recorderGuid', 'lineNumber'] : ['guid'];
+            const key = description.kind === 'register' ? ['recorderDocument', 'recorderGuid', 'lineNumber']
+                : description.kind === 'informationRegister' ? description.fields.filter((field) => field.role === 'dimension').map((field) => field.name) : ['guid'];
             for (const column of key) {
                 if (!orderBy.some((order) => order.column === column)) orderBy.push({ column, direction: 'ASC' });
             }

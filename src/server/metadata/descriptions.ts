@@ -4,7 +4,7 @@
  */
 
 /** Вид объекта конфигурации. */
-export type ObjectKind = 'catalog' | 'document' | 'register';
+export type ObjectKind = 'catalog' | 'document' | 'register' | 'informationRegister';
 
 /**
  * Вид поля:
@@ -109,6 +109,8 @@ export interface PolicyDescription {
     readonly unpost: ((input: never) => unknown) | null;
     readonly markDeleted: ((input: never) => unknown) | null;
     readonly unmarkDeleted: ((input: never) => unknown) | null;
+    /** Проверка перед физическим удалением существующей записи сведений. */
+    readonly delete: ((input: never) => unknown) | null;
 }
 
 /**

@@ -49,12 +49,13 @@ function fieldColumns(field: FieldDescription): readonly ColumnStructure[] {
 function objectTable(object: ObjectDescription): TableStructure {
     const name = `${object.kind}_${object.name}`;
     const columns = object.fields.flatMap(fieldColumns);
-    const primaryKey = object.kind === 'register' ? ['recorderDocument', 'recorderGuid', 'lineNumber'] : ['guid'];
+    const primaryKey = object.kind === 'register' ? ['recorderDocument', 'recorderGuid', 'lineNumber']
+        : object.kind === 'informationRegister' ? object.fields.filter((field) => field.role === 'dimension').map((field) => field.name) : ['guid'];
     const indexes: IndexStructure[] = [];
-    if (object.kind !== 'register') {
+    if (object.kind === 'catalog' || object.kind === 'document') {
         indexes.push(index(name, 'deletedAt', ['deletedAt']));
         indexes.push(index(name, object.kind === 'catalog' ? 'code' : 'number', [object.kind === 'catalog' ? 'code' : 'number']));
-    } else {
+    } else if (object.kind === 'register') {
         indexes.push(index(name, 'period', ['period']));
     }
     for (const field of object.fields) {
@@ -85,6 +86,7 @@ const platformTables: readonly TableStructure[] = [
             column('guid', 'TEXT', true), column('occurredAt', 'TEXT', true),
             column('userGuid', 'TEXT'), column('traceGuid', 'TEXT', true), column('actionGuid', 'TEXT', true), column('parentActionGuid', 'TEXT'),
             column('targetKind', 'TEXT', true), column('targetName', 'TEXT', true), column('targetGuid', 'TEXT'),
+            column('targetKey', 'TEXT'),
             column('action', 'TEXT', true), column('changes', 'TEXT'),
         ],
         primaryKey: ['guid'],

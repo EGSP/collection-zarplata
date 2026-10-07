@@ -110,7 +110,8 @@ export function sqlValue(value: unknown): SqlValue {
  * колонок, в которых он хранится. Прочие значения возвращаются без преобразования.
  */
 export function recordFromRow(row: RecordValue, description: ObjectDescription): RecordValue {
-    const { recorderDocument, recorderGuid, ...record } = row;
+    const { recorderDocument, recorderGuid, ...movement } = row;
+    const record = description.kind === 'register' ? movement : { ...row };
     for (const field of description.fields) {
         if (field.kind === 'boolean' && record[field.name] !== null) record[field.name] = record[field.name] === 1;
         if (field.kind === 'recorder') record[field.name] = { document: recorderDocument, guid: recorderGuid };

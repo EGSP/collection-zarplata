@@ -31,6 +31,10 @@ export interface Right {
  * выделены в отдельное право, чтобы запись документа можно было разрешить без проведения.
  */
 const standardPermissions = {
+    informationRegister: {
+        read: ['list', 'get'],
+        write: ['save', 'delete'],
+    },
     catalog: {
         read: ['list', 'get'],
         write: ['save', 'markDeleted', 'unmarkDeleted'],
@@ -91,7 +95,7 @@ type BuildersOf<Modules extends ReadonlyArray<object>> = Extract<ExportsOf<Modul
  * конфигурации проверяет сервис метаданных при запуске, и он сообщит о нарушении понятнее.
  */
 export function defineRights<const Modules extends ReadonlyArray<object>>(modules: Modules): ConfigurationRights<BuildersOf<Modules>> {
-    const rights: { [Kind in ObjectKind]: { [name: string]: object } } = { catalog: {}, document: {}, register: {} };
+    const rights: { [Kind in ObjectKind]: { [name: string]: object } } = { catalog: {}, document: {}, register: {}, informationRegister: {} };
     for (const module of modules) {
         for (const value of Object.values(module)) {
             if (!isObjectBuilder(value)) continue;
@@ -105,6 +109,7 @@ export function defineRights<const Modules extends ReadonlyArray<object>>(module
         catalog: Object.freeze(rights.catalog),
         document: Object.freeze(rights.document),
         register: Object.freeze(rights.register),
+        informationRegister: Object.freeze(rights.informationRegister),
         platform: platformRights,
     }) as unknown as ConfigurationRights<BuildersOf<Modules>>;
 }

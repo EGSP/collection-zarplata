@@ -1,7 +1,7 @@
 /**
  * Генерация реестра объектов конфигурации: `npm run metadata:generate`.
  *
- * Скрипт находит файлы `src/configuration/**\/*.{catalog,document,register}.ts` и пишет
+ * Скрипт находит файлы `src/configuration/**\/*.{catalog,document,register,information-register}.ts` и пишет
  * `src/configuration/configuration.generated.ts` с импортами этих файлов, списком модулей
  * и объектом прав `Rights`, построенным из тех же модулей.
  * Объекты обнаруживаются на этапе сборки, а не при запуске: в собранном исполняемом файле нет
@@ -23,7 +23,7 @@ import path from 'node:path';
 
 const configurationDirectory = path.resolve(import.meta.dirname, '../src/configuration');
 const outputFile = path.join(configurationDirectory, 'configuration.generated.ts');
-const objectFilePattern = '**/*.{catalog,document,register}.ts';
+const objectFilePattern = '**/*.{catalog,document,register,information-register}.ts';
 
 /** Пути файлов объектов относительно каталога конфигурации, с `/` и в стабильном порядке. */
 function findObjectFiles(): Array<string> {
@@ -39,7 +39,7 @@ function render(files: ReadonlyArray<string>): string {
     return [
         '// Файл создан командой `npm run metadata:generate`. Не редактируйте его вручную:',
         '// изменения пропадут при следующей генерации. Чтобы добавить объект конфигурации,',
-        '// создайте файл *.catalog.ts, *.document.ts или *.register.ts в src/configuration.',
+        '// создайте файл *.catalog.ts, *.document.ts, *.register.ts или *.information-register.ts в src/configuration.',
         "import { defineRights } from '../server/authorization/rights.js';",
         "import type { ConfigurationModule } from '../server/metadata/registry.js';",
         ...imports,

@@ -24,6 +24,7 @@ const kindsBySuffix: ReadonlyArray<readonly [suffix: string, kind: ObjectKind]> 
     ['.catalog.ts', 'catalog'],
     ['.document.ts', 'document'],
     ['.register.ts', 'register'],
+    ['.information-register.ts', 'informationRegister'],
 ];
 
 /** Функции описания для сообщений: по ним видно, чем создаётся объект нужного вида. */
@@ -31,6 +32,7 @@ const kindFunctions: { readonly [Kind in ObjectKind]: string } = {
     catalog: 'catalog(...)',
     document: 'document(...)',
     register: 'register(...)',
+    informationRegister: 'informationRegister(...)',
 };
 
 /** Извлекает билдер из модуля. Возвращает `null` и записывает проблему, если соглашение нарушено. */
@@ -39,7 +41,7 @@ function builderOf(module: ConfigurationModule, problems: Array<MetadataProblem>
     const builders = Object.entries(module.exports).filter(([, value]) => isObjectBuilder(value)) as Array<[string, ObjectBuilder]>;
     const expected = kindsBySuffix.find(([suffix]) => module.file.endsWith(suffix))?.[1];
     if (expected === undefined) {
-        problems.push({ object, location: null, message: 'имя файла должно оканчиваться на .catalog.ts, .document.ts или .register.ts' });
+        problems.push({ object, location: null, message: 'имя файла должно оканчиваться на .catalog.ts, .document.ts, .register.ts или .information-register.ts' });
         return null;
     }
     const [first, ...rest] = builders;

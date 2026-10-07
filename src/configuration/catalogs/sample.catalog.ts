@@ -5,6 +5,7 @@
 import { Effect } from 'effect';
 import { ActionContext, ActionDispatcher } from '../../server/data/action-context.js';
 import { catalog } from '../../server/metadata/index.js';
+import { DataValidationError } from '../../server/data/data.errors.js';
 
 /**
  * Пробный объект сохраняет действия для проверки вложенного вызова диспетчера: `inspect` читает
@@ -39,4 +40,20 @@ export const Sample = catalog('sample')
             // guid и пометку удаления назначает платформа, во входных данных записи их нет.
             const { guid: _guid, deletedAt: _deletedAt, ...fields } = record;
             return yield* dispatcher.execute({ target, action: 'save', payload: { fields: { ...fields, name: `${String(record['name'])} (копия)` } } });
+        })))
+    .action('checkInformationRollback', (action) => action
+        .title('Проверить откат объекта и сведений')
+        .input((input) => input.field('externalObject', (field) => field.string().title('Внешний объект').required()))
+        .handle((input) => Effect.gen(function* () {
+            const dispatcher = yield* ActionDispatcher;
+            const record = (yield* dispatcher.execute({
+                target: { kind: 'catalog', name: 'sample' }, action: 'save',
+                payload: { fields: { name: input.externalObject, active: true, lines: [] } },
+            })) as Record<string, unknown>;
+            yield* dispatcher.execute({
+                target: { kind: 'informationRegister', name: 'sample' }, action: 'save',
+                payload: { fields: { source: 'rollback', externalObject: input.externalObject, description: 'Проверка отката', item: record['guid'] } },
+            });
+            // Ошибка после обеих записей проверяет общую транзакцию, а не откат отдельного save.
+            return yield* new DataValidationError({ message: 'Пробная ошибка после записи объекта и сведений', fields: [] });
         })));

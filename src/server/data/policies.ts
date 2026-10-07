@@ -15,7 +15,7 @@ type PolicyRequirements = Database | Metadata | ActionContext | ActionDispatcher
 export type PolicyInvocation =
     | { readonly action: 'save'; readonly input: { readonly existingRecord: RecordValue | null; readonly proposedRecord: RecordValue } }
     | { readonly action: 'post' | 'unpost'; readonly input: { readonly document: RecordValue } }
-    | { readonly action: 'markDeleted' | 'unmarkDeleted'; readonly input: { readonly record: RecordValue } };
+    | { readonly action: 'markDeleted' | 'unmarkDeleted' | 'delete'; readonly input: { readonly record: RecordValue } };
 
 /** Ошибка любой политики прерывает действие и откатывает всю транзакцию запроса. */
 export function enforcePolicies(

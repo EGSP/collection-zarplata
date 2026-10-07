@@ -15,6 +15,7 @@ const groupTitles: { readonly [Kind in ObjectKind]: string } = {
     catalog: 'Справочники',
     document: 'Документы',
     register: 'Регистры',
+    informationRegister: 'Регистры сведений',
 };
 
 /**

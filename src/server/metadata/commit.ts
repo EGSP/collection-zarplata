@@ -22,13 +22,14 @@ import { checkName } from './names.js';
 import { formHiddenStandardFields, standardFields } from './standard-fields.js';
 
 /** Стандартные действия платформы: собственное действие не может называться так же. */
-const standardActions: ReadonlySet<string> = new Set(['list', 'get', 'save', 'markDeleted', 'unmarkDeleted', 'post', 'unpost']);
+const standardActions: ReadonlySet<string> = new Set(['list', 'get', 'save', 'delete', 'markDeleted', 'unmarkDeleted', 'post', 'unpost']);
 
 /** Названия видов объектов для сообщений об ошибках. */
 const kindTitles: { readonly [Kind in ObjectKind]: string } = {
     catalog: 'справочник',
     document: 'документ',
     register: 'регистр',
+    informationRegister: 'регистр сведений',
 };
 
 /** Список проблем одного объекта; подставляет объект в каждую проблему, чтобы проверки указывали только место. */
@@ -226,8 +227,17 @@ function validateObject(
     }
 
     const fields = describeFields(state.fields, '', problems, configuration);
-    if (state.kind === 'register' && !fields.some((field) => field.role === 'resource')) {
+    if ((state.kind === 'register' || state.kind === 'informationRegister') && !fields.some((field) => field.role === 'resource')) {
         problems.add(null, 'у регистра нет ни одного ресурса');
+    }
+    if (state.kind === 'informationRegister') {
+        if (!fields.some((field) => field.role === 'dimension')) problems.add(null, 'у регистра сведений нет измерений');
+        for (const field of fields) {
+            if (field.role !== 'dimension' && field.role !== 'resource') problems.add(`поле ${field.name}`, 'допустимы только измерения и ресурсы');
+            if (field.role === 'dimension' && !field.required) problems.add(`поле ${field.name}`, 'измерение должно быть обязательным');
+            if (field.kind === 'recorder' || field.kind === 'guid') problems.add(`поле ${field.name}`, 'служебный вид поля недоступен для сведений');
+        }
+        if (state.form !== null || state.tableParts.length > 0 || state.actions.length > 0) problems.add(null, 'у регистра сведений нет формы, табличных частей и собственных действий');
     }
 
     // Стандартные поля учитываются и до withStandardFields(), чтобы не дублировать ошибку в проверке формы.

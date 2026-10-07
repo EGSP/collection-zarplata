@@ -11,6 +11,7 @@ import { fieldFactory as field, standardFieldFactory, type AnyFieldBuilder } fro
 
 /** Стандартные поля по видам объектов. Длины кода, наименования и номера предварительные. */
 export const standardFields = {
+    informationRegister: {},
     catalog: {
         guid: standardFieldFactory.guid().title('Идентификатор').required(),
         deletedAt: field.dateTime().title('Пометка удаления'),

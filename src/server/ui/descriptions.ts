@@ -9,7 +9,7 @@
  * Описание уже учитывает переопределения формы из конфигурации: клиенту не нужно знать,
  * что задано по умолчанию, а что переопределено.
  */
-import type { FieldKind, ObjectKind, ObjectTarget, RecorderValue } from '../metadata/descriptions.js';
+import type { FieldKind, FieldRole, ObjectKind, ObjectTarget, RecorderValue } from '../metadata/descriptions.js';
 
 export type { FieldKind, ObjectKind, ObjectTarget, RecorderValue };
 
@@ -102,6 +102,8 @@ export interface FormView {
 
 /** Колонка списка: поле записи. */
 export interface ListColumn {
+    /** Роль поля позволяет отличить измерения ключа от ресурсов регистра. */
+    readonly role: FieldRole;
     readonly field: string;
     readonly title: string;
     readonly kind: FieldKind;

@@ -29,8 +29,8 @@ const rightAligned: ReadonlySet<ListColumn['kind']> = new Set(['number', 'money'
  * сохранить в закладки.
  *
  * У справочников и документов строка открывает форму записи, а меню строки ставит и снимает
- * пометку удаления. Список регистра доступен только для просмотра: формы у регистра нет,
- * а его строки записывают документы при проведении.
+ * пометку удаления. Оба вида регистров показывают список без формы; сведения изменяются
+ * через API, а движения записывают документы при проведении.
  */
 export function ObjectList({ object }: { readonly object: ObjectView }) {
     const { token } = theme.useToken();
@@ -165,7 +165,7 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
                 onRow={(record) => ({
                     ...(form === null ? {} : { onDoubleClick: () => openRecord(record) }),
                     // Помеченная на удаление запись остаётся в списке, но её строка бледнее обычной.
-                    ...(isMarkedDeleted(record) ? { style: { color: token.colorTextDisabled } } : {}),
+                    ...(list.deletionMark && isMarkedDeleted(record) ? { style: { color: token.colorTextDisabled } } : {}),
                 })}
             />
         </Flex>
@@ -178,9 +178,13 @@ function isMarkedDeleted(record: RecordData): boolean {
 
 /**
  * Ключ строки таблицы. У справочников и документов это `guid`. У строки регистра его нет:
- * строку определяют регистратор и номер строки.
+ * строку определяют регистратор и номер строки. У сведений ключ состоит из всех измерений;
+ * JSON-массив сохраняет типы и границы значений, даже если строки содержат разделители.
  */
 function rowKey(object: ObjectView, record: RecordData): string {
+    if (object.kind === 'informationRegister') {
+        return JSON.stringify(object.list.columns.filter((column) => column.role === 'dimension').map((column) => record[column.field]));
+    }
     if (object.kind !== 'register') return recordGuid(record);
     const recorder = record['recorder'] as { readonly document: string; readonly guid: string };
     return `${recorder.document}/${recorder.guid}/${String(record['lineNumber'])}`;

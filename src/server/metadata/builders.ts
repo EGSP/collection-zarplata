@@ -26,6 +26,7 @@ import {
     type FieldsRecord,
     type MoneyFieldBuilder,
     type NumberFieldBuilder,
+    type RequiredField,
 } from './fields.js';
 import type { MetadataError } from './metadata.errors.js';
 import { managedStandardFields, standardFields, type StandardFields } from './standard-fields.js';
@@ -237,6 +238,8 @@ export interface Policy<Record> {
     readonly unpost?: (input: PostingPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
     readonly markDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
     readonly unmarkDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    /** Проверка перед физическим удалением сведений; получает существующую запись. */
+    readonly delete?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
 }
 
 /**
@@ -343,6 +346,31 @@ export interface DocumentBuilder<Name extends string, Fields extends FieldMap, P
 /** Ресурс регистра — число или деньги: только такие значения можно суммировать при расчёте оборотов. */
 type ResourceFieldBuilder = NumberFieldBuilder | MoneyFieldBuilder;
 
+/**
+ * Независимые текущие сведения. Измерения обязательны и составляют ключ, ресурсы
+ * допускают любой прикладной вид поля. У записей нет стандартных полей и формы.
+ */
+export interface InformationRegisterBuilder<Name extends string, Fields extends FieldMap> extends ObjectBuilder<'informationRegister', Name> {
+    readonly '~fields': Fields;
+    readonly '~tableParts': {};
+    readonly '~actions': never;
+
+    /** Заголовок списка сведений. */
+    title(title: string): InformationRegisterBuilder<Name, Fields>;
+    /** Часть ключа; обязательность добавляется независимо от вызова required(). */
+    dimension<const FieldName extends string, Field extends AnyFieldBuilder>(
+        name: FieldName,
+        define: (field: FieldFactory) => Field,
+    ): InformationRegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field & RequiredField }>;
+    /** Хранимое значение, которое save заменяет вместе с остальными ресурсами. */
+    resource<const FieldName extends string, Field extends AnyFieldBuilder>(
+        name: FieldName,
+        define: (field: FieldFactory) => Field,
+    ): InformationRegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }>;
+    /** Прикладные проверки записи и физического удаления. */
+    policy(policy: Policy<ObjectRecord<'informationRegister', Fields, {}>>): InformationRegisterBuilder<Name, Fields>;
+}
+
 /** Билдер регистра оборотов. Строки регистра записывают документы при проведении. */
 export interface RegisterBuilder<Name extends string, Fields extends FieldMap> extends ObjectBuilder<'register', Name> {
     readonly '~fields': Fields;
@@ -415,7 +443,9 @@ class ObjectBuilderImplementation {
     }
 
     dimension(name: string, define: (field: FieldFactory) => AnyFieldBuilder): this {
-        return this.with({ fields: [...this['~state'].fields, attribute(name, define, 'dimension')] });
+        const entry = attribute(name, define, 'dimension');
+        return this.with({ fields: [...this['~state'].fields, this.kind === 'informationRegister'
+            ? { ...entry, builder: entry.builder.required() } : entry] });
     }
 
     resource(name: string, define: (field: FieldFactory) => AnyFieldBuilder): this {
@@ -445,6 +475,7 @@ class ObjectBuilderImplementation {
             unpost: policy.unpost ?? null,
             markDeleted: policy.markDeleted ?? null,
             unmarkDeleted: policy.unmarkDeleted ?? null,
+            delete: policy.delete ?? null,
         };
         return this.with({ policies: [...this['~state'].policies, description] });
     }
@@ -503,4 +534,9 @@ export function document<const Name extends string>(name: Name): DocumentBuilder
 /** Регистр оборотов: строки, которые документы записывают при проведении. */
 export function register<const Name extends string>(name: Name): RegisterBuilder<Name, {}> {
     return new ObjectBuilderImplementation(emptyState('register', name)) as unknown as RegisterBuilder<Name, {}>;
+}
+
+/** Независимый непериодический регистр: значения ресурсов по уникальному набору измерений. */
+export function informationRegister<const Name extends string>(name: Name): InformationRegisterBuilder<Name, {}> {
+    return new ObjectBuilderImplementation(emptyState('informationRegister', name)) as unknown as InformationRegisterBuilder<Name, {}>;
 }

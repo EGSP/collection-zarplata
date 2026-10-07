@@ -45,6 +45,7 @@ const standardFormActions: { readonly [Kind in 'catalog' | 'document']: Readonly
  * от новых к старым: обычно нужны последние записи.
  */
 const defaultSorts: { readonly [Kind in ObjectDescription['kind']]: ReadonlyArray<ListSort> } = {
+    informationRegister: [],
     catalog: [{ field: 'name', direction: 'ascending' }],
     document: [
         { field: 'date', direction: 'descending' },
@@ -130,12 +131,12 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
 }
 
 /**
- * Описание списка. Колонками выводятся все поля записи, кроме `guid` и пометки удаления:
+ * Описание списка. Колонками выводятся все поля записи, кроме стандартных `guid` и пометки удаления:
  * пометку клиент показывает признаком строки. Переопределение формы на список не влияет.
  */
 export function buildList(object: ObjectDescription): ListView {
-    const fields = object.fields.filter((field) => !formHiddenStandardFields.has(field.name));
-    const columns: ReadonlyArray<ListColumn> = fields.map((field) => ({ field: field.name, title: field.title, kind: field.kind, target: field.target }));
+    const fields = object.fields.filter((field) => field.role !== 'standard' || !formHiddenStandardFields.has(field.name));
+    const columns: ReadonlyArray<ListColumn> = fields.map((field) => ({ field: field.name, title: field.title, kind: field.kind, target: field.target, role: field.role }));
     const filters: ReadonlyArray<ListFilter> = fields.map((field) => ({ field: field.name, title: field.title, kind: field.kind, target: field.target, operators: filterOperators[field.kind] }));
     // Регистратор состоит из двух значений, и порядок по нему ничего не говорит пользователю.
     const sortable = fields.filter((field) => field.kind !== 'recorder').map((field) => field.name);
@@ -143,8 +144,10 @@ export function buildList(object: ObjectDescription): ListView {
         columns,
         filters,
         sortable,
-        defaultSort: defaultSorts[object.kind],
-        deletionMark: object.fields.some((field) => field.name === 'deletedAt'),
+        defaultSort: object.kind === 'informationRegister'
+            ? fields.filter((field) => field.role === 'dimension').map((field) => ({ field: field.name, direction: 'ascending' }))
+            : defaultSorts[object.kind],
+        deletionMark: object.fields.some((field) => field.role === 'standard' && field.name === 'deletedAt'),
     };
 }
 
@@ -154,7 +157,7 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
         kind: object.kind,
         name: object.name,
         title: object.title,
-        form: object.kind === 'register' ? null : buildForm({ ...object, kind: object.kind }),
+        form: object.kind === 'catalog' || object.kind === 'document' ? buildForm({ ...object, kind: object.kind }) : null,
         list: buildList(object),
     };
 }

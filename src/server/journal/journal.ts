@@ -18,6 +18,7 @@ import { Metadata } from '../metadata/metadata.effect.js';
 import { ActionContext } from '../data/action-context.js';
 import { DataNotFoundError, DataValidationError } from '../data/data.errors.js';
 import { guidValue, objectValue, pageOptions, stringValue, type RecordValue } from '../data/records.js';
+import { informationKey } from '../data/information-key.js';
 
 /** Служебная таблица журнала; её структуру описывает модуль схемы. */
 const journalTable = 'platform_journal';
@@ -34,6 +35,8 @@ export interface JournalTarget {
     readonly kind: string;
     readonly name: string;
     readonly guid: string | null;
+    /** Полный ключ сведений; для объектов с guid отсутствует. */
+    readonly key?: RecordValue;
 }
 
 /** Строка журнала в ответе API: колонки таблицы, `changes` уже разобран из JSON. */
@@ -47,6 +50,8 @@ export interface JournalEntry {
     readonly targetKind: string;
     readonly targetName: string;
     readonly targetGuid: string | null;
+    /** Измерения записи сведений; для других объектов null. */
+    readonly targetKey: RecordValue | null;
     readonly action: string;
     readonly changes: JournalChanges | null;
 }
@@ -57,7 +62,7 @@ export interface JournalTraceNode extends JournalEntry {
 }
 
 /** Строка таблицы до разбора `changes`. */
-type JournalRow = Omit<JournalEntry, 'changes'> & { readonly changes: string | null };
+type JournalRow = Omit<JournalEntry, 'changes' | 'targetKey'> & { readonly changes: string | null; readonly targetKey: string | null };
 
 /** Пустое значение поля или табличной части: такие значения у нового объекта в журнал не попадают. */
 function isEmpty(value: unknown): boolean {
@@ -67,12 +72,12 @@ function isEmpty(value: unknown): boolean {
 /**
  * Сравнивает запись до и после действия по полям и табличным частям описания. Без записи «до»
  * объект считается новым, и в результат попадают все заполненные поля со значением «до», равным null.
- * `guid` не включается: он хранится в `targetGuid` и не меняется. Значения сравниваются через
+ * Стандартный `guid` не включается: он хранится в `targetGuid` и не меняется. Значения сравниваются через
  * JSON, поэтому строки табличных частей с одинаковым содержимым считаются равными.
  */
 export function recordChanges(description: ObjectDescription, before: RecordValue | undefined, after: RecordValue): JournalChanges {
     const changes: JournalChanges = {};
-    const names = [...description.fields.map((field) => field.name).filter((name) => name !== 'guid'), ...description.tableParts.map((part) => part.name)];
+    const names = [...description.fields.filter((field) => field.role !== 'standard' || field.name !== 'guid').map((field) => field.name), ...description.tableParts.map((part) => part.name)];
     for (const name of names) {
         const current = after[name] ?? null;
         if (before === undefined) {
@@ -110,6 +115,7 @@ export function writeJournal(entry: {
             targetKind: entry.target.kind,
             targetName: entry.target.name,
             targetGuid: entry.target.guid,
+            targetKey: entry.target.key === undefined ? null : JSON.stringify(entry.target.key),
             action: entry.action,
             changes: entry.changes === null ? null : JSON.stringify(entry.changes),
         }));
@@ -117,7 +123,11 @@ export function writeJournal(entry: {
 }
 
 function entryFromRow(row: JournalRow): JournalEntry {
-    return { ...row, changes: row.changes === null ? null : JSON.parse(row.changes) as JournalChanges };
+    return {
+        ...row,
+        targetKey: row.targetKey === null ? null : JSON.parse(row.targetKey) as RecordValue,
+        changes: row.changes === null ? null : JSON.parse(row.changes) as JournalChanges,
+    };
 }
 
 /**
@@ -141,18 +151,28 @@ function page(where: readonly SqlCondition[], payload: RecordValue): Effect.Effe
 }
 
 /**
- * История объекта: все действия над записью или, без `targetGuid`, над всеми записями объекта.
+ * История объекта: действия над записью по `targetGuid` или измерениям `targetKey`.
+ * Без ключа возвращает действия над всеми записями объекта.
  * Неизвестный объект даёт 404, чтобы опечатка в имени не выглядела как пустая история.
  */
-function history(payload: RecordValue): Effect.Effect<unknown, DatabaseError | DataNotFoundError, Database | Metadata> {
+function history(payload: RecordValue): Effect.Effect<unknown, DatabaseError | DataNotFoundError | DataValidationError, Database | Metadata> {
     return Effect.gen(function* () {
         const kind = stringValue(payload['targetKind'], 'payload.targetKind');
         const name = stringValue(payload['targetName'], 'payload.targetName');
         const metadata = yield* Metadata;
-        if (metadata.find(kind as ObjectDescription['kind'], name) === undefined) {
+        const description = metadata.find(kind as ObjectDescription['kind'], name);
+        if (description === undefined) {
             return yield* new DataNotFoundError({ message: `Объект ${kind}.${name} не найден` });
         }
         const where: SqlCondition[] = [{ column: 'targetKind', operator: '=', value: kind }, { column: 'targetName', operator: '=', value: name }];
+        if (description.kind === 'informationRegister' && payload['targetGuid'] !== undefined) {
+            return yield* new DataValidationError({ message: 'История сведений определяется измерениями в targetKey', fields: ['payload.targetGuid'] });
+        }
+        if (payload['targetKey'] !== undefined) {
+            if (description.kind !== 'informationRegister') return yield* new DataValidationError({ message: 'Ключ из измерений допустим только для регистра сведений', fields: ['payload.targetKey'] });
+            const key = yield* informationKey(description, payload['targetKey'], 'payload.targetKey');
+            where.push({ column: 'targetKey', operator: '=', value: JSON.stringify(key) });
+        }
         if (payload['targetGuid'] !== undefined) where.push({ column: 'targetGuid', operator: '=', value: guidValue(payload['targetGuid'], 'payload.targetGuid') });
         return yield* page(where, payload);
     });
