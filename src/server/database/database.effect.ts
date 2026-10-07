@@ -1,6 +1,7 @@
 import type { Database as TursoDatabase, Transaction } from '@tursodatabase/database';
 import { Context, Effect, Exit, Option } from 'effect';
 import { DatabaseError } from './database.errors.js';
+import type { TypedSqlQuery } from './typed-query.js';
 import type { SqlQuery, SqlValue } from './sql.builder.js';
 
 /**
@@ -8,10 +9,10 @@ import type { SqlQuery, SqlValue } from './sql.builder.js';
  * Запрос хранит SQL и параметры отдельно: драйвер связывает значения при выполнении.
  */
 export interface Database {
-    /** Возвращает первую строку или `undefined`, если запрос ничего не нашёл. */
-    get<Row extends Record<string, unknown>>(query: SqlQuery): Effect.Effect<Row | undefined, DatabaseError>;
-    /** Возвращает все найденные строки. Чтение вне транзакции ждёт завершения текущей транзакции. */
-    all<Row extends Record<string, unknown>>(query: SqlQuery): Effect.Effect<readonly Row[], DatabaseError>;
+    /** Возвращает первую строку или `undefined`; типизированный запрос выводит тип и преобразует значения. */
+    get<Row extends Record<string, unknown>>(query: SqlQuery | TypedSqlQuery<Row>): Effect.Effect<Row | undefined, DatabaseError>;
+    /** Возвращает строки с преобразованием типизированного запроса; вне транзакции ждёт её завершения. */
+    all<Row extends Record<string, unknown>>(query: SqlQuery | TypedSqlQuery<Row>): Effect.Effect<readonly Row[], DatabaseError>;
     /** Выполняет изменяющий запрос. Вне транзакции драйвер упорядочивает его с остальными запросами. */
     run(query: SqlQuery): Effect.Effect<DatabaseRunResult, DatabaseError>;
     /**
@@ -93,10 +94,16 @@ export function makeDatabase(connection: TursoDatabase): Database {
         });
 
     return {
-        get: <Row extends Record<string, unknown>>(query: SqlQuery) =>
-            execute<Row | undefined>('get', query, (database, parameters) => database.get(query.sql, ...parameters)),
-        all: <Row extends Record<string, unknown>>(query: SqlQuery) =>
-            execute<readonly Row[]>('all', query, (database, parameters) => database.all(query.sql, ...parameters)),
+        get: <Row extends Record<string, unknown>>(query: SqlQuery | TypedSqlQuery<Row>) =>
+            execute<Row | undefined>('get', query, async (database, parameters) => {
+                const row = await database.get(query.sql, ...parameters) as Row | undefined;
+                return row === undefined || !('decodeRow' in query) ? row : query.decodeRow(row);
+            }),
+        all: <Row extends Record<string, unknown>>(query: SqlQuery | TypedSqlQuery<Row>) =>
+            execute<readonly Row[]>('all', query, async (database, parameters) => {
+                const rows = await database.all(query.sql, ...parameters) as Row[];
+                return 'decodeRow' in query ? rows.map(query.decodeRow) : rows;
+            }),
         run: (query: SqlQuery) =>
             execute<DatabaseRunResult>('run', query, (database, parameters) => database.run(query.sql, ...parameters)),
         transaction: inTransaction,
