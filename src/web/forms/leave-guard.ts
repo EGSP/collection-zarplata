@@ -21,6 +21,7 @@ export function useLeaveGuard(changed: RefObject<boolean>): void {
     useEffect(() => {
         if (blocker.state !== 'blocked') return;
         modal.confirm({
+            closable: true,
             title: 'Закрыть форму без сохранения?',
             content: 'На форме есть несохранённые изменения. Если уйти, они будут потеряны.',
             okText: 'Уйти без сохранения',
