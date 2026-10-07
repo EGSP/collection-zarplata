@@ -7,7 +7,8 @@
  */
 import type { ResourceProps } from '@refinedev/core';
 import type { ObjectKind, ObjectView } from '../../server/ui/descriptions';
-import { resourceName, type PerformTarget } from '../data-provider/perform';
+import { newRecordPath, objectPath, recordPath } from '../common/paths';
+import { resourceName } from '../data-provider/perform';
 
 /** Заголовки групп меню по видам объектов в порядке показа. */
 const groupTitles: { readonly [Kind in ObjectKind]: string } = {
@@ -16,14 +17,11 @@ const groupTitles: { readonly [Kind in ObjectKind]: string } = {
     register: 'Регистры',
 };
 
-/** Адрес страницы объекта: `/catalog/sample`. */
-export function objectPath(target: PerformTarget): string {
-    return `/${target.kind}/${target.name}`;
-}
-
 /**
  * Ресурсы для `<Refine>`: по одному на объект в порядке ответа сервера. Объекты вложены
  * в ресурсы-группы по видам. У группы нет своей страницы, а группу без объектов меню не показывает.
+ * Адреса форм объявлены у объектов, у которых форма есть: по ним Refine относит страницу формы
+ * к объекту, и пункт меню остаётся выделенным.
  */
 export function objectResources(objects: ReadonlyArray<ObjectView>): Array<ResourceProps> {
     return [
@@ -31,6 +29,7 @@ export function objectResources(objects: ReadonlyArray<ObjectView>): Array<Resou
         ...objects.map((object) => ({
             name: resourceName(object),
             list: objectPath(object),
+            ...(object.form === null ? {} : { create: newRecordPath(object), edit: recordPath(object, ':id') }),
             meta: { label: object.title, parent: object.kind },
         })),
     ];

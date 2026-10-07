@@ -84,9 +84,10 @@ export function validated<S extends Schema.Top>(schema: S, value: unknown, locat
     return (Schema.decodeUnknownEffect(schema, { errors: 'all' })(value) as Effect.Effect<S['Type'], Schema.SchemaError>).pipe(
         Effect.mapError((error) => {
             const message = error.message.replaceAll('\n  at ', ' — поле ');
-            // Форматтер Effect пишет путь в квадратных скобках; клиенту нужен путь от payload.
+            // Форматтер Effect пишет путь в квадратных скобках: `["lines"][0]["text"]`. Клиенту нужен путь
+            // от payload через точки, поэтому каждая часть пути, и имя, и номер строки, получает точку перед собой.
             const fields = [...message.matchAll(/поле ([^\n]+)/g)].map((match) =>
-                `${location}.${match[1]}`.replaceAll(/\["([^"]+)"\]/g, '$1').replaceAll(/\[(\d+)\]/g, '.$1'),
+                `${location}${match[1]}`.replaceAll(/\["([^"]+)"\]/g, '.$1').replaceAll(/\[(\d+)\]/g, '.$1'),
             );
             return new DataValidationError({ message: `${location}: ${message}`, fields: fields.length ? fields : [location] });
         }),

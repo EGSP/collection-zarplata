@@ -31,6 +31,15 @@ export function perform<Result>(operation: PerformOperation): Promise<Result> {
     return request<Result>({ method: 'POST', url: '/perform', data: operation });
 }
 
+/**
+ * Выполняет пакет операций одним запросом и возвращает их результаты в исходном порядке.
+ * Сервер выполняет пакет в одной транзакции, поэтому отказ в одной операции завершает
+ * `ApiError` весь пакет. Пустой пакет сервер отклоняет.
+ */
+export function performBatch<Result>(operations: ReadonlyArray<PerformOperation>): Promise<ReadonlyArray<Result>> {
+    return request<ReadonlyArray<Result>>({ method: 'POST', url: '/perform', data: operations });
+}
+
 /** Имя ресурса Refine для цели операции: `catalog.sample`. */
 export function resourceName(target: PerformTarget): string {
     return `${target.kind}.${target.name}`;

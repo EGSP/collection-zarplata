@@ -8,6 +8,7 @@
  * |---|---|
  * | `getList` | `list` |
  * | `getOne` | `get` |
+ * | `getMany` | пакет действий `get`, общий для всех одновременных вызовов |
  * | `create` | `save` без `guid` |
  * | `update` | `save` с `guid` |
  * | `deleteOne` | `markDeleted`: физически записи не удаляются |
@@ -16,10 +17,11 @@
  * Запись возвращается в том виде, в каком её отдал сервер. Её идентификатор — `guid`: его
  * Refine передаёт в параметре `id`. Поля `id` у записей нет.
  */
-import type { BaseRecord, CrudFilter, CrudOperators, CrudSort, DataProvider, GetListParams, GetListResponse } from '@refinedev/core';
-import type { FilterOperator, SortDirection } from '../../server/ui/descriptions';
+import type { BaseRecord, CrudFilter, CrudSort, DataProvider, GetListParams, GetListResponse, GetManyParams, GetManyResponse, LogicalFilter } from '@refinedev/core';
+import type { FilterOperator, ListSort } from '../../server/ui/descriptions';
 import { apiPath } from '../common/api';
 import { perform, resourceTarget } from './perform';
+import { loadRecord } from './records';
 
 /** Наибольший размер страницы, который принимает действие `list`. */
 const maximumPageSize = 500;
@@ -28,7 +30,7 @@ const maximumPageSize = 500;
  * Способы сравнения сервера и соответствующие им операторы отбора Refine. Таблица перечисляет
  * все способы сервера: новый способ в формате описаний не соберётся, пока его нет здесь.
  */
-export const crudOperators: { readonly [Operator in FilterOperator]: CrudOperators } = {
+export const crudOperators: { readonly [Operator in FilterOperator]: LogicalFilter['operator'] } = {
     equals: 'eq',
     notEquals: 'ne',
     greater: 'gt',
@@ -38,17 +40,12 @@ export const crudOperators: { readonly [Operator in FilterOperator]: CrudOperato
     contains: 'contains',
 };
 
-const filterOperators = new Map(Object.entries(crudOperators).map(([operator, crudOperator]) => [crudOperator, operator as FilterOperator]));
+const filterOperators = new Map<string, FilterOperator>(Object.entries(crudOperators).map(([operator, crudOperator]) => [crudOperator, operator as FilterOperator]));
 
 interface ListCondition {
     readonly field: string;
     readonly operator: FilterOperator;
     readonly value: unknown;
-}
-
-interface ListOrder {
-    readonly field: string;
-    readonly direction: SortDirection;
 }
 
 interface ListPage<Item> {
@@ -79,8 +76,18 @@ function listConditions(filters: ReadonlyArray<CrudFilter>): Array<ListCondition
     });
 }
 
-function listOrder({ field, order }: CrudSort): ListOrder {
+function listOrder({ field, order }: CrudSort): ListSort {
     return { field, direction: order === 'asc' ? 'ascending' : 'descending' };
+}
+
+/** Сортировка Refine по сортировке из описания списка. */
+export function crudSort({ field, direction }: ListSort): CrudSort {
+    return { field, order: direction === 'ascending' ? 'asc' : 'desc' };
+}
+
+/** Способ сравнения сервера по оператору отбора Refine. У оператора без соответствия способа нет. */
+export function filterOperator(operator: string): FilterOperator | undefined {
+    return filterOperators.get(operator);
 }
 
 /** Выполняет действие над ресурсом и возвращает результат в виде ответа Refine. */
@@ -120,6 +127,14 @@ export const dataProvider: DataProvider = {
     },
 
     getOne: ({ resource, id }) => act(resource, 'get', { guid: id }),
+
+    /**
+     * Читает записи по `guid`. Одновременные вызовы, в том числе для разных ресурсов, уходят
+     * на сервер одним пакетом: так читаются записи, на которые ведут ссылки открытой страницы.
+     */
+    getMany: async <Item extends BaseRecord>({ resource, ids }: GetManyParams): Promise<GetManyResponse<Item>> => ({
+        data: (await Promise.all(ids.map((id) => loadRecord(resource, String(id))))) as Array<Item>,
+    }),
 
     /** `variables` — значения полей и табличные части записи, как в `payload.fields` действия `save`. */
     create: ({ resource, variables }) => act(resource, 'save', { fields: variables }),
