@@ -1,12 +1,13 @@
 import { LogoutOutlined } from '@ant-design/icons';
-import { useLogout, useMenu } from '@refinedev/core';
-import { Button, Flex, Layout, Menu, Result, theme, Typography } from 'antd';
-import { Link, Outlet } from 'react-router';
+import { useLogout } from '@refinedev/core';
+import { Button, Flex, Layout, Result, theme, Typography } from 'antd';
+import { Outlet } from 'react-router';
 import { Pending } from '../common/pending';
 import { useMetadata } from '../data-provider/metadata';
+import { SubsystemList } from './subsystems';
 
 /**
- * Раскладка приложения: слева меню объектов и выход, справа содержимое открытой страницы.
+ * Раскладка приложения: слева список подсистем и выход, справа содержимое открытой страницы.
  *
  * Страницы строятся по описаниям объектов, поэтому раскладка показывает их только после
  * загрузки описаний: странице не нужно самой обрабатывать ожидание и ошибку загрузки.
@@ -21,7 +22,7 @@ export function ApplicationLayout() {
                         Учёт зарплаты и продаж
                     </Typography.Title>
                     <div style={{ flex: 1, overflowY: 'auto' }}>
-                        <ObjectMenu />
+                        <SubsystemList />
                     </div>
                     <LogoutButton />
                 </Flex>
@@ -47,29 +48,6 @@ function PageContent() {
                     Повторить
                 </Button>
             }
-        />
-    );
-}
-
-/**
- * Меню объектов, доступных пользователю, по группам видов. Строится из ресурсов Refine, поэтому
- * пункт объекта остаётся выделенным на любой его странице.
- */
-function ObjectMenu() {
-    const { menuItems, selectedKey } = useMenu();
-    return (
-        <Menu
-            mode="inline"
-            selectedKeys={[selectedKey]}
-            style={{ borderInlineEnd: 'none' }}
-            items={menuItems.map((group) => ({
-                type: 'group',
-                key: group.key,
-                label: group.label,
-                children: group.children.flatMap((item) =>
-                    item.route === undefined ? [] : [{ key: item.key, label: <Link to={item.route}>{item.label}</Link> }],
-                ),
-            }))}
         />
     );
 }
