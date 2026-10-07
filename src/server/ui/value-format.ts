@@ -33,8 +33,13 @@ export function formatMoney(kopecks: number): string {
     return (kopecks / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Показывает логическое значение словами, общими для поиска и отображения. */
+export function formatBoolean(value: boolean): string {
+    return value ? 'Да' : 'Нет';
+}
+
 /**
- * Текст для поиска `contains` по виду поля. Незаполненное значение, другой тип значения
+ * Текст для поиска по виду поля. Незаполненное значение, другой тип значения
  * или вид поля без поиска по подстроке возвращает `null` и не считается совпадением.
  */
 export function formatSearchValue(kind: FieldKind, value: unknown): string | null {
@@ -44,6 +49,7 @@ export function formatSearchValue(kind: FieldKind, value: unknown): string | nul
         case 'money': return typeof value === 'number' ? formatMoney(value) : null;
         case 'date': return typeof value === 'string' ? formatDate(value) : null;
         case 'dateTime': return typeof value === 'string' ? formatDateTime(value) : null;
+        case 'boolean': return typeof value === 'boolean' ? formatBoolean(value) : null;
         default: return null;
     }
 }

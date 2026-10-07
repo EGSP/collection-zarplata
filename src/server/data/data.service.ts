@@ -21,6 +21,8 @@ import { readOnlyDatabase } from './read-only-database.js';
 import { enforcePolicies, type PolicyInvocation } from './policies.js';
 import { importCatalog } from './import.js';
 import { getInformation, mutateInformation } from './information-register.js';
+import { buildList } from '../ui/views.js';
+import { ListPresentations } from './list-presentations.js';
 
 /** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
 type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher;
@@ -291,11 +293,21 @@ export class DataService {
      * поэтому их имена могут безопасно участвовать в построении SQL; значения остаются параметрами.
      * Условия, которые нельзя выразить в SQL, проверяет на кандидатах порциями до подсчёта
      * и разбиения на страницы. Строки регистра упорядочиваются по регистратору и номеру строки.
+     * Отдельный поиск проверяет каждую видимую колонку по её отображаемому тексту; ссылки
+     * читаются пакетами с проверкой прав, а представления страницы возвращаются клиенту.
      */
-    private list(description: ObjectDescription, payload: unknown): Effect.Effect<unknown, unknown> {
+    private list(description: ObjectDescription, payload: unknown): Effect.Effect<unknown, unknown, Database | ActionContext> {
         return Effect.gen(function* (this: DataService) {
             const options = objectValue(payload, 'payload');
             const { page, pageSize, offset } = pageOptions(options);
+            if (options['search'] !== undefined && typeof options['search'] !== 'string') {
+                return yield* new DataValidationError({ message: 'Для поиска нужна строка', fields: ['payload.search'] });
+            }
+            const search = (options['search'] as string | undefined) ?? '';
+            const columns = buildList(description).columns;
+            const context = yield* ActionContext;
+            const rights = yield* this.rightsGuard.rightsOf(context.userGuid);
+            const presentations = new ListPresentations(this.metadata.objects, rights, columns);
             const filters = options['filter'] ?? [];
             const sorting = options['sort'] ?? [];
             if (!Array.isArray(filters) || !Array.isArray(sorting)) return yield* new DataValidationError({ message: 'Отбор и сортировка должны быть списками', fields: ['payload.filter', 'payload.sort'] });
@@ -371,7 +383,7 @@ export class DataService {
             }
             const table = tableName(description);
             const database = this.database.effect;
-            if (predicates.length > 0) {
+            if (predicates.length > 0 || search !== '') {
                 const items: RecordValue[] = [];
                 let total = 0;
                 let scanned = 0;
@@ -380,15 +392,25 @@ export class DataService {
                     // Turso LIKE обрабатывает % и _ как шаблон и не складывает регистр кириллицы.
                     // Читаем кандидатов порциями, применяя такие условия до выбора страницы.
                     const candidates = yield* database.all<RecordValue>(select(table, { where, orderBy, limit: chunkSize, offset: scanned }));
-                    for (const row of candidates) {
-                        if (!predicates.every((predicate) => predicate(row))) continue;
+                    const records = candidates.filter((row) => predicates.every((predicate) => predicate(row)))
+                        .map((row) => recordFromRow(row, description));
+                    if (search !== '') yield* presentations.load(records);
+                    for (const record of records) {
+                        if (search !== '' && !columns.some((column) => {
+                            const displayed = ['reference', 'objectReference', 'recorder'].includes(column.kind)
+                                ? presentations.text(column, record)
+                                : formatSearchValue(column.kind, record[column.field]);
+                            return displayed !== null && normalizeSearchText(column.kind, displayed)
+                                .includes(normalizeSearchText(column.kind, search));
+                        })) continue;
                         total++;
-                        if (total > offset && items.length < pageSize) items.push(recordFromRow(row, description));
+                        if (total > offset && items.length < pageSize) items.push(record);
                     }
                     scanned += candidates.length;
                     if (candidates.length < chunkSize) break;
                 }
-                return { items, total, page, pageSize };
+                yield* presentations.load(items);
+                return { items, total, page, pageSize, presentations: presentations.forPage(items) };
             }
             // Подзапрос повторяет тот же отбор, чтобы total не зависел от размера текущей страницы.
             const filtered = select(table, { where });
@@ -397,7 +419,9 @@ export class DataService {
                 parameters: filtered.parameters,
             });
             const rows = yield* database.all<RecordValue>(select(table, { where, orderBy, limit: pageSize, offset }));
-            return { items: rows.map((row) => recordFromRow(row, description)), total: count?.total ?? 0, page, pageSize };
+            const items = rows.map((row) => recordFromRow(row, description));
+            yield* presentations.load(items);
+            return { items, total: count?.total ?? 0, page, pageSize, presentations: presentations.forPage(items) };
         }.bind(this));
     }
 

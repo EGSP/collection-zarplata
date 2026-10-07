@@ -22,6 +22,7 @@ import type { FilterOperator, ListSort } from '../../server/ui/descriptions';
 import { apiPath } from '../common/api';
 import { perform, resourceTarget } from './perform';
 import { loadRecord } from './records';
+import type { ReferencePresentations } from '../../server/ui/reference-presentation';
 
 /** Наибольший размер страницы, который принимает действие `list`. */
 const maximumPageSize = 500;
@@ -51,6 +52,7 @@ interface ListCondition {
 interface ListPage<Item> {
     readonly items: ReadonlyArray<Item>;
     readonly total: number;
+    readonly presentations: ReferencePresentations;
 }
 
 /**
@@ -108,22 +110,24 @@ export const dataProvider: DataProvider = {
      * В режимах `client` и `off` Refine ждёт все записи сразу, поэтому они читаются страницами
      * наибольшего размера, пока не будут получены все.
      */
-    getList: async <Item extends BaseRecord>({ resource, pagination, filters, sorters }: GetListParams): Promise<GetListResponse<Item>> => {
+    getList: async <Item extends BaseRecord>({ resource, pagination, filters, sorters, meta }: GetListParams): Promise<GetListResponse<Item>> => {
         const target = resourceTarget(resource);
-        const selection = { filter: listConditions(filters ?? []), sort: (sorters ?? []).map(listOrder) };
+        const selection = { filter: listConditions(filters ?? []), sort: (sorters ?? []).map(listOrder), search: meta?.['search'] };
         const list = (page: number | undefined, pageSize: number | undefined) =>
             perform<ListPage<Item>>({ target, action: 'list', payload: { ...selection, page, pageSize } });
 
         if (pagination?.mode === 'client' || pagination?.mode === 'off') {
             const items: Array<Item> = [];
+            const presentations: Record<string, string | null> = {};
             for (let page = 1; ; page++) {
                 const chunk = await list(page, maximumPageSize);
                 items.push(...chunk.items);
-                if (chunk.items.length === 0 || items.length >= chunk.total) return { data: items, total: items.length };
+                Object.assign(presentations, chunk.presentations);
+                if (chunk.items.length === 0 || items.length >= chunk.total) return { data: items, total: items.length, presentations };
             }
         }
         const page = await list(pagination?.currentPage, pagination?.pageSize);
-        return { data: [...page.items], total: page.total };
+        return { data: [...page.items], total: page.total, presentations: page.presentations };
     },
 
     getOne: ({ resource, id }) => act(resource, 'get', { guid: id }),
