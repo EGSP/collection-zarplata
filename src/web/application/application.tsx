@@ -49,7 +49,7 @@ export function Application() {
 /** Провайдеры Ant Design и запросов вокруг приложения Refine. */
 function Providers() {
     return (
-        <ConfigProvider locale={ruRU}>
+        <ConfigProvider locale={ruRU} modal={{ mask: { closable: false } }}>
             <AntdApplication>
                 <QueryClientProvider client={queryClient}>
                     <RefineApplication />

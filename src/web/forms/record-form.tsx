@@ -213,9 +213,10 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
     useHotkey('Control+Enter', (event) => {
         if (!event.isComposing) keyboardAction('post', true);
     }, hotkeyOptions);
+    // Ant Design обрабатывает Esc на window: событие должно дойти туда и закрыть верхнее окно.
     useHotkey('Escape', (event) => {
         if (!event.isComposing && !hasOpenDialog() && !pickerEvents.current.has(event) && !executing.current) close();
-    }, { ...hotkeyOptions, preventDefault: false });
+    }, { ...hotkeyOptions, preventDefault: false, stopPropagation: false });
 
     const move = (name: string, direction: number) => {
         for (let index = view.traversal.indexOf(name) + direction; index >= 0 && index < view.traversal.length; index += direction) {

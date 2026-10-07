@@ -20,7 +20,8 @@ interface ActionDialogProperties {
 /**
  * Окно входных данных собственного действия. Поля берутся из того же реестра виджетов
  * и проверяются по тем же правилам, что поля формы записи. Если сервер отклонил входные данные,
- * поля из его перечня отмечаются ошибкой.
+ * поля из его перечня отмечаются ошибкой. На время запроса закрытие блокируется, чтобы ответ
+ * сервера и ошибки полей пришли в открытое окно.
  */
 export function ActionDialog({ action, onExecute, onClose }: ActionDialogProperties) {
     const [form] = Form.useForm<FormValues>();
@@ -44,8 +45,13 @@ export function ActionDialog({ action, onExecute, onClose }: ActionDialogPropert
             okText="Выполнить"
             cancelText="Отмена"
             confirmLoading={executing}
+            closable={{ disabled: executing }}
+            keyboard={!executing}
+            cancelButtonProps={{ disabled: executing }}
             onOk={() => form.submit()}
-            onCancel={onClose}
+            onCancel={() => {
+                if (!executing) onClose();
+            }}
         >
             <Form form={form} layout="vertical" initialValues={Object.fromEntries(action.input.map((field) => [field.name, null]))} onFinish={(input) => void execute(input)}>
                 {action.input.map((field) => (
