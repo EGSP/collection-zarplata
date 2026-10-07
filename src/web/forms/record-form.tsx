@@ -1,3 +1,4 @@
+import { useHotkey } from '@tanstack/react-hotkeys';
 import { useCreate, useUpdate } from '@refinedev/core';
 import { Button, Card, Flex, Form, Tag, theme, Typography } from 'antd';
 import { useEffect, useRef, useState } from 'react';
@@ -13,6 +14,7 @@ import { FieldDisplay, FieldInput } from '../widgets/registry';
 import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../widgets/validation';
 import { ActionDialog } from './action-dialog';
 import { useFieldFocus, type FieldFocus } from './field-focus';
+import { hasOpenDialog, hasOpenPicker } from './keyboard';
 import { useLeaveGuard } from './leave-guard';
 import { newRecordValues, recordValues, saveFields, type FormValues } from './record-values';
 import { TablePart } from './table-part';
@@ -68,6 +70,9 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
     const [dialogAction, setDialogAction] = useState<FormAction | null>(null);
 
     const changed = useRef(false);
+    const executing = useRef(false);
+    // Виджет может закрыть выбор до глобального обработчика Escape. Сохраняем состояние до события.
+    const pickerEvents = useRef(new WeakSet<KeyboardEvent>());
     useLeaveGuard(changed);
 
     const { mutateAsync: create } = useCreate<RecordData, ApiError, FormValues>();
@@ -129,9 +134,14 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
 
     /**
      * Выполняет действие формы. `input` содержит входные данные собственного действия.
+     * При `closeAfter` закрывает форму после успешного действия; при ошибке оставляет её открытой.
      * Возвращает `null` при успехе либо ошибку, из-за которой действие не выполнено.
      */
-    const run = async (action: FormAction, input: FormValues | null): Promise<unknown> => {
+    const run = async (action: FormAction, input: FormValues | null, closeAfter = false): Promise<unknown> => {
+        // Состояние React обновится позже; ссылка блокирует повторное нажатие в том же кадре.
+        if (executing.current) return new Error('Действие уже выполняется');
+        executing.current = true;
+        let completed = false;
         const isSave = action.standard && action.name === 'save';
         let current = saved;
         setRunning(action.name);
@@ -155,14 +165,17 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                 await performAction({ resource, action: action.name, payload: input ?? {}, successMessage: action.title });
                 if (reload !== null) show(await reload());
             }
+            completed = true;
             return null;
         } catch (error) {
             return error;
         } finally {
+            executing.current = false;
             setRunning(null);
             // У созданной записи появился собственный адрес. Он заменяет адрес новой записи в истории,
             // поэтому кнопка браузера «Назад» по-прежнему ведёт в список.
-            if (saved === null && current !== null) void navigate(recordPath(object, recordGuid(current)), { replace: true, state: location.state });
+            if (completed && closeAfter) close();
+            else if (saved === null && current !== null) void navigate(recordPath(object, recordGuid(current)), { replace: true, state: location.state });
         }
     };
 
@@ -187,8 +200,42 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         }
     };
 
+    const close = () => void navigate(listLocation(location.state) ?? objectPath(object));
+    const keyboardAction = (name: string, closeAfter = false) => {
+        if (hasOpenDialog() || executing.current) return;
+        const action = view.actions.find((candidate) => candidate.standard && candidate.name === name && isVisible(candidate));
+        if (action !== undefined) void run(action, null, closeAfter);
+    };
+    const hotkeyOptions = { ignoreInputs: false, requireReset: true };
+    useHotkey('Control+S', (event) => {
+        if (!event.isComposing) keyboardAction('save');
+    }, hotkeyOptions);
+    useHotkey('Control+Enter', (event) => {
+        if (!event.isComposing) keyboardAction('post', true);
+    }, hotkeyOptions);
+    useHotkey('Escape', (event) => {
+        if (!event.isComposing && !hasOpenDialog() && !pickerEvents.current.has(event) && !executing.current) close();
+    }, { ...hotkeyOptions, preventDefault: false });
+
+    const move = (name: string, direction: number) => {
+        for (let index = view.traversal.indexOf(name) + direction; index >= 0 && index < view.traversal.length; index += direction) {
+            const next = view.traversal[index];
+            if (next !== undefined && focus.focus(next)) break;
+        }
+    };
+
     return (
-        <Flex vertical gap="middle">
+        <Flex vertical gap="middle" onKeyDownCapture={(event) => {
+            if (event.key === 'Escape' && hasOpenPicker(event.target)) pickerEvents.current.add(event.nativeEvent);
+            if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing || !editable || hasOpenDialog() || hasOpenPicker(event.target)) return;
+            const target = event.target;
+            if (!(target instanceof HTMLElement) || target.closest('[data-table-part], button, a') !== null) return;
+            const name = target.closest<HTMLElement>('[data-form-field]')?.dataset['formField'];
+            if (name === undefined) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (!event.repeat) move(name, event.shiftKey ? -1 : 1);
+        }}>
             <Flex justify="space-between" align="flex-start" gap="middle" wrap>
                 <Flex vertical gap="small">
                     <Typography.Title level={3} style={{ margin: 0 }}>
@@ -211,7 +258,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                             {action.title}
                         </Button>
                     ))}
-                    <Button onClick={() => void navigate(listLocation(location.state) ?? objectPath(object))}>Закрыть</Button>
+                    <Button onClick={close}>Закрыть</Button>
                 </Flex>
             </Flex>
             <Form
@@ -225,7 +272,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
             >
                 <Flex vertical gap="middle">
                     {view.groups.map((group, index) => (
-                        <Group key={index} group={group} view={view} saved={saved} editable={editable} focus={focus} />
+                        <Group key={index} group={group} view={view} saved={saved} editable={editable} focus={focus} onPrevious={(name) => move(name, -1)} />
                     ))}
                 </Flex>
             </Form>
@@ -240,13 +287,14 @@ interface GroupProperties {
     readonly saved: RecordData | null;
     readonly editable: boolean;
     readonly focus: FieldFocus;
+    readonly onPrevious: (name: string) => void;
 }
 
 /**
  * Группа элементов формы. Поля шапки стоят в несколько колонок, табличная часть занимает всю
  * ширину формы. Группа с заголовком выводится блоком с заголовком, группа без заголовка без рамки.
  */
-function Group({ group, view, saved, editable, focus }: GroupProperties) {
+function Group({ group, view, saved, editable, focus, onPrevious }: GroupProperties) {
     const { token } = theme.useToken();
     const elements = (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', columnGap: token.marginLG }}>
@@ -257,7 +305,7 @@ function Group({ group, view, saved, editable, focus }: GroupProperties) {
                 if (part === undefined) return null;
                 return (
                     <div key={name} style={{ gridColumn: '1 / -1', marginBottom: token.marginLG }}>
-                        <TablePart part={part} disabled={!editable} ref={focus.register(name)} />
+                        <TablePart part={part} disabled={!editable} ref={focus.register(name)} onPrevious={() => onPrevious(name)} />
                     </div>
                 );
             })}
@@ -287,8 +335,10 @@ function HeaderField({ field, saved, focus }: { readonly field: FormField; reado
         );
     }
     return (
-        <Form.Item name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>
-            <FieldInput field={field} ref={focus.register(field.name)} />
-        </Form.Item>
+        <div data-form-field={field.name}>
+            <Form.Item name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>
+                <FieldInput field={field} ref={focus.register(field.name)} />
+            </Form.Item>
+        </div>
     );
 }

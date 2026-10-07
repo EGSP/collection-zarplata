@@ -7,7 +7,7 @@
  */
 import { Checkbox, DatePicker, Input, InputNumber, Select } from 'antd';
 import dayjs from 'dayjs';
-import { useCallback, useImperativeHandle, useRef, type Ref, type RefCallback } from 'react';
+import { useCallback, useImperativeHandle, useRef, useState, type Ref, type RefCallback } from 'react';
 import { dateFormat, dateTimeFormat } from './format';
 import type { InputHandle, InputProperties } from './widget';
 
@@ -97,15 +97,19 @@ export function MoneyInput({ value, onChange, disabled, id, ref }: InputProperti
 /** Поле выбора даты в календаре. Значение поля: строка `YYYY-MM-DD`. */
 export function DateInput({ value, onChange, disabled, id, ref }: InputProperties<string>) {
     const inner = useInputHandle(ref);
+    const [open, setOpen] = useState(false);
     return (
-        <DatePicker
-            ref={inner}
-            {...defined({ id, disabled })}
-            style={fullWidth}
-            format={dateFormat}
-            value={value === null || value === undefined ? null : dayjs(value)}
-            onChange={(date) => onChange?.(date === null ? null : date.format('YYYY-MM-DD'))}
-        />
+        <div data-picker-open={open}>
+            <DatePicker
+                ref={inner}
+                onOpenChange={setOpen}
+                {...defined({ id, disabled })}
+                style={fullWidth}
+                format={dateFormat}
+                value={value === null || value === undefined ? null : dayjs(value)}
+                onChange={(date) => onChange?.(date === null ? null : date.format('YYYY-MM-DD'))}
+            />
+        </div>
     );
 }
 
@@ -115,16 +119,20 @@ export function DateInput({ value, onChange, disabled, id, ref }: InputPropertie
  */
 export function DateTimeInput({ value, onChange, disabled, id, ref }: InputProperties<string>) {
     const inner = useInputHandle(ref);
+    const [open, setOpen] = useState(false);
     return (
-        <DatePicker
-            ref={inner}
-            {...defined({ id, disabled })}
-            style={fullWidth}
-            showTime={{ format: 'HH:mm' }}
-            format={dateTimeFormat}
-            value={value === null || value === undefined ? null : dayjs(value)}
-            onChange={(date) => onChange?.(date === null ? null : date.toISOString())}
-        />
+        <div data-picker-open={open}>
+            <DatePicker
+                ref={inner}
+                onOpenChange={setOpen}
+                {...defined({ id, disabled })}
+                style={fullWidth}
+                showTime={{ format: 'HH:mm' }}
+                format={dateTimeFormat}
+                value={value === null || value === undefined ? null : dayjs(value)}
+                onChange={(date) => onChange?.(date === null ? null : date.toISOString())}
+            />
+        </div>
     );
 }
 
