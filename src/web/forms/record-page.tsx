@@ -10,11 +10,12 @@ import { Pending } from '../common/pending';
 import { useObjectView } from '../data-provider/metadata';
 import { resourceName } from '../data-provider/perform';
 import type { RecordData } from '../data-provider/records';
+import { useTabTitle } from '../tabs/window-tabs';
 import { RecordForm } from './record-form';
 
 /**
- * Страница формы записи: `/вид/имя/new` открывает форму новой записи, `/вид/имя/<guid>` открывает
- * форму существующей. У записи есть собственный адрес, потому что на неё ведут ссылки
+ * Страница вкладки с формой записи: `/вид/имя/new` открывает форму новой записи, `/вид/имя/<guid>`
+ * открывает форму существующей. У записи есть собственный адрес, потому что на неё ведут ссылки
  * из списков, из строк регистров и из других форм.
  *
  * У регистра формы нет, поэтому его адреса форм показывают страницу «не найдено». Так же
@@ -24,7 +25,8 @@ export function RecordPage() {
     const { kind, name, guid } = useParams();
     const object = useObjectView(kind === undefined || name === undefined ? null : { kind, name });
     if (object === undefined || object.form === null || guid === undefined) return <NotFoundPage />;
-    // Ключ пересоздаёт форму при переходе к другой записи: иначе в ней остались бы значения прежней.
+    // После записи новой формы вкладка получает адрес существующей записи. Ключ пересоздаёт форму:
+    // существующую запись она читает с сервера, а действия над ней перечитывают её тем же запросом.
     const key = `${resourceName(object)}/${guid}`;
     if (guid !== newRecordSegment) return <ExistingRecord key={key} object={object} view={object.form} guid={guid} />;
     if (!object.form.actions.some((action) => action.name === 'save')) return <NotFoundPage />;
@@ -48,6 +50,8 @@ function ExistingRecord({ object, view, guid }: { readonly object: ObjectView; r
     // фоновое обновление стёрло бы значения, которые пользователь вводит. Запись берётся только
     // из свежего ответа: сохранённый ранее ответ мог устареть.
     const [record, setRecord] = useState<RecordData | null>(null);
+    // Пока записи нет, представления тоже нет. Дальше заголовок вкладки задаёт форма.
+    useTabTitle(record === null ? object.title : null);
     if (record === null && query.isSuccess && !query.isFetching && !query.isPlaceholderData) setRecord(query.data.data);
 
     if (record !== null) {

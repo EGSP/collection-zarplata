@@ -2,20 +2,19 @@ import { useHotkey } from '@tanstack/react-hotkeys';
 import { useCreate, useUpdate } from '@refinedev/core';
 import { Button, Card, Flex, Form, Tag, theme, Typography } from 'antd';
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router';
 import type { FormAction, FormField, FormGroup, FormView, ObjectView } from '../../server/ui/descriptions';
 import { ApiError } from '../common/api';
-import { listLocation, objectPath, recordPath } from '../common/paths';
+import { recordPath } from '../common/paths';
 import { useAction, useInvalidateData } from '../data-provider/actions';
 import { resourceName } from '../data-provider/perform';
 import { recordGuid, type RecordData } from '../data-provider/records';
-import { recordTitle } from '../references/presentation';
+import { recordPresentation, recordTitle } from '../references/presentation';
+import { useTabTitle, useUnsavedChanges, useWindowTab } from '../tabs/window-tabs';
 import { FieldDisplay, FieldInput } from '../widgets/registry';
 import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../widgets/validation';
 import { ActionDialog } from './action-dialog';
 import { useFieldFocus, type FieldFocus } from './field-focus';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
-import { useLeaveGuard } from './leave-guard';
 import { newRecordValues, recordValues, saveFields, type FormValues } from './record-values';
 import { TablePart } from './table-part';
 
@@ -54,11 +53,13 @@ interface RecordFormProperties {
  * сохранённой, и форма показывает её сохранённое состояние.
  *
  * Форма без действия `save` в описании открывается только для просмотра.
+ *
+ * Форма показана во вкладке и остаётся смонтированной, пока вкладка скрыта. Кнопка «Закрыть»
+ * и Esc закрывают вкладку; подтверждение при несохранённых изменениях спрашивает вкладка.
  */
 export function RecordForm({ object, view, record, reload }: RecordFormProperties) {
     const [form] = Form.useForm<FormValues>();
-    const navigate = useNavigate();
-    const location = useLocation();
+    const tab = useWindowTab();
     const resource = resourceName(object);
 
     const [saved, setSaved] = useState(record);
@@ -73,7 +74,8 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
     const executing = useRef(false);
     // Виджет может закрыть выбор до глобального обработчика Escape. Сохраняем состояние до события.
     const pickerEvents = useRef(new WeakSet<KeyboardEvent>());
-    useLeaveGuard(changed);
+    useUnsavedChanges(changed);
+    useTabTitle(saved === null ? `${object.title} (новый)` : recordPresentation(object, saved));
 
     const { mutateAsync: create } = useCreate<RecordData, ApiError, FormValues>();
     const { mutateAsync: update } = useUpdate<RecordData, ApiError, FormValues>();
@@ -172,10 +174,10 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         } finally {
             executing.current = false;
             setRunning(null);
-            // У созданной записи появился собственный адрес. Он заменяет адрес новой записи в истории,
-            // поэтому кнопка браузера «Назад» по-прежнему ведёт в список.
-            if (completed && closeAfter) close();
-            else if (saved === null && current !== null) void navigate(recordPath(object, recordGuid(current)), { replace: true, state: location.state });
+            // У созданной записи появился собственный адрес: вкладка переходит на него, и повторное
+            // открытие этой записи находит эту же вкладку.
+            if (completed && closeAfter) tab.close();
+            else if (saved === null && current !== null) tab.relocate(recordPath(object, recordGuid(current)));
         }
     };
 
@@ -200,13 +202,13 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         }
     };
 
-    const close = () => void navigate(listLocation(location.state) ?? objectPath(object));
     const keyboardAction = (name: string, closeAfter = false) => {
         if (hasOpenDialog() || executing.current) return;
         const action = view.actions.find((candidate) => candidate.standard && candidate.name === name && isVisible(candidate));
         if (action !== undefined) void run(action, null, closeAfter);
     };
-    const hotkeyOptions = { ignoreInputs: false, requireReset: true };
+    // Форма скрытой вкладки остаётся смонтированной: без этого условия сочетание сработало бы на всех открытых формах.
+    const hotkeyOptions = { ignoreInputs: false, requireReset: true, enabled: tab.active };
     useHotkey('Control+S', (event) => {
         if (!event.isComposing) keyboardAction('save');
     }, hotkeyOptions);
@@ -215,7 +217,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
     }, hotkeyOptions);
     // Ant Design обрабатывает Esc на window: событие должно дойти туда и закрыть верхнее окно.
     useHotkey('Escape', (event) => {
-        if (!event.isComposing && !hasOpenDialog() && !pickerEvents.current.has(event) && !executing.current) close();
+        if (!event.isComposing && !hasOpenDialog() && !pickerEvents.current.has(event) && !executing.current) tab.close();
     }, { ...hotkeyOptions, preventDefault: false, stopPropagation: false });
 
     const move = (name: string, direction: number) => {
@@ -259,7 +261,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                             {action.title}
                         </Button>
                     ))}
-                    <Button onClick={close}>Закрыть</Button>
+                    <Button onClick={tab.close}>Закрыть</Button>
                 </Flex>
             </Flex>
             <Form

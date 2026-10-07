@@ -3,17 +3,15 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { App as AntdApplication, ConfigProvider } from 'antd';
 import ruRU from 'antd/locale/ru_RU';
 import { useMemo } from 'react';
-import { createBrowserRouter, Route, RouterProvider, Routes } from 'react-router';
+import { BrowserRouter } from 'react-router';
 import { createAuthenticationProvider } from '../authentication/authentication-provider';
 import { LoginPage } from '../authentication/login-page';
-import { NotFoundPage } from '../common/not-found';
 import { Pending } from '../common/pending';
 import { dataProvider } from '../data-provider/data-provider';
 import { metadataQuery, useMetadata } from '../data-provider/metadata';
-import { RecordPage } from '../forms/record-page';
+import { WindowTabsProvider } from '../tabs/window-tabs';
 import { ApplicationLayout } from './layout';
 import { i18nProvider, useNotificationProvider } from './notifications';
-import { ObjectPage, StartPage } from './pages';
 import { queryClient } from './query-client';
 import { objectResources } from './resources';
 import { applicationRouterProvider } from './router-provider';
@@ -33,39 +31,32 @@ const refineOptions = {
     reactQuery: { clientConfig: queryClient },
 };
 
-/**
- * Маршрутизатор приложения. Нужен именно маршрутизатор с данными: только он умеет остановить
- * переход, а форме это нужно, чтобы спросить подтверждение при несохранённых изменениях.
- * Маршрут у него один на все адреса, а страницы по адресам раскладывает `RefineApplication`:
- * маршруты страниц должны лежать внутри `<Refine>`.
- */
-const router = createBrowserRouter([{ path: '*', element: <Providers /> }]);
-
-/** Корень клиента. */
+/** Корень клиента: маршрутизатор, провайдеры Ant Design и запросов вокруг приложения Refine. */
 export function Application() {
-    return <RouterProvider router={router} />;
-}
-
-/** Провайдеры Ant Design и запросов вокруг приложения Refine. */
-function Providers() {
     return (
-        <ConfigProvider locale={ruRU} modal={{ mask: { closable: false } }}>
-            <AntdApplication>
-                <QueryClientProvider client={queryClient}>
-                    <RefineApplication />
-                </QueryClientProvider>
-            </AntdApplication>
-        </ConfigProvider>
+        <BrowserRouter>
+            <ConfigProvider locale={ruRU} modal={{ mask: { closable: false } }}>
+                <AntdApplication>
+                    <QueryClientProvider client={queryClient}>
+                        <RefineApplication />
+                    </QueryClientProvider>
+                </AntdApplication>
+            </ConfigProvider>
+        </BrowserRouter>
     );
 }
 
 /**
- * Приложение Refine и его маршруты. Ресурсы строятся из описаний объектов, поэтому до входа
- * и во время загрузки описаний их список пуст.
+ * Приложение Refine. Ресурсы строятся из описаний объектов, поэтому до входа и во время загрузки
+ * описаний их список пуст.
  *
- * Все страницы закрыты проверкой входа. Без сессии на месте страницы показывается экран входа,
+ * Общих маршрутов у приложения нет: страницы по адресам раскладывает каждая вкладка для своего
+ * адреса (`TabPages`), а набор вкладок выводится из адреса браузера (`WindowTabsProvider`).
+ *
+ * Всё приложение закрыто проверкой входа. Без сессии на его месте показывается экран входа,
  * а адрес не меняется. Поэтому после входа открывается та же страница, в том числе когда сессия
- * истекла посреди работы, и отдельный адрес экрана входа с адресом возврата не нужен.
+ * истекла посреди работы, и отдельный адрес экрана входа с адресом возврата не нужен. Вкладки
+ * стоят под проверкой входа и при завершении сессии закрываются.
  */
 function RefineApplication() {
     const metadata = useMetadata();
@@ -80,20 +71,11 @@ function RefineApplication() {
             resources={resources}
             options={refineOptions}
         >
-            <Routes>
-                <Route
-                    element={
-                        <Authenticated key="application" fallback={<LoginPage />} loading={<Pending fullPage />}>
-                            <ApplicationLayout />
-                        </Authenticated>
-                    }
-                >
-                    <Route index element={<StartPage />} />
-                    <Route path=":kind/:name" element={<ObjectPage />} />
-                    <Route path=":kind/:name/:guid" element={<RecordPage />} />
-                    <Route path="*" element={<NotFoundPage />} />
-                </Route>
-            </Routes>
+            <Authenticated key="application" fallback={<LoginPage />} loading={<Pending fullPage />}>
+                <WindowTabsProvider>
+                    <ApplicationLayout />
+                </WindowTabsProvider>
+            </Authenticated>
         </Refine>
     );
 }
