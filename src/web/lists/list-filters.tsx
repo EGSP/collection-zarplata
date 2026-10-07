@@ -1,6 +1,6 @@
 import { CloseOutlined, FilterOutlined } from '@ant-design/icons';
 import type { CrudFilter } from '@refinedev/core';
-import { Button, Flex, Select } from 'antd';
+import { Button, Flex, Input, Select } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FilterOperator, ListFilter } from '../../server/ui/descriptions';
 import { useDebounced } from '../common/debounced';
@@ -80,8 +80,8 @@ interface ListFiltersProperties {
 
 /**
  * Отбор списка: пользователь составляет его из условий «поле, способ сравнения, значение».
- * Условия соединяются через «и». Значение вводится в таком же поле ввода, как на форме, и хранится
- * в формате сервера, поэтому в действие `list` оно уходит без преобразования.
+ * Условия соединяются через «и». Для `contains` пользователь вводит подстроку отображаемого
+ * значения свободным текстом. Остальные способы используют поле ввода и формат значения сервера.
  *
  * Условия хранятся здесь, а не берутся из действующего отбора: у пользователя может быть
  * начатое условие без значения, которого в отборе ещё нет.
@@ -147,10 +147,23 @@ export function ListFilters({ filters, applied, onApply }: ListFiltersProperties
                             style={{ width: 180 }}
                             value={condition.operator}
                             options={description.operators.map((operator) => ({ value: operator, label: operatorTitles[operator] }))}
-                            onChange={(operator: FilterOperator) => change(condition.key, { operator })}
+                            onChange={(operator: FilterOperator) => {
+                                // При переходе между подстрокой и точным значением меняется тип ввода:
+                                // прежние копейки или часть даты нельзя отправлять как новое условие.
+                                const changesInput = (condition.operator === 'contains') !== (operator === 'contains');
+                                change(condition.key, { operator, ...(changesInput ? { value: initialValue(description) } : {}) });
+                            }}
                         />
                         <div style={{ width: 280 }}>
-                            <FieldInput field={description} value={condition.value} onChange={(value) => change(condition.key, { value })} />
+                            {condition.operator === 'contains' ? (
+                                <Input
+                                    aria-label="Подстрока для поиска"
+                                    value={typeof condition.value === 'string' ? condition.value : ''}
+                                    onChange={(event) => change(condition.key, { value: event.target.value === '' ? null : event.target.value })}
+                                />
+                            ) : (
+                                <FieldInput field={description} value={condition.value} onChange={(value) => change(condition.key, { value })} />
+                            )}
                         </div>
                         <Button
                             type="text"

@@ -118,7 +118,8 @@ export interface ListColumn {
  * Способ сравнения в отборе списка. Те же названия принимает действие `list` единого эндпоинта:
  * - `equals`, `notEquals` — значение равно или не равно заданному; с `null` проверяют, заполнено ли поле;
  * - `greater`, `greaterOrEqual`, `less`, `lessOrEqual` — сравнение чисел, сумм и дат;
- * - `contains` — строка содержит заданную подстроку без учёта регистра; `%` и `_` — обычные символы.
+ * - `contains` — отображаемое значение содержит заданную строкой подстроку без учёта регистра;
+ *   `%` и `_` считаются буквальными символами, пробельные разделители разрядов чисел и сумм не учитываются.
  */
 export type FilterOperator = 'equals' | 'notEquals' | 'greater' | 'greaterOrEqual' | 'less' | 'lessOrEqual' | 'contains';
 
@@ -131,10 +132,10 @@ const ordered: ReadonlyArray<FilterOperator> = ['equals', 'notEquals', 'greater'
  */
 export const filterOperators: { readonly [Kind in FieldKind]: ReadonlyArray<FilterOperator> } = {
     string: ['contains', ...equality],
-    number: ordered,
-    money: ordered,
-    date: ordered,
-    dateTime: ordered,
+    number: [...ordered, 'contains'],
+    money: [...ordered, 'contains'],
+    date: [...ordered, 'contains'],
+    dateTime: [...ordered, 'contains'],
     boolean: equality,
     reference: equality,
     objectReference: equality,

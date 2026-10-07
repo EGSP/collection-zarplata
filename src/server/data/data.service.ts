@@ -12,6 +12,7 @@ import { MetadataService } from '../metadata/metadata.service.js';
 import { actionInputSchema, fieldSchema, inputSchema } from '../metadata/schema.js';
 import { readJournal, recordChanges, writeJournal } from '../journal/journal.js';
 import { filterOperators, type FilterOperator } from '../ui/descriptions.js';
+import { formatSearchValue, normalizeSearchText } from '../ui/value-format.js';
 import { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
@@ -51,11 +52,6 @@ const sqlOperators: { readonly [Operator in Exclude<FilterOperator, 'contains'>]
     less: '<',
     lessOrEqual: '<=',
 };
-
-/** Приводит строку и запрос к одному регистру, сохраняя буквальный смысл символов `%` и `_`. */
-function searchText(value: string): string {
-    return value.normalize('NFC').toLowerCase();
-}
 
 /** Проверяет оболочку операции, оставляя проверку payload схеме конкретного действия. */
 function parseOperation(value: unknown): Operation {
@@ -319,8 +315,11 @@ export class DataService {
                     if (typeof filter['value'] !== 'string') {
                         return yield* new DataValidationError({ message: `Для поиска по «${name}» нужна строка`, fields: [`payload.filter.${name}`] });
                     }
-                    const text = searchText(filter['value']);
-                    predicates.push((row) => typeof row[name] === 'string' && searchText(row[name]).includes(text));
+                    const text = normalizeSearchText(field.kind, filter['value']);
+                    predicates.push((row) => {
+                        const displayed = formatSearchValue(field.kind, row[name]);
+                        return displayed !== null && normalizeSearchText(field.kind, displayed).includes(text);
+                    });
                     continue;
                 }
                 const value = filter['value'];
