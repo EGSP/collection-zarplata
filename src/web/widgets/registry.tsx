@@ -8,7 +8,8 @@
  */
 import type { ComponentType } from 'react';
 import type { FieldKind } from '../../server/ui/descriptions';
-import { RecorderDisplay, ReferenceDisplay } from '../references/reference-display';
+import { ObjectReferenceDisplay, RecorderDisplay, ReferenceDisplay } from '../references/reference-display';
+import { ObjectReferenceInput } from '../references/object-reference-input';
 import { ReferenceInput } from '../references/reference-input';
 import { BooleanDisplay, DateDisplay, DateTimeDisplay, MoneyDisplay, NumberDisplay, TextDisplay } from './displays';
 import { BooleanInput, DateInput, DateTimeInput, MoneyInput, NumberInput, StringInput } from './inputs';
@@ -23,6 +24,7 @@ export const widgets: { readonly [Kind in FieldKind]: Widget<FieldValues[Kind]> 
     dateTime: { input: DateTimeInput, display: DateTimeDisplay },
     boolean: { input: BooleanInput, display: BooleanDisplay },
     reference: { input: ReferenceInput, display: ReferenceDisplay },
+    objectReference: { input: ObjectReferenceInput, display: ObjectReferenceDisplay },
     guid: { input: null, display: TextDisplay },
     recorder: { input: null, display: RecorderDisplay },
 };

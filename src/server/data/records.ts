@@ -96,24 +96,32 @@ export function validated<S extends Schema.Top>(schema: S, value: unknown, locat
 
 /**
  * Переводит проверенное значение поля в значение параметра SQL. Логические значения
- * становятся 0/1 для колонки INTEGER в таблице STRICT; прочие типы отклоняются с ошибкой 400.
+ * становятся 0/1 для колонки INTEGER, полные ссылки становятся JSON с устойчивым порядком
+ * свойств для сравнения в SQL. Неподдерживаемые значения отклоняются с ошибкой 400.
  */
 export function sqlValue(value: unknown): SqlValue {
     if (value === undefined || value === null) return null;
     if (typeof value === 'boolean') return value ? 1 : 0;
     if (typeof value === 'string' || typeof value === 'number') return value;
+    if (typeof value === 'object' && !Array.isArray(value)) {
+        const reference = value as RecordValue;
+        if ((reference['kind'] === 'catalog' || reference['kind'] === 'document') && typeof reference['name'] === 'string' && typeof reference['guid'] === 'string') {
+            return JSON.stringify({ kind: reference['kind'], name: reference['name'], guid: reference['guid'] });
+        }
+    }
     throw new DataValidationError({ message: 'Неверное значение поля', fields: [] });
 }
 
 /**
  * Восстанавливает логические поля после чтения из SQLite и собирает регистратор движения из двух
- * колонок, в которых он хранится. Прочие значения возвращаются без преобразования.
+ * колонок, в которых он хранится. JSON полных ссылок возвращается объектом значения.
  */
 export function recordFromRow(row: RecordValue, description: ObjectDescription): RecordValue {
     const { recorderDocument, recorderGuid, ...movement } = row;
     const record = description.kind === 'register' ? movement : { ...row };
     for (const field of description.fields) {
         if (field.kind === 'boolean' && record[field.name] !== null) record[field.name] = record[field.name] === 1;
+        if (field.kind === 'objectReference' && typeof record[field.name] === 'string') record[field.name] = JSON.parse(record[field.name] as string);
         if (field.kind === 'recorder') record[field.name] = { document: recorderDocument, guid: recorderGuid };
     }
     return record;
@@ -138,7 +146,10 @@ export function loadRecord(description: ObjectDescription, guid: string): Effect
             // Служебные ключи связывают строку с владельцем, но не входят в значение табличной части.
             record[part.name] = rows.map(({ ownerGuid: _ownerGuid, lineNumber: _lineNumber, ...fields }) => {
                 const result = { ...fields };
-                for (const field of part.fields) if (field.kind === 'boolean' && result[field.name] !== null) result[field.name] = result[field.name] === 1;
+                for (const field of part.fields) {
+                    if (field.kind === 'boolean' && result[field.name] !== null) result[field.name] = result[field.name] === 1;
+                    if (field.kind === 'objectReference' && typeof result[field.name] === 'string') result[field.name] = JSON.parse(result[field.name] as string);
+                }
                 return result;
             });
         }

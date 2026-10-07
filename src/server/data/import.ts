@@ -3,7 +3,8 @@ import { Effect } from 'effect';
 import { ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { objectValue, stringValue, type RecordValue } from './records.js';
-import type { ObjectDescription } from '../metadata/descriptions.js';
+import type { ObjectDescription, ObjectReferenceValue } from '../metadata/descriptions.js';
+import { objectReference } from '../metadata/references.js';
 import { writeJournal } from '../journal/journal.js';
 
 /**
@@ -38,15 +39,16 @@ export const importCatalog = Effect.fnUntraced(function* (description: ObjectDes
             const link = yield* dispatcher.execute({ target, action: 'get', payload: { dimensions } }).pipe(
                 Effect.catchIf((error): error is DataNotFoundError => error instanceof DataNotFoundError, () => Effect.succeed(null)),
             ) as Effect.Effect<RecordValue | null, unknown>;
-            if (link !== null && link['targetObject'] !== description.name) {
+            const reference = link === null ? null : link['record'] as ObjectReferenceValue;
+            if (reference !== null && (reference.kind !== 'catalog' || reference.name !== description.name)) {
                 return yield* new DataValidationError({ message: 'Внешний объект уже связан с другим справочником', fields: [`${location}.externalIdentifier`] });
             }
             const record = (yield* dispatcher.execute({
                 target: { kind: 'catalog', name: description.name }, action: 'save',
-                payload: { ...(link === null ? {} : { guid: link['recordGuid'] }), fields },
+                payload: { ...(reference === null ? {} : { guid: reference.guid }), fields },
             })) as RecordValue;
             if (link === null) yield* dispatcher.execute({
-                target, action: 'save', payload: { fields: { ...dimensions, targetObject: description.name, recordGuid: record['guid'] } },
+                target, action: 'save', payload: { fields: { ...dimensions, record: objectReference({ kind: 'catalog', name: description.name }, record['guid'] as string) } },
             });
             return { externalIdentifier, guid: record['guid'], status: link === null ? 'created' : 'updated' };
         });

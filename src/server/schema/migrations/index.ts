@@ -1,4 +1,13 @@
 import { journalColumns } from './20260929_journal_columns.js';
+import { removeCatalogCode } from './20261007_remove_catalog_code.js';
+import { externalRecordReference } from './20261007_external_record_reference.js';
+import type { SchemaStructure } from '../structure.js';
+
+/** Разрешённые изменения и SQL-команды миграции, построенные по снимку конкретной базы. */
+export interface MigrationPlan {
+    readonly changes: readonly string[];
+    readonly statements: readonly string[];
+}
 
 /**
  * Явная миграция для изменений, которые нельзя вывести из нового описания объекта.
@@ -12,10 +21,15 @@ export interface SchemaMigration {
     readonly changes: readonly string[];
     /** SQL-команды без пользовательских значений. */
     readonly statements: readonly string[];
+    /**
+     * Строит команды для объектов конкретной базы до открытия транзакции миграции.
+     * Функция не обращается к базе; полученный план заменяет changes и statements.
+     */
+    readonly prepare?: (previous: SchemaStructure, desired: SchemaStructure) => MigrationPlan;
 }
 
 /**
  * Реестр миграций. Добавляйте сюда импорт нового файла и его значение в порядке `id`.
  * Статический импорт включает миграции и в исполняемый файл без доступа к исходникам.
  */
-export const migrations: readonly SchemaMigration[] = [journalColumns];
+export const migrations: readonly SchemaMigration[] = [journalColumns, externalRecordReference, removeCatalogCode];

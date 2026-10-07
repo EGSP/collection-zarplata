@@ -35,3 +35,4 @@ export { MetadataError, type MetadataProblem } from './metadata.errors.js';
 export { loadConfiguration, type ConfigurationModule } from './registry.js';
 export { actionInputSchema, fieldSchema, fieldsSchema, inputSchema } from './schema.js';
 export { standardFields, type StandardFields } from './standard-fields.js';
+export { objectReference } from './references.js';

@@ -103,7 +103,10 @@ export async function synchronizeSchema(database: Database, desired: SchemaStruc
     const known = new Set(availableMigrations.map((migration) => migration.id));
     const unknown = [...applied].filter((id) => !known.has(id));
     if (unknown.length > 0) throw new Error(`В базе применены миграции, которых нет в сборке: ${unknown.join(', ')}`);
-    const pending = availableMigrations.filter((migration) => !applied.has(migration.id));
+    const pending = availableMigrations.filter((migration) => !applied.has(migration.id)).map((migration) => ({
+        ...migration,
+        ...(migration.prepare?.(previous, desired) ?? {}),
+    }));
     const changes = destructiveChanges(previous, desired);
     validateMigrations(availableMigrations, pending, changes);
     if (pending.some((migration) => [...applied].some((id) => id > migration.id))) {

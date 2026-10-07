@@ -15,10 +15,11 @@ export type ObjectKind = 'catalog' | 'document' | 'register' | 'informationRegis
  * - `dateTime` — дата и время ISO 8601 с часовым поясом;
  * - `boolean` — логическое значение;
  * - `reference` — ссылка на справочник или документ, значение — `guid` объекта;
+ * - `objectReference` — полная ссылка с видом объекта, именем и guid записи;
  * - `guid` — идентификатор объекта UUIDv7, только стандартное поле;
  * - `recorder` — ссылка на документ-регистратор движения регистра, только стандартное поле.
  */
-export type FieldKind = 'string' | 'number' | 'money' | 'date' | 'dateTime' | 'boolean' | 'reference' | 'guid' | 'recorder';
+export type FieldKind = 'string' | 'number' | 'money' | 'date' | 'dateTime' | 'boolean' | 'reference' | 'objectReference' | 'guid' | 'recorder';
 
 /**
  * Роль поля в объекте:
@@ -33,6 +34,11 @@ export type FieldRole = 'standard' | 'attribute' | 'dimension' | 'resource';
 export interface ObjectTarget {
     readonly kind: 'catalog' | 'document';
     readonly name: string;
+}
+
+/** Полная ссылка на запись любого справочника или документа. Тип является частью адреса. */
+export interface ObjectReferenceValue extends ObjectTarget {
+    readonly guid: string;
 }
 
 /** Значение поля `recorder`: документ-регистратор движения. */

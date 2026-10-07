@@ -6,7 +6,7 @@
  * Метка добавляется пересечением типов, а не отдельным параметром, чтобы `required()` можно было
  * объявить один раз в базовом классе и сохранить тип подкласса со всеми его методами.
  */
-import type { FieldKind, ObjectTarget, RecorderValue } from './descriptions.js';
+import type { FieldKind, ObjectTarget, RecorderValue, ObjectReferenceValue } from './descriptions.js';
 
 /**
  * Цель ссылки: билдер справочника или документа либо функция, которая его возвращает.
@@ -121,6 +121,9 @@ export class BooleanFieldBuilder extends FieldBuilder<boolean> {}
 /** Ссылка на справочник или документ. Значение — `guid` объекта. */
 export class ReferenceFieldBuilder extends FieldBuilder<string> {}
 
+/** Ссылка произвольного вида: значение содержит тип, имя объекта и guid записи. */
+export class ObjectReferenceFieldBuilder extends FieldBuilder<ObjectReferenceValue> {}
+
 /** Идентификатор объекта UUIDv7. Используется только в стандартных полях. */
 export class GuidFieldBuilder extends FieldBuilder<string> {}
 
@@ -179,9 +182,14 @@ export class FieldFactory {
     /**
      * Ссылка на справочник или документ. Цель передаётся билдером,
      * а при циклическом импорте — функцией, которая возвращает билдер.
+     * Без цели поле принимает полную ссылку с видом объекта, именем и guid.
      */
-    reference(target: ReferenceTarget): ReferenceFieldBuilder {
-        return new ReferenceFieldBuilder({ ...initialState('reference'), target });
+    reference(): ObjectReferenceFieldBuilder;
+    reference(target: ReferenceTarget): ReferenceFieldBuilder;
+    reference(target?: ReferenceTarget): ReferenceFieldBuilder | ObjectReferenceFieldBuilder {
+        return target === undefined
+            ? new ObjectReferenceFieldBuilder(initialState('objectReference'))
+            : new ReferenceFieldBuilder({ ...initialState('reference'), target });
     }
 }
 

@@ -9,13 +9,12 @@
 import type { ObjectKind } from './descriptions.js';
 import { fieldFactory as field, standardFieldFactory, type AnyFieldBuilder } from './fields.js';
 
-/** Стандартные поля по видам объектов. Длины кода, наименования и номера предварительные. */
+/** Стандартные поля по видам объектов. Длины наименования и номера предварительные. */
 export const standardFields = {
     informationRegister: {},
     catalog: {
         guid: standardFieldFactory.guid().title('Идентификатор').required(),
         deletedAt: field.dateTime().title('Пометка удаления'),
-        code: field.string().title('Код').maximumLength(50),
         name: field.string().title('Наименование').required().maximumLength(200),
     },
     document: {
@@ -40,7 +39,7 @@ export type StandardFields = typeof standardFields;
 
 /**
  * Стандартные поля, значения которых заполняет платформа: их нет во входных данных записи.
- * `code`, `name`, `date` и `period` сюда не входят — их задаёт пользователь или обработчик проведения.
+ * `name`, `date` и `period` задаёт пользователь или обработчик проведения.
  */
 export const managedStandardFields: ReadonlySet<string> = new Set(['guid', 'deletedAt', 'number', 'posted', 'recorder', 'lineNumber']);
 

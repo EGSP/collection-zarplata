@@ -1,5 +1,7 @@
 import { useList, type CrudFilter } from '@refinedev/core';
-import { Input, Select } from 'antd';
+import { Button, Flex, Input, Select } from 'antd';
+import { Link } from 'react-router';
+import { recordPath } from '../common/paths';
 import { useMemo, useState } from 'react';
 import type { ObjectView } from '../../server/ui/descriptions';
 import type { ApiError } from '../common/api';
@@ -30,7 +32,14 @@ export function ReferenceInput(properties: InputProperties<FieldValues['referenc
     const object = useObjectView(properties.field.target);
     const inner = useInputHandle(object === undefined ? properties.ref : undefined);
     if (object === undefined) return <Input ref={inner} {...defined({ id: properties.id })} disabled value={noAccessText} />;
-    return <ReferenceSelect {...properties} object={object} />;
+    return (
+        <Flex gap="small" align="center">
+            <div style={{ flex: 1, minWidth: 0 }}><ReferenceSelect {...properties} object={object} /></div>
+            {properties.value != null && (
+                <Link to={recordPath(object, properties.value)}><Button>Открыть запись</Button></Link>
+            )}
+        </Flex>
+    );
 }
 
 function ReferenceSelect({ object, field, value, onChange, disabled, id, ref }: InputProperties<FieldValues['reference']> & { readonly object: ObjectView }) {

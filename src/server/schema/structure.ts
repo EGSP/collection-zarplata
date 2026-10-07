@@ -54,13 +54,13 @@ function objectTable(object: ObjectDescription): TableStructure {
     const indexes: IndexStructure[] = [];
     if (object.kind === 'catalog' || object.kind === 'document') {
         indexes.push(index(name, 'deletedAt', ['deletedAt']));
-        indexes.push(index(name, object.kind === 'catalog' ? 'code' : 'number', [object.kind === 'catalog' ? 'code' : 'number']));
+        if (object.kind === 'document') indexes.push(index(name, 'number', ['number']));
     } else if (object.kind === 'register') {
         indexes.push(index(name, 'period', ['period']));
     }
     for (const field of object.fields) {
-        if (field.kind === 'reference') indexes.push(index(name, field.name, [field.name]));
-        if (field.role === 'dimension' && field.kind !== 'reference') indexes.push(index(name, field.name, [field.name]));
+        if (field.kind === 'reference' || field.kind === 'objectReference') indexes.push(index(name, field.name, [field.name]));
+        if (field.role === 'dimension' && field.kind !== 'reference' && field.kind !== 'objectReference') indexes.push(index(name, field.name, [field.name]));
     }
     return { name, columns, primaryKey, indexes };
 }
@@ -72,7 +72,7 @@ function tableParts(object: ObjectDescription): readonly TableStructure[] {
             name,
             columns: [column('ownerGuid', 'TEXT', true), column('lineNumber', 'INTEGER', true), ...part.fields.flatMap(fieldColumns)],
             primaryKey: ['ownerGuid', 'lineNumber'],
-            indexes: part.fields.filter((field) => field.kind === 'reference').map((field) => index(name, field.name, [field.name])),
+            indexes: part.fields.filter((field) => field.kind === 'reference' || field.kind === 'objectReference').map((field) => index(name, field.name, [field.name])),
         };
     });
 }

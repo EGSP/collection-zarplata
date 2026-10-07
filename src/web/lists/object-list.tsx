@@ -80,11 +80,15 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
         render: (value: unknown, record: RecordData) => {
             const display = <FieldDisplay field={column} value={value} />;
             if (index > 0 || form === null) return display;
+            // Ссылочная колонка открывает свою цель; вложенная ссылка перехватила бы переход к ней.
+            if (column.kind === 'reference' || column.kind === 'objectReference' || column.kind === 'recorder') {
+                return <Flex gap="small" align="center"><RecordMark record={record} />{display}</Flex>;
+            }
             return (
                 <Flex gap="small" align="center">
                     <RecordMark record={record} />
                     <Link to={recordPath(object, recordGuid(record))} state={listState}>
-                        {/* У записи может не быть значения в первой колонке, например кода. Ссылке всё равно нужен текст. */}
+                        {/* Пустое значение первой колонки не должно скрывать переход к записи. */}
                         {value === null || value === '' ? '(не заполнено)' : display}
                     </Link>
                 </Flex>

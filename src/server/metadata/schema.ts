@@ -32,6 +32,7 @@ const expectedValues: { readonly [Kind in FieldKind]: string } = {
     dateTime: 'дата и время',
     boolean: 'логическое значение',
     reference: 'guid объекта',
+    objectReference: 'ссылка { kind, name, guid }',
     guid: 'guid',
     recorder: 'регистратор { document, guid }',
 };
@@ -110,6 +111,12 @@ export function fieldSchema(field: FieldDescription): Schema.Top {
         case 'reference':
         case 'guid':
             return guidString(field.kind);
+        case 'objectReference':
+            return Schema.Struct({
+                kind: Schema.Literals(['catalog', 'document']).annotate({ message: 'ожидается catalog или document' }),
+                name: Schema.String.check(Schema.makeFilter((value: string) => /^[a-z][a-zA-Z0-9]{0,59}$/.test(value) || 'ожидается имя объекта конфигурации')),
+                guid: guidString('guid'),
+            }).annotate({ message: 'ожидается ссылка { kind, name, guid }' });
         case 'recorder':
             return RecorderValue;
     }

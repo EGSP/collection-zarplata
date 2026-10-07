@@ -12,7 +12,7 @@ cargo fmt --check --manifest-path tools/1c-xml-import/Cargo.toml
 cargo clippy --release --locked --manifest-path tools/1c-xml-import/Cargo.toml -- -D warnings
 ```
 
-Готовый `target/release/collection-xml-import.exe` запускается без установленного Rust. Скопируйте его вместе с JSON-файлами сопоставления и схемой. Сборка приложения Rust не требует.
+Готовый `target/release/collection-xml-import.exe` запускается без установленного Rust и остаётся в каталоге инструмента. Рядом с выгрузками размещаются только JSON-файлы сопоставления и схема; их пути передаются аргументами. Сборка приложения Rust не требует.
 
 Из корня репозитория:
 

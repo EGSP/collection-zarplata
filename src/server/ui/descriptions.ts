@@ -137,6 +137,7 @@ export const filterOperators: { readonly [Kind in FieldKind]: ReadonlyArray<Filt
     dateTime: ordered,
     boolean: equality,
     reference: equality,
+    objectReference: equality,
     guid: equality,
     recorder: equality,
 };

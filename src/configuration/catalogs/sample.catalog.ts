@@ -18,9 +18,11 @@ export const Sample = catalog('sample')
     .field('amount', (field) => field.money().title('Сумма').minimum(0))
     .field('validFrom', (field) => field.date().title('Действует с'))
     .field('active', (field) => field.boolean().title('Активен').required())
+    .field('relatedRecord', (field) => field.reference().title('Связанная запись'))
     .tablePart('lines', (part) => part
         .title('Строки')
-        .field('text', (field) => field.string().title('Текст').required()))
+        .field('text', (field) => field.string().title('Текст').required())
+        .field('relatedRecord', (field) => field.reference().title('Связанная запись')))
     .action('inspect', (action) => action
         .title('Прочитать через вложенное действие')
         .input((input) => input.field('guid', (field) => field.string().title('Идентификатор').required()))

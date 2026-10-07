@@ -2,7 +2,7 @@
  * Общий контракт виджетов: полей ввода и компонентов отображения значений.
  *
  * Значение поля на всём пути остаётся в формате сервера: деньги в копейках, даты строками ISO,
- * ссылка в виде `guid`, отсутствие значения в виде `null`. В привычный человеку вид значение
+ * ссылка в виде `guid` или `{ kind, name, guid }`, отсутствие значения в виде `null`. В привычный человеку вид значение
  * переводит само поле ввода, и оно же переводит введённое обратно. Поэтому значения формы уходят
  * в `save`, а значение отбора в `list` без преобразования, и общего слоя преобразования нет.
  *
@@ -11,6 +11,7 @@
  * формы, в ячейку табличной части, в условие отбора списка и в окно входных данных действия.
  */
 import type { ComponentType, Ref } from 'react';
+import type { ObjectReferenceValue } from '../../server/metadata/descriptions';
 import type { FieldKind, ObjectTarget, RecorderValue, ValidationRules } from '../../server/ui/descriptions';
 
 /**
@@ -29,6 +30,7 @@ export interface WidgetField {
 
 /** Типы значений по видам полей в формате сервера. */
 export interface FieldValues {
+    readonly objectReference: ObjectReferenceValue;
     readonly string: string;
     readonly number: number;
     /** Целое число копеек. */
