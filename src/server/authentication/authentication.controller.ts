@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, HttpCode, HttpException, HttpStatus, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { SettingsService } from '../settings/settings.service.js';
 import { AuthenticationService, type TokenPair } from './authentication.service.js';
 
 const accessCookie = 'accessToken';
@@ -15,15 +16,18 @@ const maximumFailures = 5;
 export class AuthenticationController {
     private readonly failures = new Map<string, { count: number; until: number }>();
 
-    constructor(private readonly authentication: AuthenticationService) {}
+    constructor(
+        private readonly authentication: AuthenticationService,
+        private readonly settings: SettingsService,
+    ) {}
 
     private setCookies(reply: FastifyReply, request: FastifyRequest, tokens: TokenPair): void {
         const secure = request.protocol === 'https';
         reply.setCookie(accessCookie, tokens.access, {
-            httpOnly: true, sameSite: 'strict', secure, path: '/api', maxAge: 15 * 60,
+            httpOnly: true, sameSite: 'strict', secure, path: '/api', maxAge: this.settings.accessTokenLifetimeSeconds,
         });
         reply.setCookie(refreshCookie, tokens.refresh, {
-            httpOnly: true, sameSite: 'strict', secure, path: '/api/authentication', maxAge: 7 * 24 * 60 * 60,
+            httpOnly: true, sameSite: 'strict', secure, path: '/api/authentication', maxAge: this.settings.refreshTokenLifetimeSeconds,
         });
     }
 
