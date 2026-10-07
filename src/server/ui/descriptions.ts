@@ -94,8 +94,8 @@ export interface FormView {
      */
     readonly traversal: ReadonlyArray<string>;
     /**
-     * Действия формы в порядке показа. Заготовка: отбор действий по правам пользователя
-     * добавит #12, пока перечисляются все действия объекта.
+     * Действия формы в порядке показа. В ответе сервера остаются только действия, на которые
+     * у пользователя есть право; форму без действия `save` клиент показывает только для просмотра.
      */
     readonly actions: ReadonlyArray<FormAction>;
 }
@@ -178,7 +178,7 @@ export interface ObjectView {
     readonly list: ListView;
 }
 
-/** Ответ `GET /api/metadata`: все объекты конфигурации в порядке файлов реестра. */
+/** Ответ `GET /api/metadata`: объекты конфигурации, которые пользователь вправе читать, в порядке файлов реестра. */
 export interface MetadataResponse {
     readonly objects: ReadonlyArray<ObjectView>;
 }

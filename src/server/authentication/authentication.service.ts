@@ -9,9 +9,6 @@ import { DatabaseService } from '../database/database.service.js';
 import { insert, select, update } from '../database/sql.builder.js';
 import { SettingsService } from '../settings/settings.service.js';
 
-const accessLifetimeSeconds = 15 * 60;
-const refreshLifetimeSeconds = 7 * 24 * 60 * 60;
-
 /** Пара непрозрачных токенов: краткоживущий подписанный access и одноразовый refresh. */
 export interface TokenPair {
     readonly access: string;
@@ -87,10 +84,10 @@ export class AuthenticationService implements OnApplicationBootstrap {
     private async issue(userGuid: string): Promise<TokenPair> {
         const refresh = randomBytes(32).toString('base64url');
         const access = await new SignJWT({}).setProtectedHeader({ alg: 'HS256' })
-            .setSubject(userGuid).setJti(this.tokenHash(refresh)).setIssuedAt().setExpirationTime(`${accessLifetimeSeconds}s`).sign(this.signingKey);
+            .setSubject(userGuid).setJti(this.tokenHash(refresh)).setIssuedAt().setExpirationTime(`${this.settings.accessTokenLifetimeSeconds}s`).sign(this.signingKey);
         await Effect.runPromise(this.database.effect.run(insert('platform_tokens', {
             guid: this.tokenHash(refresh), userGuid,
-            expiresAt: new Date(Date.now() + refreshLifetimeSeconds * 1000).toISOString(), revokedAt: null,
+            expiresAt: new Date(Date.now() + this.settings.refreshTokenLifetimeSeconds * 1000).toISOString(), revokedAt: null,
         })));
         return { access, refresh };
     }
@@ -143,10 +140,10 @@ export class AuthenticationService implements OnApplicationBootstrap {
             const refresh = randomBytes(32).toString('base64url');
             yield* database.run(insert('platform_tokens', {
                 guid: this.tokenHash(refresh), userGuid: row.userGuid,
-                expiresAt: new Date(Date.now() + refreshLifetimeSeconds * 1000).toISOString(), revokedAt: null,
+                expiresAt: new Date(Date.now() + this.settings.refreshTokenLifetimeSeconds * 1000).toISOString(), revokedAt: null,
             }));
             const access = yield* Effect.promise(() => new SignJWT({}).setProtectedHeader({ alg: 'HS256' })
-                .setSubject(row.userGuid).setJti(this.tokenHash(refresh)).setIssuedAt().setExpirationTime(`${accessLifetimeSeconds}s`).sign(this.signingKey));
+                .setSubject(row.userGuid).setJti(this.tokenHash(refresh)).setIssuedAt().setExpirationTime(`${this.settings.accessTokenLifetimeSeconds}s`).sign(this.signingKey));
             return { access, refresh };
         }.bind(this))));
     }

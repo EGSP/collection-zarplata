@@ -105,6 +105,20 @@ function memorySettings(launch: LaunchArguments): Settings {
     };
 }
 
+/**
+ * Срок действия токена в секундах из переменной окружения. Без переменной действует значение
+ * по умолчанию; значение, которое не является положительным целым числом, останавливает запуск:
+ * опечатка иначе незаметно выдала бы токены с неожиданным сроком.
+ */
+function lifetimeSeconds(variable: string, fallback: number): number {
+    const value = process.env[variable];
+    if (value === undefined || value === '') return fallback;
+    if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+        throw new Error(`Переменная окружения ${variable} должна быть положительным целым числом секунд, получено «${value}»`);
+    }
+    return Number(value);
+}
+
 function readSettings(launch: LaunchArguments): Settings {
     if (launch.database === 'memory') return memorySettings(launch);
     return readSettingsFile(isSea() ? path.dirname(process.execPath) : process.cwd());
@@ -115,7 +129,9 @@ function readSettings(launch: LaunchArguments): Settings {
  * проекта при разработке; ошибка в файле останавливает запуск. Параметр `--database=memory`
  * запускает приложение на пустой базе в памяти без файла настроек, а `--test-pin` создаёт в ней
  * тестовых пользователей. Порт из настроек может заменить параметр `--port`: порт, который
- * слушает сервер, выбирает провайдер `ServerPort`.
+ * слушает сервер, выбирает провайдер `ServerPort`. Сроки действия токенов в любом режиме задают
+ * переменные окружения: короткие сроки нужны, чтобы проверить обновление токенов, не дожидаясь
+ * настоящего истечения.
  */
 @Injectable()
 export class SettingsService {
@@ -127,6 +143,10 @@ export class SettingsService {
     readonly pinHmacSecret: string;
     /** Первый пользователь из файла настроек либо тестовые пользователи режима памяти. */
     readonly initialUsers: ReadonlyArray<InitialUser>;
+    /** Срок access-токена и его cookie: `ACCESS_TOKEN_LIFETIME_SECONDS`, по умолчанию 15 минут. */
+    readonly accessTokenLifetimeSeconds = lifetimeSeconds('ACCESS_TOKEN_LIFETIME_SECONDS', 15 * 60);
+    /** Срок refresh-токена и его cookie: `REFRESH_TOKEN_LIFETIME_SECONDS`, по умолчанию семь дней. */
+    readonly refreshTokenLifetimeSeconds = lifetimeSeconds('REFRESH_TOKEN_LIFETIME_SECONDS', 7 * 24 * 60 * 60);
     readonly webRootPath = isSea() ? '' : path.resolve(import.meta.dirname, '../../web');
 
     constructor(@Inject(LaunchArguments) launch: LaunchArguments) {
