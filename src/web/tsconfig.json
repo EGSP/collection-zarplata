@@ -8,5 +8,5 @@
         "types": ["vite/client"],
         "noEmit": true
     },
-    "include": [".", "../configuration/**/*.tsx", "../configuration/objects.generated.ts", "../configuration/pages.generated.ts"]
+    "include": [".", "../configuration/**/*.tsx", "../configuration/objects.generated.ts", "../configuration/pages.generated.ts", "../configuration/form-elements.generated.ts"]
 }

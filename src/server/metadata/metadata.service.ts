@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Effect } from 'effect';
-import { configurationModules } from '../../configuration/configuration.generated.js';
+import { configurationModules, formElementModules } from '../../configuration/configuration.generated.js';
 import type { ObjectDescription, ObjectKind } from './descriptions.js';
 import { loadConfiguration } from './registry.js';
 
@@ -20,7 +20,7 @@ export class MetadataService implements OnModuleInit {
 
     onModuleInit(): void {
         // Сборка синхронна: функции целей ссылок и проверки не обращаются к внешним ресурсам.
-        this.descriptions = Effect.runSync(loadConfiguration(configurationModules));
+        this.descriptions = Effect.runSync(loadConfiguration(configurationModules, formElementModules));
         this.logger.log(`Метаданные собраны: объектов ${this.descriptions.length}`);
     }
 

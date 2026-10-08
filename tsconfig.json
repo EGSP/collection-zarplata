@@ -12,5 +12,5 @@
         "rootDir": "src"
     },
     "include": ["src/server", "src/configuration"],
-    "exclude": ["node_modules", "dist", "repos", "src/web", "src/configuration/**/*.tsx", "src/configuration/objects.generated.ts", "src/configuration/pages.generated.ts"]
+    "exclude": ["node_modules", "dist", "repos", "src/web", "src/configuration/**/*.tsx", "src/configuration/objects.generated.ts", "src/configuration/pages.generated.ts", "src/configuration/form-elements.generated.ts"]
 }

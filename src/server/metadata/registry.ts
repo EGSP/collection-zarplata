@@ -11,6 +11,7 @@ import { Effect } from 'effect';
 import { isObjectBuilder, type ObjectBuilder } from './builders.js';
 import { commitConfiguration } from './commit.js';
 import type { ObjectDescription, ObjectKind } from './descriptions.js';
+import { declaredFormElements } from './form-element-registry.js';
 import { MetadataError, type MetadataProblem } from './metadata.errors.js';
 
 /** Модуль объекта конфигурации в реестре: путь файла относительно `src/configuration` и его экспорт. */
@@ -68,16 +69,21 @@ function builderOf(module: ConfigurationModule, problems: Array<MetadataProblem>
 
 /**
  * Собирает описания всех объектов конфигурации: извлекает билдеры из модулей реестра,
- * добавляет стандартные поля и вызывает `commitConfiguration`. Завершается `MetadataError`,
- * если нарушено соглашение о файлах или описание объекта содержит ошибки. Проблемы файлов
- * сообщаются раньше проверки описаний: без билдера файла ссылки на его объект тоже не найдутся,
- * и эти вторичные ошибки только запутали бы сообщение.
+ * добавляет стандартные поля и вызывает `commitConfiguration`. `formElementModules` — модули
+ * объявлений элементов формы: по ним проверяются ссылки форм на элементы. Завершается
+ * `MetadataError`, если нарушено соглашение о файлах или описание объекта содержит ошибки.
+ * Проблемы файлов сообщаются раньше проверки описаний: без билдера файла ссылки на его объект
+ * или элемент тоже не найдутся, и эти вторичные ошибки только запутали бы сообщение.
  */
-export function loadConfiguration(modules: ReadonlyArray<ConfigurationModule>): Effect.Effect<ReadonlyArray<ObjectDescription>, MetadataError> {
+export function loadConfiguration(
+    modules: ReadonlyArray<ConfigurationModule>,
+    formElementModules: ReadonlyArray<ConfigurationModule> = [],
+): Effect.Effect<ReadonlyArray<ObjectDescription>, MetadataError> {
     return Effect.suspend(() => {
         const problems: Array<MetadataProblem> = [];
         const builders = modules.flatMap((module) => builderOf(module, problems) ?? []);
+        const formElements = declaredFormElements(formElementModules, problems);
         if (problems.length > 0) return Effect.fail(new MetadataError({ problems }));
-        return commitConfiguration(builders.map((builder) => builder.withStandardFields()));
+        return commitConfiguration(builders.map((builder) => builder.withStandardFields()), formElements);
     });
 }

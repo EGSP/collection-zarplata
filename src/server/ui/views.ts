@@ -57,9 +57,13 @@ const defaultSorts: { readonly [Kind in ObjectDescription['kind']]: ReadonlyArra
     ],
 };
 
-/** Поле формы из описания поля. `title` передаётся отдельно, потому что его меняет переопределение формы. */
-function formField(field: FieldDescription, title: string = field.title): FormField {
+/**
+ * Поле формы из описания поля. `title` и `inputElement` передаются отдельно, потому что их задаёт
+ * переопределение формы: подпись и собственный элемент на месте поля ввода.
+ */
+function formField(field: FieldDescription, title: string = field.title, inputElement: string | null = null): FormField {
     return {
+        inputElement,
         name: field.name,
         title,
         kind: field.kind,
@@ -87,8 +91,11 @@ function layout(elements: ReadonlyArray<string>, overrides: ReadonlyArray<FormOv
     const placed = new Set<string>();
     for (const override of overrides) {
         if (override.kind !== 'group') continue;
-        const groupElements = override.fields.filter((name) => visible.has(name));
-        for (const name of groupElements) placed.add(name);
+        // Собственный элемент скрыть нельзя, поэтому он остаётся в группе всегда.
+        const groupElements = override.fields.filter((item) => typeof item !== 'string' || visible.has(item));
+        for (const item of groupElements) {
+            if (typeof item === 'string') placed.add(item);
+        }
         groups.push({ title: override.title, elements: groupElements });
     }
     const rest = elements.filter((name) => !placed.has(name));
@@ -101,14 +108,16 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
     const overrides = object.form?.overrides ?? [];
     const hidden = new Set(formHiddenStandardFields);
     const titles = new Map<string, string>();
+    const inputs = new Map<string, string>();
     for (const override of overrides) {
         if (override.kind === 'hide') hidden.add(override.field);
         if (override.kind === 'title') titles.set(override.field, override.title);
+        if (override.kind === 'input') inputs.set(override.field, override.element);
     }
 
     const fields = object.fields
         .filter((field) => !hidden.has(field.name))
-        .map((field) => formField(field, titles.get(field.name) ?? field.title));
+        .map((field) => formField(field, titles.get(field.name) ?? field.title, inputs.get(field.name) ?? null));
     const tableParts: ReadonlyArray<FormTablePart> = object.tableParts
         .filter((part) => !hidden.has(part.name))
         .map((part) => ({ name: part.name, title: titles.get(part.name) ?? part.title, columns: part.fields.map((field) => formField(field)) }));
@@ -116,7 +125,11 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
     // Табличные части идут после полей: на форме они занимают всю ширину и обычно стоят внизу.
     const groups = layout([...fields.map((field) => field.name), ...tableParts.map((part) => part.name)], overrides);
     const readOnly = new Set(fields.filter((field) => field.readOnly).map((field) => field.name));
-    const traversal = groups.flatMap((group) => group.elements).filter((name) => !readOnly.has(name));
+    // Собственный элемент в группе остановкой обхода не служит: контракта поля ввода он не обязан соблюдать.
+    const traversal = groups
+        .flatMap((group) => group.elements)
+        .filter((item) => typeof item === 'string')
+        .filter((name) => !readOnly.has(name));
 
     const actions: ReadonlyArray<FormAction> = [
         ...standardFormActions[object.kind].map((action) => ({ ...action, standard: true, input: [] })),

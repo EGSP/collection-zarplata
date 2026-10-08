@@ -28,6 +28,7 @@ import {
     type NumberFieldBuilder,
     type RequiredField,
 } from './fields.js';
+import type { FormElementBuilder } from './form-elements.js';
 import type { MetadataError } from './metadata.errors.js';
 import { managedStandardFields, standardFields, type StandardFields } from './standard-fields.js';
 
@@ -210,32 +211,50 @@ export class ActionBuilder<Input extends FieldMap = {}> {
 
 /**
  * Переопределение формы по умолчанию. `Names` — имена полей и табличных частей объекта,
- * поэтому TypeScript отклоняет несуществующие имена.
+ * `Fields` — только имена полей, поэтому TypeScript отклоняет несуществующие имена.
  *
  * По умолчанию форма — одна группа без заголовка: поля в порядке объявления, затем табличные
  * части. Группы выводятся в порядке объявления, а элементы, не попавшие ни в одну группу,
  * собираются после них в группу без заголовка. Порядок обхода с клавиатуры следует за раскладкой.
+ *
+ * Собственный элемент формы указывается билдером из файла объявления `*.form-element.ts`.
+ * Что элемент объявлен в таком файле, проверяет `commit()`: по типу это узнать нельзя.
  */
-export class FormBuilder<Names extends string> {
+export class FormBuilder<Names extends string, Fields extends string = Names> {
     readonly '~overrides': ReadonlyArray<FormOverride>;
 
     constructor(overrides: ReadonlyArray<FormOverride> = []) {
         this['~overrides'] = overrides;
     }
 
-    /** Группа полей и табличных частей с заголовком; элементы выводятся и обходятся в указанном порядке. */
-    group(title: string, fields: ReadonlyArray<Names>): FormBuilder<Names> {
-        return new FormBuilder([...this['~overrides'], { kind: 'group', title, fields }]);
+    /**
+     * Группа с заголовком из полей, табличных частей и собственных элементов; они выводятся
+     * в указанном порядке. Поля и табличные части в этом же порядке обходятся с клавиатуры,
+     * собственный элемент в обход не входит.
+     */
+    group(title: string, fields: ReadonlyArray<Names | FormElementBuilder>): FormBuilder<Names, Fields> {
+        const items = fields.map((item) => (typeof item === 'string' ? item : { element: item.name }));
+        return new FormBuilder([...this['~overrides'], { kind: 'group', title, fields: items }]);
     }
 
     /** Скрыть поле или табличную часть. Обязательное поле, которое заполняет пользователь, скрыть нельзя. */
-    hide(field: Names): FormBuilder<Names> {
+    hide(field: Names): FormBuilder<Names, Fields> {
         return new FormBuilder([...this['~overrides'], { kind: 'hide', field }]);
     }
 
     /** Подпись поля или табличной части на форме. */
-    title(field: Names, title: string): FormBuilder<Names> {
+    title(field: Names, title: string): FormBuilder<Names, Fields> {
         return new FormBuilder([...this['~overrides'], { kind: 'title', field, title }]);
+    }
+
+    /**
+     * Назначить собственный элемент полем ввода для поля. На форме элемент заменяет виджет вида
+     * поля и остаётся на месте поля в раскладке и в порядке обхода; в списке и в отборе поле
+     * выводится стандартным виджетом. Назначить элемент можно только полю, которое пользователь
+     * заполняет на форме.
+     */
+    input(field: Fields, element: FormElementBuilder): FormBuilder<Names, Fields> {
+        return new FormBuilder([...this['~overrides'], { kind: 'input', field, element: element.name }]);
     }
 }
 
@@ -293,10 +312,11 @@ export interface ObjectBuilder<Kind extends ObjectKind = ObjectKind, Name extend
 
     /**
      * Проверяет описание и собирает неизменяемое описание объекта. `configuration` — билдеры всех
-     * объектов конфигурации: без них нельзя проверить, что объект ссылки существует. При ошибках
-     * завершается `MetadataError` со списком всех найденных проблем.
+     * объектов конфигурации: без них нельзя проверить, что объект ссылки существует.
+     * `formElements` — имена объявленных элементов формы: форма со ссылкой на другой элемент
+     * отклоняется. При ошибках завершается `MetadataError` со списком всех найденных проблем.
      */
-    commit(configuration: ReadonlyArray<ObjectBuilder>): Effect.Effect<ObjectDescription, MetadataError>;
+    commit(configuration: ReadonlyArray<ObjectBuilder>, formElements?: ReadonlySet<string>): Effect.Effect<ObjectDescription, MetadataError>;
 }
 
 /** Билдер справочника или документа: у них одинаковый набор возможностей описания. */
@@ -334,7 +354,9 @@ export interface RecordObjectBuilder<
 
     /** Переопределение формы. Повторный вызов заменяет предыдущее. */
     form(
-        define: (form: FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>) => FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>,
+        define: (
+            form: FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string, FieldNames<Kind, Fields>>,
+        ) => FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string, FieldNames<Kind, Fields>>,
     ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 
     /** Политика объекта. Политики из нескольких вызовов выполняются по порядку. */
@@ -523,8 +545,8 @@ class ObjectBuilderImplementation {
         return this.with({ fields: [...standard, ...this['~state'].fields], standardFieldsAdded: true });
     }
 
-    commit(configuration: ReadonlyArray<ObjectBuilder>): Effect.Effect<ObjectDescription, MetadataError> {
-        return commitObject(this['~state'], configuration);
+    commit(configuration: ReadonlyArray<ObjectBuilder>, formElements: ReadonlySet<string> = new Set()): Effect.Effect<ObjectDescription, MetadataError> {
+        return commitObject(this['~state'], configuration, formElements);
     }
 
     /** Возвращает новый билдер с изменённым состоянием, не трогая текущий. */
