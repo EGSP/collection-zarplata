@@ -6,7 +6,7 @@
  *
  * | Метод Refine | Действие сервера |
  * |---|---|
- * | `getList` | `list` |
+ * | `getList` | `list`; условие отбора с текстом поиска становится входным параметром `search` |
  * | `getOne` | `get` |
  * | `getMany` | пакет действий `get`, общий для всех одновременных вызовов |
  * | `create` | `save` без `guid` |
@@ -31,7 +31,7 @@ const maximumPageSize = 500;
  * Способы сравнения сервера и соответствующие им операторы отбора Refine. Таблица перечисляет
  * все способы сервера: новый способ в формате описаний не соберётся, пока его нет здесь.
  */
-export const crudOperators: { readonly [Operator in FilterOperator]: LogicalFilter['operator'] } = {
+const crudOperators: { readonly [Operator in FilterOperator]: LogicalFilter['operator'] } = {
     equals: 'eq',
     notEquals: 'ne',
     greater: 'gt',
@@ -43,10 +43,38 @@ export const crudOperators: { readonly [Operator in FilterOperator]: LogicalFilt
 
 const filterOperators = new Map<string, FilterOperator>(Object.entries(crudOperators).map(([operator, crudOperator]) => [crudOperator, operator as FilterOperator]));
 
-interface ListCondition {
+/** Условие отбора в формате действия `list`: поле, способ сравнения сервера и значение в формате сервера. */
+export interface ListCondition {
     readonly field: string;
     readonly operator: FilterOperator;
     readonly value: unknown;
+}
+
+/**
+ * Имя поля, под которым текст поиска лежит в отборе Refine. Refine хранит в адресе страницы только
+ * сортировку, отбор и страницу, поэтому поиск записывается условием отбора и попадает в адрес
+ * вместе с ним. У настоящего поля такого имени быть не может: имена полей состоят из букв и цифр.
+ */
+const searchField = '$search';
+
+/** Условие отбора Refine с текстом поиска. Пустой текст условия не даёт. */
+export function searchFilters(search: string): Array<CrudFilter> {
+    return search === '' ? [] : [{ field: searchField, operator: 'contains', value: search }];
+}
+
+function isSearchFilter(filter: CrudFilter): boolean {
+    return 'field' in filter && filter.field === searchField;
+}
+
+/** Текст поиска из отбора Refine. Без условия поиска возвращает пустую строку. */
+export function searchOf(filters: ReadonlyArray<CrudFilter>): string {
+    const filter = filters.find(isSearchFilter);
+    return filter === undefined ? '' : String(filter.value);
+}
+
+/** Отбор Refine без условия поиска. */
+export function withoutSearch(filters: ReadonlyArray<CrudFilter>): Array<CrudFilter> {
+    return filters.filter((filter) => !isSearchFilter(filter));
 }
 
 interface ListPage<Item> {
@@ -61,7 +89,7 @@ interface ListPage<Item> {
  * у сервера нет соответствия, завершается ошибкой: молча пропущенное условие показало бы
  * пользователю лишние записи.
  */
-function listConditions(filters: ReadonlyArray<CrudFilter>): Array<ListCondition> {
+export function listConditions(filters: ReadonlyArray<CrudFilter>): Array<ListCondition> {
     return filters.flatMap((filter): Array<ListCondition> => {
         // Группу условий от условия отличает отсутствие поля.
         if (!('field' in filter)) {
@@ -78,18 +106,26 @@ function listConditions(filters: ReadonlyArray<CrudFilter>): Array<ListCondition
     });
 }
 
-function listOrder({ field, order }: CrudSort): ListSort {
+/** Сортировка действия `list` по сортировке Refine. */
+export function listOrder({ field, order }: CrudSort): ListSort {
     return { field, direction: order === 'asc' ? 'ascending' : 'descending' };
+}
+
+/**
+ * Переводит условия действия `list` в отбор Refine. Сравнение с `null` записывается операторами
+ * `null` и `nnull`: условие со значением `null` Refine из отбора убирает.
+ */
+export function crudFilters(conditions: ReadonlyArray<ListCondition>): Array<CrudFilter> {
+    return conditions.map(({ field, operator, value }): CrudFilter => {
+        if (value === null && operator === 'equals') return { field, operator: 'null', value: true };
+        if (value === null && operator === 'notEquals') return { field, operator: 'nnull', value: true };
+        return { field, operator: crudOperators[operator], value };
+    });
 }
 
 /** Сортировка Refine по сортировке из описания списка. */
 export function crudSort({ field, direction }: ListSort): CrudSort {
     return { field, order: direction === 'ascending' ? 'asc' : 'desc' };
-}
-
-/** Способ сравнения сервера по оператору отбора Refine. У оператора без соответствия способа нет. */
-export function filterOperator(operator: string): FilterOperator | undefined {
-    return filterOperators.get(operator);
 }
 
 /** Выполняет действие над ресурсом и возвращает результат в виде ответа Refine. */
@@ -110,9 +146,10 @@ export const dataProvider: DataProvider = {
      * В режимах `client` и `off` Refine ждёт все записи сразу, поэтому они читаются страницами
      * наибольшего размера, пока не будут получены все.
      */
-    getList: async <Item extends BaseRecord>({ resource, pagination, filters, sorters, meta }: GetListParams): Promise<GetListResponse<Item>> => {
+    getList: async <Item extends BaseRecord>({ resource, pagination, filters = [], sorters = [] }: GetListParams): Promise<GetListResponse<Item>> => {
         const target = resourceTarget(resource);
-        const selection = { filter: listConditions(filters ?? []), sort: (sorters ?? []).map(listOrder), search: meta?.['search'] };
+        const search = searchOf(filters);
+        const selection = { filter: listConditions(withoutSearch(filters)), sort: sorters.map(listOrder), ...(search === '' ? {} : { search }) };
         const list = (page: number | undefined, pageSize: number | undefined) =>
             perform<ListPage<Item>>({ target, action: 'list', payload: { ...selection, page, pageSize } });
 

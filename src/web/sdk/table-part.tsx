@@ -9,12 +9,13 @@ import { useFieldFocus } from './field-focus';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
 import { newRowValues } from './record-values';
 
-interface TablePartProperties {
+/** Свойства табличной части. */
+export interface TablePartProperties {
     readonly part: FormTablePart;
     /** Строки нельзя изменять, добавлять и удалять: форма открыта только для просмотра. */
-    readonly disabled: boolean;
-    /** Возвращает обход в предыдущее поле формы из первой ячейки. */
-    readonly onPrevious: () => void;
+    readonly disabled?: boolean | undefined;
+    /** Возвращает обход в предыдущее поле формы из первой ячейки. Без обработчика обход останавливается в первой ячейке. */
+    readonly onPrevious?: (() => void) | undefined;
     /** Табличная часть входит в порядок обхода формы одной остановкой: фокус получает её первая ячейка. */
     readonly ref?: Ref<InputHandle> | undefined;
 }
@@ -55,7 +56,7 @@ interface RowTableProperties extends TablePartProperties {
  * Фокус ячеек хранится по устойчивому ключу строки, поэтому удаление строки не сдвигает
  * ссылки на поля остальных строк. Новая строка получает фокус после регистрации её полей.
  */
-function RowTable({ part, disabled, ref, onPrevious, rows, add, remove }: RowTableProperties) {
+function RowTable({ part, disabled = false, ref, onPrevious, rows, add, remove }: RowTableProperties) {
     const cells = useFieldFocus();
     const pendingRow = useRef<number | null>(null);
     const inputColumns = part.columns.filter((column) => !column.readOnly && hasInput(column));
@@ -100,7 +101,7 @@ function RowTable({ part, disabled, ref, onPrevious, rows, add, remove }: RowTab
                     if (event.shiftKey) {
                         if (columnIndex > 0) focusCell(rowIndex, columnIndex - 1);
                         else if (rowIndex > 0) focusCell(rowIndex - 1, inputColumns.length - 1);
-                        else onPrevious();
+                        else onPrevious?.();
                     } else if (columnIndex < inputColumns.length - 1) focusCell(rowIndex, columnIndex + 1);
                     else if (rowIndex < rows.length - 1) focusCell(rowIndex + 1, 0);
                     else addRow();

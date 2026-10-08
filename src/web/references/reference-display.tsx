@@ -30,11 +30,18 @@ export function ObjectReferenceDisplay({ value }: DisplayProperties<FieldValues[
     return <RecordLink reference={value} />;
 }
 
+/** Свойства ссылки на запись. */
+export interface RecordLinkProperties {
+    /** Полная ссылка: вид и имя объекта и `guid` записи. */
+    readonly reference: ObjectReferenceValue;
+}
+
 /**
- * Ссылка на форму записи. Если целевого объекта нет в описаниях, сервер не дал пользователю права
- * его читать: запись тогда не запрашивается, а на её месте написано «Нет доступа».
+ * Ссылка на форму записи: представление записи, которое открывает её вкладку. Если целевого
+ * объекта нет в описаниях, сервер не дал пользователю права его читать: запись тогда
+ * не запрашивается, а на её месте написано «Нет доступа».
  */
-function RecordLink({ reference }: { readonly reference: ObjectReferenceValue }) {
+export function RecordLink({ reference }: RecordLinkProperties) {
     const object = useObjectView(reference);
     if (object === undefined) return <Typography.Text type="secondary">{noAccessText}</Typography.Text>;
     return <AccessibleRecordLink object={object} guid={reference.guid} />;

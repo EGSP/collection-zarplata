@@ -6,14 +6,15 @@ import { FieldInput } from '../widgets/registry';
 import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../widgets/validation';
 import type { FormValues } from './record-values';
 
-interface ActionDialogProperties {
+/** Свойства окна входных данных действия. */
+export interface ActionDialogProperties {
     /** Собственное действие с входными данными. */
     readonly action: FormAction;
     /**
-     * Выполняет действие с введёнными данными. Возвращает `null` при успехе либо ошибку, если
-     * действие не выполнено: тогда окно остаётся открытым, а введённые данные сохраняются.
+     * Выполняет действие с введёнными данными. Если вызов завершился ошибкой, действие
+     * не выполнено: окно остаётся открытым, а введённые данные сохраняются.
      */
-    readonly onExecute: (input: FormValues) => Promise<unknown>;
+    readonly onExecute: (input: FormValues) => Promise<void>;
     readonly onClose: () => void;
 }
 
@@ -29,13 +30,17 @@ export function ActionDialog({ action, onExecute, onClose }: ActionDialogPropert
 
     const execute = async (input: FormValues) => {
         setExecuting(true);
-        const error = await onExecute(input);
-        setExecuting(false);
-        if (error === null) return onClose();
-        if (error instanceof ApiError && error.statusCode === 400) {
-            // Входные данные действия лежат прямо в `payload`, без вложенного `fields`.
-            form.setFields(formFieldPaths(error.fields, 'payload.').map((name) => ({ name, errors: [serverRejectionMessage] })));
+        try {
+            await onExecute(input);
+        } catch (error) {
+            setExecuting(false);
+            if (error instanceof ApiError && error.statusCode === 400) {
+                // Входные данные действия лежат прямо в `payload`, без вложенного `fields`.
+                form.setFields(formFieldPaths(error.fields, 'payload.').map((name) => ({ name, errors: [serverRejectionMessage] })));
+            }
+            return;
         }
+        onClose();
     };
 
     return (

@@ -1,10 +1,9 @@
 import { CloseOutlined, FilterOutlined } from '@ant-design/icons';
-import type { CrudFilter } from '@refinedev/core';
 import { Button, Flex, Input, Select } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FilterOperator, ListFilter } from '../../server/ui/descriptions';
 import { useDebounced } from '../common/debounced';
-import { crudOperators, filterOperator } from '../data-provider/data-provider';
+import type { ListCondition } from '../data-provider/data-provider';
 import { FieldInput, hasInput } from '../widgets/registry';
 
 /** Названия способов сравнения для пользователя. */
@@ -31,28 +30,26 @@ interface Condition {
 }
 
 /**
- * Отбор Refine по условиям пользователя. Условие без значения пропускается. Из условий с одним
- * полем и способом сравнения остаётся первое: Refine различает условия по этой паре, и второе
+ * Отбор списка по условиям пользователя. Условие без значения пропускается. Из условий с одним
+ * полем и способом сравнения остаётся первое: список различает условия по этой паре, и второе
  * он отбросил бы сам.
  */
-function appliedFilters(conditions: ReadonlyArray<Condition>): Array<CrudFilter> {
+function appliedFilter(conditions: ReadonlyArray<Condition>): Array<ListCondition> {
     const seen = new Set<string>();
     return conditions.flatMap((condition) => {
         const pair = `${condition.field}/${condition.operator}`;
         if (condition.value === null || condition.value === undefined || seen.has(pair)) return [];
         seen.add(pair);
-        return [{ field: condition.field, operator: crudOperators[condition.operator], value: condition.value }];
+        return [{ field: condition.field, operator: condition.operator, value: condition.value }];
     });
 }
 
-/** Условия пользователя по отбору Refine, например по отбору из адреса страницы. Условия, которых описание списка не предлагает, пропускаются. */
-function conditionsOf(applied: ReadonlyArray<CrudFilter>, available: ReadonlyArray<ListFilter>): Array<Condition> {
-    return applied.flatMap((filter, index) => {
-        if (!('field' in filter)) return [];
-        const operator = filterOperator(filter.operator);
-        const description = available.find((candidate) => candidate.field === filter.field);
-        if (operator === undefined || description === undefined || !description.operators.includes(operator)) return [];
-        return [{ key: index, field: filter.field, operator, value: filter.value as unknown }];
+/** Условия пользователя по отбору списка, например по отбору из адреса страницы. Условия, которых описание списка не предлагает, пропускаются. */
+function conditionsOf(applied: ReadonlyArray<ListCondition>, available: ReadonlyArray<ListFilter>): Array<Condition> {
+    return applied.flatMap((condition, index) => {
+        const description = available.find((candidate) => candidate.field === condition.field);
+        if (description === undefined || !description.operators.includes(condition.operator)) return [];
+        return [{ key: index, ...condition }];
     });
 }
 
@@ -60,8 +57,8 @@ function conditionsOf(applied: ReadonlyArray<CrudFilter>, available: ReadonlyArr
  * Содержимое отбора одной строкой, чтобы сравнивать отборы. Порядок свойств условия в строку
  * не входит: у условия, разобранного из адреса страницы, он может быть другим.
  */
-function signature(filters: ReadonlyArray<CrudFilter>): string {
-    return JSON.stringify(filters.map((filter) => ('field' in filter ? [filter.field, filter.operator, filter.value] : filter)));
+function signature(filter: ReadonlyArray<ListCondition>): string {
+    return JSON.stringify(filter.map((condition) => [condition.field, condition.operator, condition.value]));
 }
 
 /** Значение нового условия. Флажок не бывает незаполненным, поэтому условие по логическому полю сразу означает «да». */
@@ -69,13 +66,14 @@ function initialValue(filter: ListFilter): unknown {
     return filter.kind === 'boolean' ? true : null;
 }
 
-interface ListFiltersProperties {
+/** Свойства отбора списка. */
+export interface ListFiltersProperties {
     /** Отборы, которые предлагает описание списка. */
     readonly filters: ReadonlyArray<ListFilter>;
     /** Действующий отбор списка. */
-    readonly applied: ReadonlyArray<CrudFilter>;
+    readonly applied: ReadonlyArray<ListCondition>;
     /** Вызывается, когда условия пользователя дают другой отбор. */
-    readonly onApply: (filters: Array<CrudFilter>) => void;
+    readonly onApply: (filter: Array<ListCondition>) => void;
 }
 
 /**
@@ -106,7 +104,7 @@ export function ListFilters({ filters, applied, onApply }: ListFiltersProperties
 
     const debounced = useDebounced(conditions, applyDelay);
     useEffect(() => {
-        const next = appliedFilters(debounced);
+        const next = appliedFilter(debounced);
         const nextSignature = signature(next);
         if (nextSignature === sent.current) return;
         sent.current = nextSignature;

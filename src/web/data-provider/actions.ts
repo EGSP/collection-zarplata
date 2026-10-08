@@ -9,6 +9,7 @@ import { keys, useCustomMutation, type BaseRecord } from '@refinedev/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import type { ApiError } from '../common/api';
+import { resourceName, type PerformTarget } from './perform';
 
 /**
  * Возвращает функцию, которая помечает устаревшими все сохранённые ответы сервера о данных.
@@ -17,37 +18,44 @@ import type { ApiError } from '../common/api';
  * регистров, а собственное действие может изменить любые записи. Описания объектов
  * не затрагиваются: от действий над данными они не зависят.
  */
-export function useInvalidateData(): () => Promise<void> {
+function useInvalidateData(): () => Promise<void> {
     const queryClient = useQueryClient();
     return useCallback(() => queryClient.invalidateQueries({ queryKey: keys().data().get() }), [queryClient]);
 }
 
-/** Действие над ресурсом, которое выполняет `useAction`. */
+/** Действие, которое выполняет `useAction`. */
 export interface ActionCall {
-    /** Имя ресурса Refine: `document.sample`. */
-    readonly resource: string;
-    /** Имя действия: стандартное (`post`, `markDeleted`) или собственное действие объекта. */
+    /** Объект конфигурации, которому принадлежит действие. Подходит и его описание `ObjectView`. */
+    readonly object: PerformTarget;
+    /** Имя действия: стандартное (`save`, `post`, `markDeleted`) или собственное действие объекта. */
     readonly action: string;
-    readonly payload: object;
+    /** Входные данные действия. Без них действие получает пустой объект. */
+    readonly payload?: object;
     /** Заголовок уведомления об успехе. */
     readonly successMessage: string;
+    /** Заголовок уведомления об отказе. Описанием уведомления служит текст сервера. */
+    readonly failureMessage?: string;
 }
 
 /**
  * Возвращает функцию, которая выполняет действие единого эндпоинта и отдаёт его результат.
  * Об успехе и об отказе сервера пользователю сообщает уведомление; отказ к тому же завершает
  * вызов ошибкой `ApiError`. После успеха сохранённые ответы сервера сбрасываются.
+ *
+ * Для кода вне платформы это единственный способ изменить данные: так уведомления и сброс
+ * сохранённых ответов не зависят от того, какой экран выполнил действие.
  */
 export function useAction(): <Result>(call: ActionCall) => Promise<Result> {
     const { mutateAsync } = useCustomMutation<BaseRecord, ApiError>();
     const invalidateData = useInvalidateData();
     return useCallback(
-        async <Result>({ resource, action, payload, successMessage }: ActionCall) => {
+        async <Result>({ object, action, payload = {}, successMessage, failureMessage }: ActionCall) => {
             const response = await mutateAsync({
-                url: `${resource}/${action}`,
+                url: `${resourceName(object)}/${action}`,
                 method: 'post',
                 values: payload,
                 successNotification: { type: 'success', message: successMessage },
+                ...(failureMessage === undefined ? {} : { errorNotification: (error) => ({ type: 'error', message: failureMessage, description: error?.message ?? '' }) }),
             });
             void invalidateData();
             return response.data as Result;

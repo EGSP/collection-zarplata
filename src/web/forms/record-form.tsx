@@ -1,30 +1,36 @@
 import { useHotkey } from '@tanstack/react-hotkeys';
-import { useCreate, useUpdate } from '@refinedev/core';
-import { Button, Card, Flex, Form, Tag, theme, Typography } from 'antd';
+import { Button, Flex, Form, Tag } from 'antd';
 import { useEffect, useRef, useState } from 'react';
-import type { FormAction, FormField, FormGroup, FormView, ObjectView } from '../../server/ui/descriptions';
-import { ApiError } from '../common/api';
-import { recordPath } from '../common/paths';
-import { useAction, useInvalidateData } from '../data-provider/actions';
-import { resourceName } from '../data-provider/perform';
-import { recordGuid, type RecordData } from '../data-provider/records';
-import { recordPresentation, recordTitle } from '../references/presentation';
-import { useTabTitle, useUnsavedChanges, useWindowTab } from '../tabs/window-tabs';
-import { FieldDisplay, FieldInput } from '../widgets/registry';
-import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../widgets/validation';
-import { ActionDialog } from './action-dialog';
-import { useFieldFocus, type FieldFocus } from './field-focus';
-import { hasOpenDialog, hasOpenPicker } from './keyboard';
-import { newRecordValues, recordValues, saveFields, type FormValues } from './record-values';
-import { TablePart } from './table-part';
-
-/** Заголовки уведомлений об успехе стандартных действий. У собственного действия заголовком служит его название. */
-const successMessages: { readonly [action: string]: string } = {
-    post: 'Документ проведён',
-    unpost: 'Проведение отменено',
-    markDeleted: 'Запись помечена на удаление',
-    unmarkDeleted: 'Пометка удаления снята',
-};
+import {
+    ActionButton,
+    actionApplies,
+    actionSuccessMessage,
+    ApiError,
+    FieldGroup,
+    formFieldPaths,
+    hasOpenDialog,
+    hasOpenPicker,
+    newRecordValues,
+    Page,
+    recordGuid,
+    recordPath,
+    recordPresentation,
+    recordTitle,
+    recordValues,
+    saveFields,
+    serverRejectionMessage,
+    useAction,
+    useFieldTraversal,
+    useUnsavedChanges,
+    useWindowTab,
+    type FormAction,
+    type FormField,
+    type FormTablePart,
+    type FormValues,
+    type FormView,
+    type ObjectView,
+    type RecordData,
+} from '../sdk';
 
 interface RecordFormProperties {
     readonly object: ObjectView;
@@ -39,9 +45,10 @@ interface RecordFormProperties {
 }
 
 /**
- * Форма записи справочника или документа по описанию формы с сервера.
+ * Форма записи справочника или документа по описанию формы с сервера. Собрана из web SDK
+ * и служит образцом собственного экрана с формой.
  *
- * Значения и ошибки полей хранит форма Ant Design, а запись выполняют хуки данных Refine.
+ * Значения и ошибки полей хранит форма Ant Design, а запись и действия выполняет хук действий SDK.
  * Отдельно форма помнит записанное состояние: запись в том виде, в каком её последним вернул
  * сервер. По нему выводятся заголовок, отметки и поля только для чтения, к нему применяются
  * действия, и из него берутся значения полей, которых на форме нет.
@@ -50,7 +57,8 @@ interface RecordFormProperties {
  * изменениях форма сначала записывает их отдельным запросом и только затем выполняет действие.
  * Объединить запросы в один пакет нельзя: у новой записи до ответа на запись нет `guid`,
  * который нужен действию. Если действие после успешной записи отклонено, запись остаётся
- * сохранённой, и форма показывает её сохранённое состояние.
+ * сохранённой, и форма показывает её сохранённое состояние. Из-за этого порядка кнопки действий
+ * не выполняют действие сами: форма заменяет их выполнение своим.
  *
  * Форма без действия `save` в описании открывается только для просмотра.
  *
@@ -60,34 +68,27 @@ interface RecordFormProperties {
 export function RecordForm({ object, view, record, reload }: RecordFormProperties) {
     const [form] = Form.useForm<FormValues>();
     const tab = useWindowTab();
-    const resource = resourceName(object);
 
     const [saved, setSaved] = useState(record);
     // Начальные значения вычисляются один раз: у новой записи в них входит текущее время.
     const [initialValues] = useState(() => (record === null ? newRecordValues(view) : recordValues(view, record)));
     /** Имя действия, которое сейчас выполняется: на это время кнопки действий недоступны. */
     const [running, setRunning] = useState<string | null>(null);
-    /** Собственное действие, для которого открыто окно входных данных. */
-    const [dialogAction, setDialogAction] = useState<FormAction | null>(null);
 
     const changed = useRef(false);
     const executing = useRef(false);
     // Виджет может закрыть выбор до глобального обработчика Escape. Сохраняем состояние до события.
     const pickerEvents = useRef(new WeakSet<KeyboardEvent>());
     useUnsavedChanges(changed);
-    useTabTitle(saved === null ? `${object.title} (новый)` : recordPresentation(object, saved));
 
-    const { mutateAsync: create } = useCreate<RecordData, ApiError, FormValues>();
-    const { mutateAsync: update } = useUpdate<RecordData, ApiError, FormValues>();
     const performAction = useAction();
-    const invalidateData = useInvalidateData();
 
     const editable = view.actions.some((action) => action.name === 'save');
 
-    const focus = useFieldFocus();
+    const traversal = useFieldTraversal(view.traversal, editable);
     useEffect(() => {
         // В новой записи пользователь сразу начинает ввод с первого поля порядка обхода.
-        if (record === null) view.traversal.some((name) => focus.focus(name));
+        if (record === null) traversal.focusFirst();
         // Фокус ставится один раз при открытии формы.
     }, []);
 
@@ -121,9 +122,13 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         }
         const fields = saveFields(view, saved, entered);
         try {
-            const response = saved === null ? await create({ resource, values: fields }) : await update({ resource, id: recordGuid(saved), values: fields });
-            void invalidateData();
-            return response.data;
+            return await performAction<RecordData>({
+                object,
+                action: 'save',
+                payload: saved === null ? { fields } : { guid: recordGuid(saved), fields },
+                successMessage: saved === null ? 'Запись создана' : 'Запись сохранена',
+                failureMessage: saved === null ? 'Не удалось создать запись' : 'Не удалось сохранить запись',
+            });
         } catch (error) {
             // Текст сервера показало уведомление. Отдельного текста на каждое поле у сервера нет,
             // поэтому поля из его перечня только отмечаются.
@@ -137,11 +142,11 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
     /**
      * Выполняет действие формы. `input` содержит входные данные собственного действия.
      * При `closeAfter` закрывает форму после успешного действия; при ошибке оставляет её открытой.
-     * Возвращает `null` при успехе либо ошибку, из-за которой действие не выполнено.
+     * Если действие не выполнено, вызов завершается ошибкой, из-за которой это произошло.
      */
-    const run = async (action: FormAction, input: FormValues | null, closeAfter = false): Promise<unknown> => {
+    const run = async (action: FormAction, input: FormValues | null, closeAfter = false): Promise<void> => {
         // Состояние React обновится позже; ссылка блокирует повторное нажатие в том же кадре.
-        if (executing.current) return new Error('Действие уже выполняется');
+        if (executing.current) throw new Error('Действие уже выполняется');
         executing.current = true;
         let completed = false;
         const isSave = action.standard && action.name === 'save';
@@ -150,27 +155,21 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         try {
             if (isSave || current === null || changed.current) {
                 current = await save();
-                if (current === null) return new Error('Запись не сохранена');
+                if (current === null) throw new Error('Запись не сохранена');
                 show(current);
-                if (isSave) return null;
             }
-            if (action.standard) {
+            if (isSave) {
+                completed = true;
+            } else if (action.standard) {
                 // Стандартное действие возвращает обновлённую запись, и повторно читать её не нужно.
-                current = await performAction<RecordData>({
-                    resource,
-                    action: action.name,
-                    payload: { guid: recordGuid(current) },
-                    successMessage: successMessages[action.name] ?? action.title,
-                });
+                current = await performAction<RecordData>({ object, action: action.name, payload: { guid: recordGuid(current) }, successMessage: actionSuccessMessage(action) });
                 show(current);
+                completed = true;
             } else {
-                await performAction({ resource, action: action.name, payload: input ?? {}, successMessage: action.title });
+                await performAction({ object, action: action.name, payload: input ?? {}, successMessage: actionSuccessMessage(action) });
                 if (reload !== null) show(await reload());
+                completed = true;
             }
-            completed = true;
-            return null;
-        } catch (error) {
-            return error;
         } finally {
             executing.current = false;
             setRunning(null);
@@ -181,31 +180,22 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         }
     };
 
+    /** Показывает ли форма действие. Применимость к состоянию записи проверяет SDK, остальное зависит от самой формы. */
     const isVisible = (action: FormAction): boolean => {
+        if (!actionApplies(action, saved)) return false;
         // Собственное действие выполняется над записанной записью и после него запись читается заново.
         if (!action.standard) return saved !== null && reload !== null;
-        switch (action.name) {
-            case 'save':
-                return true;
-            // Провести можно и проведённый документ: повторное проведение переписывает движения.
-            // Новую запись перед проведением нужно записать, поэтому без права записи провести её нельзя.
-            case 'post':
-                return saved !== null || editable;
-            case 'unpost':
-                return saved?.['posted'] === true;
-            case 'markDeleted':
-                return saved !== null && saved['deletedAt'] === null;
-            case 'unmarkDeleted':
-                return saved !== null && saved['deletedAt'] !== null;
-            default:
-                return saved !== null;
-        }
+        // Провести можно и проведённый документ: повторное проведение переписывает движения.
+        // Новую запись перед проведением нужно записать, поэтому без права записи провести её нельзя.
+        if (action.name === 'post') return saved !== null || editable;
+        return action.name === 'save' || saved !== null;
     };
 
     const keyboardAction = (name: string, closeAfter = false) => {
         if (hasOpenDialog() || executing.current) return;
         const action = view.actions.find((candidate) => candidate.standard && candidate.name === name && isVisible(candidate));
-        if (action !== undefined) void run(action, null, closeAfter);
+        // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
+        if (action !== undefined) run(action, null, closeAfter).catch(() => undefined);
     };
     // Форма скрытой вкладки остаётся смонтированной: без этого условия сочетание сработало бы на всех открытых формах.
     const hotkeyOptions = { ignoreInputs: false, requireReset: true, enabled: tab.active };
@@ -220,128 +210,64 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         if (!event.isComposing && !hasOpenDialog() && !pickerEvents.current.has(event) && !executing.current) tab.close();
     }, { ...hotkeyOptions, preventDefault: false, stopPropagation: false });
 
-    const move = (name: string, direction: number) => {
-        for (let index = view.traversal.indexOf(name) + direction; index >= 0 && index < view.traversal.length; index += direction) {
-            const next = view.traversal[index];
-            if (next !== undefined && focus.focus(next)) break;
-        }
-    };
-
     return (
-        <Flex vertical gap="middle" onKeyDownCapture={(event) => {
-            if (event.key === 'Escape' && hasOpenPicker(event.target)) pickerEvents.current.add(event.nativeEvent);
-            if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing || !editable || hasOpenDialog() || hasOpenPicker(event.target)) return;
-            const target = event.target;
-            if (!(target instanceof HTMLElement) || target.closest('[data-table-part], button, a') !== null) return;
-            const name = target.closest<HTMLElement>('[data-form-field]')?.dataset['formField'];
-            if (name === undefined) return;
-            event.preventDefault();
-            event.stopPropagation();
-            if (!event.repeat) move(name, event.shiftKey ? -1 : 1);
-        }}>
-            <Flex justify="space-between" align="flex-start" gap="middle" wrap>
-                <Flex vertical gap="small">
-                    <Typography.Title level={3} style={{ margin: 0 }}>
-                        {recordTitle(object, saved)}
-                    </Typography.Title>
-                    <Flex>
-                        {saved !== null && saved['deletedAt'] !== null && <Tag color="error">Помечен на удаление</Tag>}
-                        {saved?.['posted'] === true && <Tag color="success">Проведён</Tag>}
-                    </Flex>
-                </Flex>
-                <Flex gap="small" wrap>
+        <Page
+            title={recordTitle(object, saved)}
+            tabTitle={saved === null ? `${object.title} (новый)` : recordPresentation(object, saved)}
+            marks={
+                <>
+                    {saved !== null && saved['deletedAt'] !== null && <Tag color="error">Помечен на удаление</Tag>}
+                    {saved?.['posted'] === true && <Tag color="success">Проведён</Tag>}
+                </>
+            }
+            actions={
+                <>
                     {view.actions.filter(isVisible).map((action) => (
-                        <Button
+                        <ActionButton
                             key={action.name}
+                            object={object}
+                            record={saved}
+                            action={action.name}
                             type={action.standard && action.name === 'save' ? 'primary' : 'default'}
                             loading={running === action.name}
                             disabled={running !== null}
-                            onClick={() => (action.input.length > 0 ? setDialogAction(action) : void run(action, null))}
-                        >
-                            {action.title}
-                        </Button>
+                            execute={(input) => run(action, input)}
+                        />
                     ))}
                     <Button onClick={tab.close}>Закрыть</Button>
-                </Flex>
-            </Flex>
-            <Form
-                form={form}
-                layout="vertical"
-                disabled={!editable}
-                initialValues={initialValues}
-                onValuesChange={() => {
-                    changed.current = true;
+                </>
+            }
+        >
+            <div
+                onKeyDownCapture={(event) => {
+                    if (event.key === 'Escape' && hasOpenPicker(event.target)) pickerEvents.current.add(event.nativeEvent);
+                    traversal.onKeyDownCapture(event);
                 }}
             >
-                <Flex vertical gap="middle">
-                    {view.groups.map((group, index) => (
-                        <Group key={index} group={group} view={view} saved={saved} editable={editable} focus={focus} onPrevious={(name) => move(name, -1)} />
-                    ))}
-                </Flex>
-            </Form>
-            {dialogAction !== null && <ActionDialog action={dialogAction} onExecute={(input) => run(dialogAction, input)} onClose={() => setDialogAction(null)} />}
-        </Flex>
+                <Form
+                    form={form}
+                    layout="vertical"
+                    disabled={!editable}
+                    initialValues={initialValues}
+                    onValuesChange={() => {
+                        changed.current = true;
+                    }}
+                >
+                    <Flex vertical gap="middle">
+                        {view.groups.map((group, index) => (
+                            <FieldGroup key={index} title={group.title} elements={groupElements(view, group.elements)} record={saved} disabled={!editable} traversal={traversal} />
+                        ))}
+                    </Flex>
+                </Form>
+            </div>
+        </Page>
     );
 }
 
-interface GroupProperties {
-    readonly group: FormGroup;
-    readonly view: FormView;
-    readonly saved: RecordData | null;
-    readonly editable: boolean;
-    readonly focus: FieldFocus;
-    readonly onPrevious: (name: string) => void;
-}
-
-/**
- * Группа элементов формы. Поля шапки стоят в несколько колонок, табличная часть занимает всю
- * ширину формы. Группа с заголовком выводится блоком с заголовком, группа без заголовка без рамки.
- */
-function Group({ group, view, saved, editable, focus, onPrevious }: GroupProperties) {
-    const { token } = theme.useToken();
-    const elements = (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', columnGap: token.marginLG }}>
-            {group.elements.map((name) => {
-                const field = view.fields.find((candidate) => candidate.name === name);
-                if (field !== undefined) return <HeaderField key={name} field={field} saved={saved} focus={focus} />;
-                const part = view.tableParts.find((candidate) => candidate.name === name);
-                if (part === undefined) return null;
-                return (
-                    <div key={name} style={{ gridColumn: '1 / -1', marginBottom: token.marginLG }}>
-                        <TablePart part={part} disabled={!editable} ref={focus.register(name)} onPrevious={() => onPrevious(name)} />
-                    </div>
-                );
-            })}
-        </div>
-    );
-    if (group.title === null) return elements;
-    return (
-        <Card size="small" title={group.title}>
-            {elements}
-        </Card>
-    );
-}
-
-/**
- * Поле шапки формы. Поле только для чтения заполняет платформа: оно показывает значение
- * из записанного состояния и в значения формы не входит. У новой записи оно пусто.
- */
-function HeaderField({ field, saved, focus }: { readonly field: FormField; readonly saved: RecordData | null; readonly focus: FieldFocus }) {
-    const { token } = theme.useToken();
-    if (field.readOnly) {
-        return (
-            <Form.Item label={field.title}>
-                <Flex align="center" style={{ minHeight: token.controlHeight }}>
-                    <FieldDisplay field={field} value={saved?.[field.name]} />
-                </Flex>
-            </Form.Item>
-        );
-    }
-    return (
-        <div data-form-field={field.name}>
-            <Form.Item name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>
-                <FieldInput field={field} ref={focus.register(field.name)} />
-            </Form.Item>
-        </div>
-    );
+/** Описания полей и табличных частей группы по их именам в порядке показа. */
+function groupElements(view: FormView, names: ReadonlyArray<string>): Array<FormField | FormTablePart> {
+    return names.flatMap((name) => {
+        const element = view.fields.find((field) => field.name === name) ?? view.tableParts.find((part) => part.name === name);
+        return element === undefined ? [] : [element];
+    });
 }
