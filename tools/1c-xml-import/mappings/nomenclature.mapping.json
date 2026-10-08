@@ -1,0 +1,9 @@
+{
+  "$schema": "../mapping.schema.json",
+  "sourceObject": "CatalogObject.Номенклатура",
+  "targetCatalog": "nomenclature",
+  "externalSystem": "1c-col3",
+  "fields": {
+    "name": { "path": "Description" }
+  }
+}

@@ -6,6 +6,7 @@
  * не показывается, но открывается по адресу и по ссылке из другой записи.
  */
 import { shell } from '../server/ui/shell.js';
+import { Nomenclature } from './catalogs/nomenclature.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { Sample } from './catalogs/sample.catalog.js';
 import { PeriodClosing } from './documents/period-closing.document.js';
@@ -17,6 +18,6 @@ import { SampleRegister } from './registers/sample.register.js';
 export const applicationShell = shell()
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')
-        .group('Справочники', [PhysicalPersons, Sample])
+        .group('Справочники', [PhysicalPersons, Nomenclature, Sample])
         .group('Документы', [PeriodClosing, SampleDocument])
         .group('Регистры', [SampleRegister, ExternalLinks, SampleInformation]));

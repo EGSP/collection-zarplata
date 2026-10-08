@@ -10,5 +10,6 @@ collection-zarplata.settings.json
 .worktrees/
 # Реестр конфигурации создаёт npm run metadata:generate
 src/configuration/configuration.generated.ts
-# Результат сборки Rust-инструмента
-/tools/1c-xml-import/target/
+# Собранный инструмент импорта из 1С
+/tools/1c-xml-import/collection-xml-import
+/tools/1c-xml-import/*.exe
