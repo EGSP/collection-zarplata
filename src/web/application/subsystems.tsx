@@ -6,25 +6,13 @@
  * один. По той же причине подсистема не подсвечивается по открытой странице: страница объекта
  * не принадлежит одной подсистеме.
  */
-import { AppstoreOutlined, BarChartOutlined, BookOutlined, FileTextOutlined, ProfileOutlined } from '@ant-design/icons';
 import { Flex, Menu, Modal, theme, Typography } from 'antd';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router';
 import type { MetadataResponse, ShellItem, ShellSubsystem } from '../../server/ui/descriptions';
 import { objectPath, pagePath } from '../common/paths';
 import { findObjectView, useMetadata } from '../data-provider/metadata';
-
-/**
- * Иконки пунктов по видам объектов и иконка страницы конфигурации. Вид пункта известен из схемы
- * оболочки, поэтому иконок она не задаёт.
- */
-const kindIcons: { readonly [Kind in ShellItem['kind']]: ReactNode } = {
-    catalog: <BookOutlined />,
-    document: <FileTextOutlined />,
-    register: <BarChartOutlined />,
-    informationRegister: <ProfileOutlined />,
-    page: <AppstoreOutlined />,
-};
+import { Icons } from '../sdk/icons';
 
 /**
  * Заголовок и адрес пункта группы. Возвращает `undefined`, если объекта или страницы нет среди
@@ -72,10 +60,12 @@ function SubsystemDialog({ subsystem, onClose }: { readonly subsystem: ShellSubs
                         {group.items.map((item) => {
                             const link = shellLink(metadata, item);
                             if (link === undefined) return null;
+                            // Вид пункта известен из схемы оболочки, поэтому иконок она не задаёт: иконка берётся по виду.
+                            const KindIcon = Icons[item.kind];
                             return (
                                 <Link key={`${item.kind}.${item.name}`} to={link.path} onClick={onClose}>
                                     <Flex gap={token.marginXS} align="center">
-                                        {kindIcons[item.kind]}
+                                        <KindIcon />
                                         {link.title}
                                     </Flex>
                                 </Link>

@@ -1,5 +1,5 @@
 import { useList, type CrudFilter } from '@refinedev/core';
-import { Button, Flex, Input, Select } from 'antd';
+import { Button, Flex, Input, Select, Tooltip } from 'antd';
 import { Link } from 'react-router';
 import { recordPath } from '../common/paths';
 import { useMemo, useState } from 'react';
@@ -9,6 +9,7 @@ import { useDebounced } from '../common/debounced';
 import { crudSort } from '../data-provider/data-provider';
 import { useObjectView } from '../data-provider/metadata';
 import { resourceName } from '../data-provider/perform';
+import { Icons } from '../sdk/icons';
 import { recordGuid, type RecordData } from '../data-provider/records';
 import { defined, useInputHandle } from '../widgets/inputs';
 import type { FieldValues, InputProperties } from '../widgets/widget';
@@ -21,9 +22,13 @@ const suggestionCount = 20;
 /** Задержка поиска после ввода, в миллисекундах: запрос уходит, когда пользователь перестал печатать. */
 const searchDelay = 300;
 
+/** Название кнопки перехода к выбранной записи: подписи у кнопки нет, оно служит подсказкой и текстом для чтения с экрана. */
+const openRecordTitle = 'Открыть запись';
+
 /**
  * Поле ввода ссылки: выпадающий список с поиском по записям целевого объекта. Значением поля
- * служит `guid` выбранной записи, а пользователь видит её представление.
+ * служит `guid` выбранной записи, а пользователь видит её представление. Рядом с выбранной записью
+ * стоит кнопка перехода к её форме.
  *
  * Если целевого объекта нет в описаниях, у пользователя нет права его читать. Тогда записи
  * не запрашиваются, вместо представления написано «Нет доступа», а выбрать другую запись нельзя.
@@ -36,7 +41,9 @@ export function ReferenceInput(properties: InputProperties<FieldValues['referenc
         <Flex gap="small" align="center">
             <div style={{ flex: 1, minWidth: 0 }}><ReferenceSelect {...properties} object={object} /></div>
             {properties.value != null && (
-                <Link to={recordPath(object, properties.value)}><Button>Открыть запись</Button></Link>
+                <Tooltip title={openRecordTitle}>
+                    <Link to={recordPath(object, properties.value)}><Button icon={<Icons.open />} aria-label={openRecordTitle} /></Link>
+                </Tooltip>
             )}
         </Flex>
     );

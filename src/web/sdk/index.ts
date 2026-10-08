@@ -71,6 +71,9 @@ export { hasOpenDialog, hasOpenPicker } from './keyboard';
 export { newRecordValues, recordValues, saveFields, type FormValues } from './record-values';
 export { TablePart, type TablePartProperties } from './table-part';
 
+// Иконки по смыслу: добавление, открытие, удаление и прочие.
+export { Icons, type IconName } from './icons';
+
 // Действия.
 export { ActionButton, actionApplies, actionSuccessMessage, type ActionButtonProperties } from './action-button';
 export { ActionDialog, type ActionDialogProperties } from './action-dialog';
