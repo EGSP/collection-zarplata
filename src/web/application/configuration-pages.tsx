@@ -12,7 +12,7 @@ import { configurationPages } from '../../configuration/pages.generated';
 import { isPageBuilder } from '../../server/ui/pages';
 import { NotFoundPage } from '../common/not-found';
 import { useMetadata } from '../data-provider/metadata';
-import { useTabTitle } from '../tabs/window-tabs';
+import { useWindowTitle } from '../window/window-scope';
 
 /** Страница конфигурации в реестре клиента. */
 export interface ConfigurationPageModule {
@@ -56,6 +56,6 @@ export function ConfigurationPage() {
 
 /** Задаёт вкладке заголовок из объявления страницы: он виден, пока страница не задала заголовок сама. */
 function DeclaredTabTitle({ title }: { readonly title: string }) {
-    useTabTitle(title);
+    useWindowTitle(title);
     return null;
 }

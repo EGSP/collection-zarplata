@@ -13,14 +13,18 @@
  * один кадр показывал бы прежнюю вкладку. Закрытие вкладки и смена её адреса сначала меняют
  * состояние, а адрес браузера приводит к нему отдельный эффект.
  *
+ * Для страницы вкладка служит областью окна: страница сообщает ей заголовок, несохранённые изменения
+ * и созданную запись и просит закрыться, не зная, что показана именно во вкладке.
+ *
  * Набор вкладок живёт в состоянии компонента и между открытиями приложения не запоминается.
  * Компонент стоит под проверкой входа, поэтому при завершении сессии вкладки исчезают вместе с ним,
  * и следующий вошедший пользователь не увидит вкладок предыдущего.
  */
-import { App } from 'antd';
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { homePath } from '../common/paths';
+import { homePath, newRecordPath, recordPath } from '../common/paths';
+import type { PerformTarget } from '../data-provider/perform';
+import { UnsavedChangesContext, useUnsavedChangesRegistry, useWindowScope, WindowScopeProvider } from '../window/window-scope';
 
 /** Вкладка открытого списка или формы. Главный экран вкладкой в этом наборе не является. */
 export interface WindowTab {
@@ -92,10 +96,13 @@ function removeTab(state: TabsState, id: number): TabsState {
     return { tabs, activeId: state.tabs[index - 1]?.id ?? null, departed: removed.path };
 }
 
-/** Меняет путь вкладки. Строка запроса относилась к прежнему пути и сбрасывается. */
-function relocateTab(state: TabsState, id: number, path: string): TabsState {
+/**
+ * Меняет путь вкладки с `from` на `path`. Вкладка с другим путём не меняется.
+ * Строка запроса относилась к прежнему пути и сбрасывается.
+ */
+function relocateTab(state: TabsState, id: number, from: string, path: string): TabsState {
     const relocated = state.tabs.find((tab) => tab.id === id);
-    if (relocated === undefined || relocated.path === path) return state;
+    if (relocated === undefined || relocated.path !== from || from === path) return state;
     const tabs = state.tabs.map((tab) => (tab === relocated ? { ...tab, path, search: '' } : tab));
     return state.activeId === id ? { ...state, tabs, departed: relocated.path } : { ...state, tabs };
 }
@@ -119,24 +126,27 @@ export interface WindowTabs {
     readonly hasUnsavedChanges: () => boolean;
 }
 
-/** Действия, которые страница выполняет над своей вкладкой. Объект постоянен на всё время работы приложения. */
+/** Действия, которыми область окна вкладки меняет набор вкладок. Объект постоянен на всё время работы приложения. */
 interface TabActions {
-    readonly close: (id: number) => void;
-    readonly relocate: (id: number, path: string) => void;
+    /** Убирает вкладку без вопросов: подтверждение спрашивает область окна вкладки. */
+    readonly remove: (id: number) => void;
+    /** Переводит вкладку с адреса формы новой записи объекта на адрес созданной записи. */
+    readonly recordCreated: (id: number, object: PerformTarget, guid: string) => void;
     readonly retitle: (id: number, title: string) => void;
-    /** Запоминает проверку несохранённых изменений вкладки. Возвращает функцию, которая её убирает. */
-    readonly guard: (id: number, changed: () => boolean) => () => void;
+    /**
+     * Запоминает команду закрытия вкладки с подтверждением: ею пользуется крестик в полосе вкладок,
+     * который стоит вне области окна. Возвращает функцию, которая команду убирает.
+     */
+    readonly attach: (id: number, close: () => void) => () => void;
 }
 
 const WindowTabsContext = createContext<WindowTabs | null>(null);
 const TabActionsContext = createContext<TabActions | null>(null);
-const CurrentTabContext = createContext<{ readonly id: number; readonly active: boolean } | null>(null);
 
 /** Хранит вкладки и связывает их с адресом браузера. Должен стоять внутри маршрутизатора и под проверкой входа. */
 export function WindowTabsProvider({ children }: { readonly children: ReactNode }) {
     const location = useLocation();
     const navigate = useNavigate();
-    const { modal } = App.useApp();
 
     const [stored, setStored] = useState(initialState);
     const state = synchronize(stored, location.pathname, location.search);
@@ -151,8 +161,9 @@ export function WindowTabsProvider({ children }: { readonly children: ReactNode 
         if (current !== address) void navigate(address, { replace: true });
     }, [address, current, navigate]);
 
-    const guards = useRef(new Map<number, () => boolean>());
-    const hasUnsavedChanges = useCallback(() => Array.from(guards.current.values()).some((changed) => changed()), []);
+    // Корневой набор проверок: область окна каждой вкладки регистрируется в нём одним участником.
+    const { register, changed: hasUnsavedChanges } = useUnsavedChangesRegistry();
+    const closers = useRef(new Map<number, () => void>());
 
     useEffect(() => {
         // Закрытие вкладки браузера приложение остановить не может: подтверждение показывает сам браузер.
@@ -166,29 +177,30 @@ export function WindowTabsProvider({ children }: { readonly children: ReactNode 
 
     const actions = useMemo<TabActions>(
         () => ({
-            close: (id) => {
-                const remove = () => setStored((previous) => removeTab(previous, id));
-                if (guards.current.get(id)?.() !== true) return remove();
-                modal.confirm({
-                    closable: true,
-                    title: 'Закрыть форму без сохранения?',
-                    content: 'На форме есть несохранённые изменения. Если закрыть вкладку, они будут потеряны.',
-                    okText: 'Закрыть без сохранения',
-                    cancelText: 'Остаться',
-                    onOk: remove,
-                });
-            },
-            relocate: (id, path) => setStored((previous) => relocateTab(previous, id, normalizePath(path))),
+            remove: (id) => setStored((previous) => removeTab(previous, id)),
+            // Адрес меняет только вкладка формы новой записи этого объекта. Запись может создать
+            // и форма на другой странице, например на странице конфигурации: её адрес остаётся прежним.
+            recordCreated: (id, object, guid) =>
+                setStored((previous) => relocateTab(previous, id, normalizePath(newRecordPath(object)), normalizePath(recordPath(object, guid)))),
             retitle: (id, title) => setStored((previous) => retitleTab(previous, id, title)),
-            guard: (id, changed) => {
-                guards.current.set(id, changed);
+            attach: (id, close) => {
+                closers.current.set(id, close);
                 return () => {
-                    // Вкладку могла занять следующая форма: при смене адреса новая форма появляется раньше, чем уходит прежняя.
-                    if (guards.current.get(id) === changed) guards.current.delete(id);
+                    // Команду могла заменить следующая: эффект с новой командой выполняется раньше очистки прежнего.
+                    if (closers.current.get(id) === close) closers.current.delete(id);
                 };
             },
         }),
-        [modal],
+        [],
+    );
+    const close = useCallback(
+        (id: number) => {
+            const closer = closers.current.get(id);
+            // Команды нет, пока страница вкладки не смонтирована: несохранённых изменений у неё тоже нет.
+            if (closer === undefined) actions.remove(id);
+            else closer();
+        },
+        [actions],
     );
 
     const value = useMemo<WindowTabs>(
@@ -199,15 +211,17 @@ export function WindowTabsProvider({ children }: { readonly children: ReactNode 
                 const tab = state.tabs.find((candidate) => candidate.id === id);
                 void navigate(tab === undefined ? homePath : tab.path + tab.search);
             },
-            close: actions.close,
+            close,
             hasUnsavedChanges,
         }),
-        [state, navigate, actions, hasUnsavedChanges],
+        [state, navigate, close, hasUnsavedChanges],
     );
 
     return (
         <TabActionsContext.Provider value={actions}>
-            <WindowTabsContext.Provider value={value}>{children}</WindowTabsContext.Provider>
+            <UnsavedChangesContext.Provider value={register}>
+                <WindowTabsContext.Provider value={value}>{children}</WindowTabsContext.Provider>
+            </UnsavedChangesContext.Provider>
         </TabActionsContext.Provider>
     );
 }
@@ -219,57 +233,34 @@ export function useWindowTabs(): WindowTabs {
     return tabs;
 }
 
-/** Сообщает странице, в какой вкладке она показана. Оборачивает содержимое одной вкладки. */
-export function WindowTabScope({ id, active, children }: { readonly id: number; readonly active: boolean; readonly children: ReactNode }) {
-    const scope = useMemo(() => ({ id, active }), [id, active]);
-    return <CurrentTabContext.Provider value={scope}>{children}</CurrentTabContext.Provider>;
-}
-
-/** Вкладка, в которой показана страница. */
-export interface CurrentTab {
-    /**
-     * Видна ли вкладка пользователю. Страница скрытой вкладки остаётся смонтированной, поэтому
-     * всё, что действует на приложение в целом, например сочетания клавиш, она включает только при `true`.
-     */
-    readonly active: boolean;
-    /** Закрывает вкладку с подтверждением, если на её форме есть несохранённые изменения. */
-    readonly close: () => void;
-    /**
-     * Меняет адрес вкладки, не пересоздавая её: так форма новой записи после записи получает адрес
-     * существующей. У скрытой вкладки адрес браузера при этом не меняется.
-     */
-    readonly relocate: (path: string) => void;
-}
-
-function useTabScope(): { readonly id: number; readonly active: boolean; readonly actions: TabActions } {
-    const scope = useContext(CurrentTabContext);
-    const actions = useContext(TabActionsContext);
-    if (scope === null || actions === null) throw new Error('Страница должна быть показана во вкладке');
-    return { id: scope.id, active: scope.active, actions };
-}
-
-/** Вкладка текущей страницы. Вызывается только на странице, показанной во вкладке. */
-export function useWindowTab(): CurrentTab {
-    const { id, active, actions } = useTabScope();
-    return useMemo(() => ({ active, close: () => actions.close(id), relocate: (path) => actions.relocate(id, path) }), [id, active, actions]);
-}
-
-/** Задаёт заголовок вкладки текущей страницы. При `null` заголовок не меняется: его задаёт вложенная страница. */
-export function useTabTitle(title: string | null): void {
-    const { id, actions } = useTabScope();
-    useEffect(() => {
-        if (title !== null) actions.retitle(id, title);
-    }, [id, actions, title]);
-}
-
 /**
- * Сообщает вкладке, есть ли на её форме несохранённые изменения. По этому признаку вкладка
- * спрашивает подтверждение перед закрытием, а браузер перед закрытием своей вкладки или окна.
- *
- * Признак передаётся ссылкой, а не значением: форма сбрасывает его сразу после записи и тут же
- * закрывает вкладку, а значение из состояния к этому моменту ещё не обновилось бы.
+ * Область окна вкладки. Оборачивает содержимое одной вкладки: страница внутри обращается к области
+ * и не знает о вкладке. Заголовок области становится заголовком вкладки, закрытие убирает вкладку,
+ * а сообщение о созданной записи меняет её адрес.
  */
-export function useUnsavedChanges(changed: RefObject<boolean>): void {
-    const { id, actions } = useTabScope();
-    useEffect(() => actions.guard(id, () => changed.current), [id, actions, changed]);
+export function WindowTabScope({ id, active, children }: { readonly id: number; readonly active: boolean; readonly children: ReactNode }) {
+    const actions = useContext(TabActionsContext);
+    if (actions === null) throw new Error('Вкладки доступны только внутри WindowTabsProvider');
+    const retitle = useCallback((title: string) => actions.retitle(id, title), [actions, id]);
+    const remove = useCallback(() => actions.remove(id), [actions, id]);
+    const recordCreated = useCallback((object: PerformTarget, guid: string) => actions.recordCreated(id, object, guid), [actions, id]);
+    return (
+        <WindowScopeProvider
+            active={active}
+            onTitle={retitle}
+            onClose={remove}
+            onRecordCreated={recordCreated}
+            unsavedChangesWarning="На форме есть несохранённые изменения. Если закрыть вкладку, они будут потеряны."
+        >
+            <TabCloser id={id} actions={actions} />
+            {children}
+        </WindowScopeProvider>
+    );
+}
+
+/** Передаёт набору вкладок команду закрытия области: так крестик вкладки спрашивает то же подтверждение, что и страница. */
+function TabCloser({ id, actions }: { readonly id: number; readonly actions: TabActions }) {
+    const { close } = useWindowScope();
+    useEffect(() => actions.attach(id, close), [actions, id, close]);
+    return null;
 }

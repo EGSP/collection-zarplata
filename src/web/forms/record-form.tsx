@@ -14,7 +14,6 @@ import {
     newRecordValues,
     Page,
     recordGuid,
-    recordPath,
     recordPresentation,
     recordTitle,
     recordValues,
@@ -23,7 +22,7 @@ import {
     useAction,
     useFieldTraversal,
     useUnsavedChanges,
-    useWindowTab,
+    useWindowScope,
     type FormAction,
     type FormElementReference,
     type FormField,
@@ -69,12 +68,14 @@ interface RecordFormProperties {
  * формы SDK и о форме Ant Design не знают. Изменение значения элементом форма учитывает так же,
  * как ввод пользователя: оно считается несохранённым и уходит в `save`.
  *
- * Форма показана во вкладке и остаётся смонтированной, пока вкладка скрыта. Кнопка «Закрыть»
- * и Esc закрывают вкладку; подтверждение при несохранённых изменениях спрашивает вкладка.
+ * Форма показана в области окна и не знает, вкладка это или что-то другое. Кнопка «Закрыть» и Esc
+ * закрывают область; подтверждение при несохранённых изменениях спрашивает она же. О созданной
+ * записи форма сообщает области: вкладка в ответ меняет свой адрес. Область может оставаться
+ * смонтированной, пока скрыта, поэтому сочетания клавиш действуют только в активной.
  */
 export function RecordForm({ object, view, record, reload }: RecordFormProperties) {
     const [form] = Form.useForm<FormValues>();
-    const tab = useWindowTab();
+    const scope = useWindowScope();
 
     const [saved, setSaved] = useState(record);
     // Начальные значения вычисляются один раз: у новой записи в них входит текущее время.
@@ -182,10 +183,10 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         } finally {
             executing.current = false;
             setRunning(null);
-            // У созданной записи появился собственный адрес: вкладка переходит на него, и повторное
-            // открытие этой записи находит эту же вкладку.
-            if (completed && closeAfter) tab.close();
-            else if (saved === null && current !== null) tab.relocate(recordPath(object, recordGuid(current)));
+            // Что делать с созданной записью, решает область: вкладка переходит на адрес записи,
+            // и повторное открытие этой записи находит эту же вкладку.
+            if (completed && closeAfter) scope.close();
+            else if (saved === null && current !== null) scope.recordCreated(object, recordGuid(current));
         }
     };
 
@@ -206,8 +207,8 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
         if (action !== undefined) run(action, null, closeAfter).catch(() => undefined);
     };
-    // Форма скрытой вкладки остаётся смонтированной: без этого условия сочетание сработало бы на всех открытых формах.
-    const hotkeyOptions = { ignoreInputs: false, requireReset: true, enabled: tab.active };
+    // Форма скрытой области остаётся смонтированной: без этого условия сочетание сработало бы на всех открытых формах.
+    const hotkeyOptions = { ignoreInputs: false, requireReset: true, enabled: scope.active };
     useHotkey('Control+S', (event) => {
         if (!event.isComposing) keyboardAction('save');
     }, hotkeyOptions);
@@ -216,13 +217,13 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
     }, hotkeyOptions);
     // Ant Design обрабатывает Esc на window: событие должно дойти туда и закрыть верхнее окно.
     useHotkey('Escape', (event) => {
-        if (!event.isComposing && !hasOpenDialog() && !pickerEvents.current.has(event) && !executing.current) tab.close();
+        if (!event.isComposing && !hasOpenDialog() && !pickerEvents.current.has(event) && !executing.current) scope.close();
     }, { ...hotkeyOptions, preventDefault: false, stopPropagation: false });
 
     return (
         <Page
             title={recordTitle(object, saved)}
-            tabTitle={saved === null ? `${object.title} (новый)` : recordPresentation(object, saved)}
+            windowTitle={saved === null ? `${object.title} (новый)` : recordPresentation(object, saved)}
             marks={
                 <>
                     {saved !== null && saved['deletedAt'] !== null && <Tag color="error">Помечен на удаление</Tag>}
@@ -243,7 +244,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                             execute={(input) => run(action, input)}
                         />
                     ))}
-                    <Button onClick={tab.close}>Закрыть</Button>
+                    <Button onClick={scope.close}>Закрыть</Button>
                 </>
             }
         >

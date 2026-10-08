@@ -5,7 +5,7 @@
  * экраны конфигурации. Всё, что экспортирует этот файл, считается публичным контрактом клиента:
  * экран импортирует только его, а остальные модули `src/web` остаются внутренними и могут меняться.
  *
- * В SDK входит только то, что знает о платформе: данные, права, описания объектов, вкладки, фокус.
+ * В SDK входит только то, что знает о платформе: данные, права, описания объектов, область окна, фокус.
  * Раскладку, типографику и прочие элементы без такой связи экран берёт из Ant Design напрямую,
  * обёрток для них здесь нет.
  *
@@ -55,9 +55,9 @@ export { defaultPageSize, useRecordList, type RecordList, type RecordListOptions
 export { recordPresentation, recordTitle, useReferencePresentation, type ReferencePresentation } from '../references/presentation';
 export { RecordLink, type RecordLinkProperties } from '../references/reference-display';
 
-// Вкладка страницы, адреса страниц объектов и собственных страниц конфигурации.
+// Область окна страницы, адреса страниц объектов и собственных страниц конфигурации.
 export { newRecordPath, objectPath, pagePath, recordPath } from '../common/paths';
-export { useTabTitle, useUnsavedChanges, useWindowTab, type CurrentTab } from '../tabs/window-tabs';
+export { useUnsavedChanges, useWindowScope, useWindowTitle, type WindowScope } from '../window/window-scope';
 export { Page, type PageProperties } from './page';
 
 // Поля: ввод и отображение значения по виду поля, проверка ввода, обход с клавиатуры.
