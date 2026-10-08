@@ -31,11 +31,27 @@ const refineOptions = {
     reactQuery: { clientConfig: queryClient },
 };
 
+/**
+ * Тема Ant Design. Длительности анимаций вдвое короче стандартных 0,1, 0,2 и 0,3 секунды: при
+ * стандартных подсветка под курсором и появление выпадающих списков и окон заметно отстают
+ * от действия пользователя.
+ *
+ * Длительности заданы напрямую, а не через `motionUnit`: Ant Design округляет производные
+ * значения до десятых долей секунды, и шаг 0,05 дал бы прежние 0,1 секунды.
+ */
+const theme = {
+    token: {
+        motionDurationFast: '0.05s',
+        motionDurationMid: '0.1s',
+        motionDurationSlow: '0.15s',
+    },
+};
+
 /** Корень клиента: маршрутизатор, провайдеры Ant Design и запросов вокруг приложения Refine. */
 export function Application() {
     return (
         <BrowserRouter>
-            <ConfigProvider locale={ruRU} modal={{ mask: { closable: false } }}>
+            <ConfigProvider locale={ruRU} theme={theme} modal={{ mask: { closable: false } }}>
                 <AntdApplication>
                     <QueryClientProvider client={queryClient}>
                         <RefineApplication />
