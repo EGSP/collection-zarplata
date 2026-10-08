@@ -1,5 +1,5 @@
-import { HomeOutlined } from '@ant-design/icons';
 import { Tabs, theme, Tooltip } from 'antd';
+import { Icons } from '../sdk/icons';
 import { useWindowTabs } from './window-tabs';
 
 /** Ключ вкладки главного экрана в полосе. Номера остальных вкладок числовые и с ним не совпадают. */
@@ -34,7 +34,7 @@ export function TabStrip() {
                     label: (
                         <Tooltip title="Главная">
                             {/* Отступ иконки рассчитан на текст после неё, а текста у этой вкладки нет. */}
-                            <HomeOutlined aria-label="Главная" style={{ margin: 0 }} />
+                            <Icons.home aria-label="Главная" style={{ margin: 0 }} />
                         </Tooltip>
                     ),
                 },

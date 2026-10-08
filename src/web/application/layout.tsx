@@ -1,8 +1,8 @@
-import { LogoutOutlined } from '@ant-design/icons';
 import { useLogout } from '@refinedev/core';
 import { App, Button, Flex, Layout, Result, theme, Typography } from 'antd';
 import { Pending } from '../common/pending';
 import { useMetadata } from '../data-provider/metadata';
+import { Icons } from '../sdk/icons';
 import { TabPages } from '../tabs/tab-pages';
 import { TabStrip } from '../tabs/tab-strip';
 import { useWindowTabs } from '../tabs/window-tabs';
@@ -80,7 +80,7 @@ function LogoutButton() {
     return (
         <Button
             type="text"
-            icon={<LogoutOutlined />}
+            icon={<Icons.signOut />}
             loading={isPending}
             onClick={confirmLogout}
             style={{ margin: token.marginXS, justifyContent: 'flex-start' }}

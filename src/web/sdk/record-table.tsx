@@ -1,4 +1,3 @@
-import { CheckCircleOutlined, DeleteOutlined, MoreOutlined } from '@ant-design/icons';
 import { Button, Dropdown, Flex, Table, theme, type TableProps } from 'antd';
 import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router';
@@ -10,6 +9,7 @@ import { recordGuid, type RecordData } from '../data-provider/records';
 import { ListPresentationsContext } from '../references/presentation';
 import { FieldDisplay } from '../widgets/registry';
 import { actionSuccessMessage } from './action-button';
+import { Icons } from './icons';
 import type { FieldName, ListedObject } from './object-reference';
 import type { RecordList } from './record-list';
 
@@ -145,7 +145,7 @@ function DescribedTable({ object, list, columns: columnNames, selected, onSelect
                 if (action === undefined) return null;
                 return (
                     <Dropdown trigger={['click']} menu={{ items: [{ key: action.name, label: action.title }], onClick: () => toggleDeletionMark(record) }}>
-                        <Button type="text" size="small" icon={<MoreOutlined />} aria-label="Действия с записью" />
+                        <Button type="text" size="small" icon={<Icons.more />} aria-label="Действия с записью" />
                     </Dropdown>
                 );
             },
@@ -217,7 +217,7 @@ function rowKey(object: ObjectView, record: RecordData): string {
 /** Значок состояния записи в первой колонке: пометка удаления либо проведение документа. */
 function RecordMark({ record }: { readonly record: RecordData }) {
     const { token } = theme.useToken();
-    if (isMarkedDeleted(record)) return <DeleteOutlined title="Помечен на удаление" style={{ color: token.colorError }} />;
-    if (record['posted'] === true) return <CheckCircleOutlined title="Проведён" style={{ color: token.colorSuccess }} />;
+    if (isMarkedDeleted(record)) return <Icons.markedDeleted title="Помечен на удаление" style={{ color: token.colorError }} />;
+    if (record['posted'] === true) return <Icons.posted title="Проведён" style={{ color: token.colorSuccess }} />;
     return null;
 }

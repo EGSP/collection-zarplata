@@ -1,10 +1,10 @@
-import { CloseOutlined, FilterOutlined } from '@ant-design/icons';
 import { Button, Flex, Input, Select } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FilterOperator, ListFilter } from '../../server/ui/descriptions';
 import { useDebounced } from '../common/debounced';
 import type { ListCondition } from '../data-provider/data-provider';
 import { FieldInput, hasInput } from '../widgets/registry';
+import { Icons } from './icons';
 
 /** Названия способов сравнения для пользователя. */
 const operatorTitles: { readonly [Operator in FilterOperator]: string } = {
@@ -165,14 +165,14 @@ export function ListFilters({ filters, applied, onApply }: ListFiltersProperties
                         </div>
                         <Button
                             type="text"
-                            icon={<CloseOutlined />}
+                            icon={<Icons.remove />}
                             aria-label="Убрать условие"
                             onClick={() => setConditions((current) => current.filter((candidate) => candidate.key !== condition.key))}
                         />
                     </Flex>
                 );
             })}
-            <Button icon={<FilterOutlined />} onClick={add}>
+            <Button icon={<Icons.filter />} onClick={add}>
                 Добавить условие
             </Button>
         </Flex>

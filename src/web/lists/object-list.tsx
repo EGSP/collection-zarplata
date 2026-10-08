@@ -1,7 +1,6 @@
-import { PlusOutlined } from '@ant-design/icons';
 import { Alert, Button } from 'antd';
 import { useNavigate } from 'react-router';
-import { ListFilters, ListSearch, newRecordPath, Page, RecordTable, useRecordList, type ObjectView } from '../sdk';
+import { Icons, ListFilters, ListSearch, newRecordPath, Page, RecordTable, useRecordList, type ObjectView } from '../sdk';
 
 /**
  * Список объекта конфигурации: поиск, отбор и таблица записей по описанию списка. Собран
@@ -23,7 +22,7 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
             title={object.title}
             actions={
                 creatable ? (
-                    <Button type="primary" icon={<PlusOutlined />} onClick={() => void navigate(newRecordPath(object))}>
+                    <Button type="primary" icon={<Icons.add />} onClick={() => void navigate(newRecordPath(object))}>
                         Создать
                     </Button>
                 ) : undefined

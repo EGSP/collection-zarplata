@@ -1,4 +1,3 @@
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button, Flex, Form, Table, Typography, type TableProps } from 'antd';
 import { useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
 import type { FormTablePart } from '../../server/ui/descriptions';
@@ -6,6 +5,7 @@ import { FieldInput, hasInput } from '../widgets/registry';
 import { fieldRules, isMarkedRequired } from '../widgets/validation';
 import type { InputHandle } from '../widgets/widget';
 import { useFieldFocus } from './field-focus';
+import { Icons } from './icons';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
 import { newRowValues } from './record-values';
 
@@ -115,13 +115,13 @@ function RowTable({ part, disabled = false, ref, onPrevious, rows, add, remove }
     ];
     if (!disabled) columns.push({
         key: 'remove', width: 48,
-        render: (_value, row) => <Button type="text" icon={<DeleteOutlined />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
+        render: (_value, row) => <Button type="text" icon={<Icons.delete />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
     });
     return (
         <Flex vertical gap="small" align="flex-start" data-table-part={part.name}>
             <Typography.Text strong>{part.title}</Typography.Text>
             <Table<Row> size="small" style={{ width: '100%' }} rowKey="key" columns={columns} dataSource={[...rows]} pagination={false} locale={{ emptyText: 'Строк нет' }} />
-            {!disabled && <Button icon={<PlusOutlined />} onClick={addRow}>Добавить строку</Button>}
+            {!disabled && <Button icon={<Icons.add />} onClick={addRow}>Добавить строку</Button>}
         </Flex>
     );
 }
