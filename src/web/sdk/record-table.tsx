@@ -34,6 +34,8 @@ export interface RecordTableProperties<Row extends RecordData = RecordData> {
      * среди колонок описания списка, например `guid`, не выводится.
      */
     readonly columns?: ReadonlyArray<FieldName<Row>> | undefined;
+    /** Действия, скрытые экраном в меню строки. Серверные права и форма записи не меняются. */
+    readonly hiddenRowActions?: ReadonlyArray<string> | undefined;
     /**
      * Выбранная строка либо `null`. Если свойство задано, таблица показывает выбор строки
      * и сообщает о нём через `onSelect`. Строка сравнивается по ключу записи, поэтому выбранной
@@ -59,7 +61,7 @@ export interface RecordTableProperties<Row extends RecordData = RecordData> {
  * Если описания объекта нет, у пользователя нет права его читать. Тогда таблица не выводится:
  * чтение списка завершилось отказом сервера, и его показывает экран по `list.error`.
  */
-export function RecordTable<Row extends RecordData = RecordData>({ object, list, columns, selected, onSelect }: RecordTableProperties<Row>) {
+export function RecordTable<Row extends RecordData = RecordData>({ object, list, columns, hiddenRowActions, selected, onSelect }: RecordTableProperties<Row>) {
     const view = useObjectView(object);
     if (view === undefined) return null;
     // Точный тип строки нужен только экрану: таблица строит колонки по описанию с сервера и читает значения по именам.
@@ -68,6 +70,7 @@ export function RecordTable<Row extends RecordData = RecordData>({ object, list,
             object={view}
             list={list}
             columns={columns}
+            hiddenRowActions={hiddenRowActions}
             selected={selected}
             onSelect={onSelect as ((record: RecordData) => void) | undefined}
         />
@@ -78,18 +81,19 @@ interface DescribedTableProperties {
     readonly object: ObjectView;
     readonly list: RecordList;
     readonly columns: ReadonlyArray<string> | undefined;
+    readonly hiddenRowActions: ReadonlyArray<string> | undefined;
     readonly selected: RecordData | null | undefined;
     readonly onSelect: ((record: RecordData) => void) | undefined;
 }
 
-function DescribedTable({ object, list, columns: columnNames, selected, onSelect }: DescribedTableProperties) {
+function DescribedTable({ object, list, columns: columnNames, hiddenRowActions, selected, onSelect }: DescribedTableProperties) {
     const { token } = theme.useToken();
     const navigate = useNavigate();
     const performAction = useAction();
     const { form } = object;
     const description = object.list;
 
-    const formActions = useMemo(() => new Map(form?.actions.map((action) => [action.name, action])), [form]);
+    const formActions = useMemo(() => new Map(form?.actions.filter((action) => !hiddenRowActions?.includes(action.name)).map((action) => [action.name, action])), [form, hiddenRowActions]);
 
     const toggleDeletionMark = (record: RecordData) => {
         const action = formActions.get(isMarkedDeleted(record) ? 'unmarkDeleted' : 'markDeleted');

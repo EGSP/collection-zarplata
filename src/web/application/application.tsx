@@ -4,6 +4,8 @@ import { App as AntdApplication, ConfigProvider } from 'antd';
 import ruRU from 'antd/locale/ru_RU';
 import { useMemo } from 'react';
 import { BrowserRouter } from 'react-router';
+import { configurationShellGroups } from '../../configuration/shell-groups';
+import { ShellGroupsProvider } from '../sdk/shell-group-content';
 import { createAuthenticationProvider } from '../authentication/authentication-provider';
 import { LoginPage } from '../authentication/login-page';
 import { Pending } from '../common/pending';
@@ -54,7 +56,9 @@ export function Application() {
             <ConfigProvider locale={ruRU} theme={theme} modal={{ mask: { closable: false } }}>
                 <AntdApplication>
                     <QueryClientProvider client={queryClient}>
-                        <RefineApplication />
+                        <ShellGroupsProvider entries={configurationShellGroups}>
+                            <RefineApplication />
+                        </ShellGroupsProvider>
                     </QueryClientProvider>
                 </AntdApplication>
             </ConfigProvider>
