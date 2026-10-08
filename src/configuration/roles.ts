@@ -14,5 +14,5 @@ export const roles = [
         .grantAll(),
     role('reader')
         .title('Только чтение')
-        .grant(Rights.catalog.physicalPersons.read, Rights.catalog.nomenclature.read, Rights.informationRegister.externalLinks.read, Rights.catalog.sample.read, Rights.document.sample.read, Rights.document.periodClosing.read, Rights.register.sample.read, Rights.informationRegister.sample.read),
+        .grant(Rights.catalog.physicalPersons.read, Rights.catalog.nomenclature.read, Rights.informationRegister.externalLinks.read, Rights.catalog.sample.read, Rights.catalog.sampleDelegate.read, Rights.document.sample.read, Rights.document.periodClosing.read, Rights.register.sample.read, Rights.informationRegister.sample.read),
 ];

@@ -6,7 +6,7 @@
  *
  * | Метод Refine | Действие сервера |
  * |---|---|
- * | `getList` | `list`; условие отбора с текстом поиска становится входным параметром `search` |
+ * | `getList` | `list`; условия отбора с текстом поиска и поиска по представлению становятся входными параметрами `search` и `presentation` |
  * | `getOne` | `get` |
  * | `getMany` | пакет действий `get`, общий для всех одновременных вызовов |
  * | `create` | `save` без `guid` |
@@ -64,6 +64,22 @@ export function searchFilters(search: string): Array<CrudFilter> {
 
 function isSearchFilter(filter: CrudFilter): boolean {
     return 'field' in filter && filter.field === searchField;
+}
+
+/**
+ * Имя поля, под которым в отборе Refine лежит текст поиска по представлению записи. Сервер
+ * принимает его отдельным параметром `presentation`, а не условием: представление не является
+ * полем записи, а у справочника с представлением по ссылке хранится в другом объекте.
+ */
+const presentationField = '$presentation';
+
+/** Условие отбора Refine с текстом поиска по представлению записи. Пустой текст условия не даёт. */
+export function presentationFilters(text: string): Array<CrudFilter> {
+    return text === '' ? [] : [{ field: presentationField, operator: 'contains', value: text }];
+}
+
+function isPresentationFilter(filter: CrudFilter): boolean {
+    return 'field' in filter && filter.field === presentationField;
 }
 
 /** Текст поиска из отбора Refine. Без условия поиска возвращает пустую строку. */
@@ -149,7 +165,13 @@ export const dataProvider: DataProvider = {
     getList: async <Item extends BaseRecord>({ resource, pagination, filters = [], sorters = [] }: GetListParams): Promise<GetListResponse<Item>> => {
         const target = resourceTarget(resource);
         const search = searchOf(filters);
-        const selection = { filter: listConditions(withoutSearch(filters)), sort: sorters.map(listOrder), ...(search === '' ? {} : { search }) };
+        const presentation = filters.find(isPresentationFilter);
+        const selection = {
+            filter: listConditions(withoutSearch(filters).filter((filter) => !isPresentationFilter(filter))),
+            sort: sorters.map(listOrder),
+            ...(search === '' ? {} : { search }),
+            ...(presentation === undefined ? {} : { presentation: String(presentation.value) }),
+        };
         const list = (page: number | undefined, pageSize: number | undefined) =>
             perform<ListPage<Item>>({ target, action: 'list', payload: { ...selection, page, pageSize } });
 

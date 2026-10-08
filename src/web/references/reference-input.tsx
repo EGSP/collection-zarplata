@@ -6,15 +6,15 @@ import { useMemo, useState } from 'react';
 import type { ObjectView } from '../../server/ui/descriptions';
 import type { ApiError } from '../common/api';
 import { useDebounced } from '../common/debounced';
-import { crudSort } from '../data-provider/data-provider';
+import { crudSort, presentationFilters } from '../data-provider/data-provider';
 import { useObjectView } from '../data-provider/metadata';
 import { resourceName } from '../data-provider/perform';
 import { Icons } from '../sdk/icons';
 import { recordGuid, type RecordData } from '../data-provider/records';
 import { defined, useInputHandle } from '../widgets/inputs';
 import type { FieldValues, InputProperties } from '../widgets/widget';
-import { recordPresentation, useReferencePresentation } from './presentation';
-import { noAccessText } from './reference-display';
+import type { ReferencePresentations } from '../../server/ui/reference-presentation';
+import { listRecordPresentation, noAccessText, useReferencePresentation } from './presentation';
 
 /** Сколько записей поле предлагает на выбор. Остальные пользователь находит, уточняя текст поиска. */
 const suggestionCount = 20;
@@ -32,6 +32,9 @@ const openRecordTitle = 'Открыть запись';
  *
  * Если целевого объекта нет в описаниях, у пользователя нет права его читать. Тогда записи
  * не запрашиваются, вместо представления написано «Нет доступа», а выбрать другую запись нельзя.
+ *
+ * Справочник с представлением по ссылке предлагает записи под представлением целевых записей
+ * и ищет введённый текст в нём же: наименование такой записи пользователь в поле не видит.
  */
 export function ReferenceInput(properties: InputProperties<FieldValues['reference']>) {
     const object = useObjectView(properties.field.target);
@@ -59,6 +62,8 @@ function ReferenceSelect({ object, field, value, onChange, disabled, id, ref }: 
         const conditions: Array<CrudFilter> = [];
         // Помеченную на удаление запись выбрать заново нельзя. Уже сделанная ссылка на неё остаётся в силе.
         if (object.list.deletionMark) conditions.push({ field: 'deletedAt', operator: 'null', value: true });
+        // Представление по ссылке хранится в другом объекте, и ищет по нему сервер.
+        if (object.presentation !== null) return [...conditions, ...presentationFilters(searched)];
         // Справочник ищется по наименованию, документ по номеру: это части их представлений.
         if (searched !== '') conditions.push({ field: object.kind === 'document' ? 'number' : 'name', operator: 'contains', value: searched });
         return conditions;
@@ -72,9 +77,15 @@ function ReferenceSelect({ object, field, value, onChange, disabled, id, ref }: 
         // Пока список закрыт, записи не нужны: форма с десятком ссылок не должна отправлять десяток запросов при открытии.
         queryOptions: { enabled: open },
     });
+    const presentations = result['presentations'] as ReferencePresentations | undefined;
+    // Без права читать целевой объект представления по ссылке сервер текста не даёт.
+    const targetAccessible = useObjectView(object.presentation?.target ?? null) !== undefined || object.presentation === null;
     const options = useMemo(
-        () => result.data.map((record) => ({ value: recordGuid(record), label: recordPresentation(object, record) })),
-        [object, result.data],
+        () => result.data.map((record) => ({
+            value: recordGuid(record),
+            label: targetAccessible ? listRecordPresentation(object, record, presentations) : noAccessText,
+        })),
+        [object, result.data, presentations, targetAccessible],
     );
     const selected = useReferencePresentation(object, value ?? null);
 

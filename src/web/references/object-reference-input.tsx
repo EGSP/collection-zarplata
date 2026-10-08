@@ -7,7 +7,7 @@ import { useMetadata } from '../data-provider/metadata';
 import { defined, useInputHandle } from '../widgets/inputs';
 import type { FieldValues, InputProperties } from '../widgets/widget';
 import { ReferenceInput } from './reference-input';
-import { noAccessText } from './reference-display';
+import { noAccessText } from './presentation';
 
 /**
  * Предлагает только доступные пользователю справочники и документы.

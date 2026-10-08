@@ -6,10 +6,7 @@ import { objectReference } from '../../server/metadata/references';
 import type { ObjectReferenceValue } from '../../server/metadata/descriptions';
 import { useObjectView } from '../data-provider/metadata';
 import type { DisplayProperties, FieldValues } from '../widgets/widget';
-import { useReferencePresentation } from './presentation';
-
-/** Текст на месте ссылки, целевой объект которой пользователь читать не вправе. */
-export const noAccessText = 'Нет доступа';
+import { noAccessText, useReferencePresentation } from './presentation';
 
 /** Отображение ссылки: представление записи, которое открывает её форму. */
 export function ReferenceDisplay({ field, value }: DisplayProperties<FieldValues['reference']>) {

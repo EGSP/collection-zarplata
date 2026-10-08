@@ -9,9 +9,9 @@
  * Описание уже учитывает переопределения формы из конфигурации: клиенту не нужно знать,
  * что задано по умолчанию, а что переопределено.
  */
-import type { FieldKind, FieldRole, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
+import type { DelegatedPresentation, FieldKind, FieldRole, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
 
-export type { FieldKind, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
+export type { DelegatedPresentation, FieldKind, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
 
 /**
  * Правила проверки значения поля. Клиент проверяет по ним ввод до отправки, окончательную
@@ -196,6 +196,12 @@ export interface ObjectView {
     readonly kind: ObjectKind;
     readonly name: string;
     readonly title: string;
+    /**
+     * Поле-ссылка, по которому строится представление записи, и его цель. `null` означает
+     * собственное представление. Целевого объекта может не быть среди описаний: тогда пользователь
+     * не вправе его читать, и вместо представления клиент пишет «Нет доступа».
+     */
+    readonly presentation: DelegatedPresentation | null;
     /** Форма объекта; у регистров `null`. */
     readonly form: FormView | null;
     readonly list: ListView;

@@ -69,6 +69,8 @@ export interface ObjectState {
     readonly actions: ReadonlyArray<ActionEntry>;
     readonly form: ReadonlyArray<FormOverride> | null;
     readonly policies: ReadonlyArray<PolicyDescription>;
+    /** Имя поля-ссылки, по которому строится представление записи; задаётся только у справочника. */
+    readonly presentation: string | null;
     /** Обработчик проведения; задаётся только у документа. */
     readonly posting: ((record: never) => unknown) | null;
     /** Вызван ли `withStandardFields()`: без стандартных полей `commit()` завершается ошибкой. */
@@ -373,8 +375,18 @@ export interface RecordObjectBuilder<
 }
 
 /** Билдер справочника; его создаёт `catalog(name)`. */
-export type CatalogBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string = never> =
-    RecordObjectBuilder<'catalog', Name, Fields, Parts, Actions>;
+export interface CatalogBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string = never>
+    extends RecordObjectBuilder<'catalog', Name, Fields, Parts, Actions> {
+    /**
+     * Представление записи по ссылке: запись показывается не наименованием, а представлением
+     * записи, на которую ссылается поле `field`. Так справочник называется значением, которое
+     * хранится в другом объекте, и копия этого значения не расходится с оригиналом.
+     * Поле должно быть обязательной ссылкой с заданной целью, а цель не может сама строить
+     * представление по ссылке; это проверяет `commit()`. Наименование остаётся обычным
+     * обязательным полем. Повторный вызов заменяет поле.
+     */
+    presentation(field: keyof Fields & string): CatalogBuilder<Name, Fields, Parts, Actions>;
+}
 
 /**
  * Билдер того же вида, что и исходный. Методы общего интерфейса возвращают его, чтобы после
@@ -539,6 +551,10 @@ class ObjectBuilderImplementation {
         return this.with({ policies: [...this['~state'].policies, description] });
     }
 
+    presentation(field: string): this {
+        return this.with({ presentation: field });
+    }
+
     posting(handler: PostingHandler<never>): this {
         return this.with({ posting: handler });
     }
@@ -574,7 +590,7 @@ export function isObjectBuilder(value: unknown): value is ObjectBuilder {
 }
 
 function emptyState(kind: ObjectKind, name: string): ObjectState {
-    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], posting: null, standardFieldsAdded: false };
+    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], presentation: null, posting: null, standardFieldsAdded: false };
 }
 
 // Функции ниже приводят реализацию к интерфейсу через unknown: точные типы полей существуют

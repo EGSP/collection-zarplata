@@ -14,13 +14,13 @@ import {
     newRecordValues,
     Page,
     recordGuid,
-    recordPresentation,
     recordTitle,
     recordValues,
     saveFields,
     serverRejectionMessage,
     useAction,
     useFieldTraversal,
+    useRecordPresentation,
     useUnsavedChanges,
     useWindowScope,
     type FormAction,
@@ -237,10 +237,13 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         scope.close();
     }, { ...hotkeyOptions, preventDefault: false, stopPropagation: false });
 
+    // Представление читается по записанному состоянию: несохранённый выбор ссылки запись ещё не называет.
+    const presentation = useRecordPresentation(object, saved);
+
     return (
         <Page
-            title={recordTitle(object, saved)}
-            windowTitle={saved === null ? `${object.title} (новый)` : recordPresentation(object, saved)}
+            title={recordTitle(object, saved === null ? null : presentation.text)}
+            windowTitle={saved === null ? `${object.title} (новый)` : presentation.text}
             marks={
                 <>
                     {saved !== null && saved['deletedAt'] !== null && <Tag color="error">Помечен на удаление</Tag>}
