@@ -95,6 +95,18 @@ export type ObjectRecord<Kind extends ObjectKind, Fields extends FieldMap, Parts
 /** Тип записи объекта по его билдеру: `RecordOf<typeof Employees>`. */
 export type RecordOf<Builder extends ObjectBuilder> = ObjectRecord<Builder['kind'], Builder['~fields'], Builder['~tableParts']>;
 
+/**
+ * Тип строки списка объекта по его билдеру: стандартные и объявленные поля без табличных частей.
+ * Действие `list` табличные части не возвращает: они хранятся отдельно и читаются действием `get`.
+ */
+export type ListRecordOf<Builder extends ObjectBuilder> = Simplify<FieldsRecord<StandardFields[Builder['kind']] & Builder['~fields']>>;
+
+/** Значения экспорта модуля. Условный тип распределяет объединение модулей: иначе остались бы только общие имена экспорта. */
+export type ExportsOf<Module> = Module extends unknown ? Module[keyof Module] : never;
+
+/** Билдеры объектов среди экспорта модулей конфигурации. */
+export type BuildersOf<Modules extends ReadonlyArray<object>> = Extract<ExportsOf<Modules[number]>, ObjectBuilder>;
+
 /** Имена полей объекта, включая стандартные. */
 type FieldNames<Kind extends ObjectKind, Fields extends FieldMap> = keyof StandardFields[Kind] & string | keyof Fields & string;
 

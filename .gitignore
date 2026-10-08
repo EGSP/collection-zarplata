@@ -8,8 +8,8 @@ collection-zarplata.settings.json
 # Только каталог данных в корне: серверный модуль src/server/data должен отслеживаться Git.
 /data/
 .worktrees/
-# Реестр конфигурации создаёт npm run metadata:generate
-src/configuration/configuration.generated.ts
+# Реестры конфигурации создаёт npm run metadata:generate
+src/configuration/*.generated.ts
 # Собранный инструмент импорта из 1С
 /tools/1c-xml-import/collection-xml-import
 /tools/1c-xml-import/*.exe

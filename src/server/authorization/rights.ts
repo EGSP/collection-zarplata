@@ -4,6 +4,7 @@
  * Право не объявляется вручную: его даёт сам объект конфигурации. У каждого объекта есть
  * стандартные права его вида, а каждое собственное действие получает отдельное право. Поэтому
  * новый объект или новое действие сразу защищены, и забыть объявить право невозможно.
+ * Так же страница конфигурации даёт право её открыть.
  *
  * Соответствие «действие → право» задано здесь один раз. Им пользуются и проверка прав
  * в диспетчере, и построение описаний форм: действие, которое форма показала пользователю,
@@ -14,8 +15,9 @@
  * ошибка компиляции. Сравниваются права по ключу, поэтому право из `Rights` и право, которое
  * диспетчер вычислил по описанию объекта, равны без общего реестра.
  */
-import { isObjectBuilder, type ObjectBuilder } from '../metadata/builders.js';
+import { isObjectBuilder, type BuildersOf, type ExportsOf, type ObjectBuilder } from '../metadata/builders.js';
 import type { ObjectDescription, ObjectKind } from '../metadata/descriptions.js';
+import { isPageBuilder, pageKind, type PageBuilder } from '../ui/pages.js';
 
 /**
  * Право доступа. Ключ однозначно определяет право: `catalog.employees.write`,
@@ -49,6 +51,17 @@ const standardPermissions = {
     },
 } as const satisfies { readonly [Kind in ObjectKind]: { readonly [permission: string]: ReadonlyArray<string> } };
 
+/** Действия единого эндпоинта по видам объектов: все действия, перечисленные в стандартных правах вида. */
+type StandardActions = {
+    readonly [Kind in ObjectKind]: (typeof standardPermissions)[Kind][keyof (typeof standardPermissions)[Kind]] extends ReadonlyArray<infer Action> ? Action : never;
+};
+
+/**
+ * Имя стандартного действия объекта вида `Kind`. По этому типу клиент проверяет имя действия
+ * при компиляции, поэтому перечень действий задан один раз, вместе с правами.
+ */
+export type StandardAction<Kind extends ObjectKind> = StandardActions[Kind];
+
 /**
  * Часть ключа, которая отделяет права собственных действий от стандартных прав объекта.
  * Без неё действие с именем `read` или `write` получило бы ключ стандартного права.
@@ -75,26 +88,38 @@ export type ObjectRights<Kind extends ObjectKind, Actions extends string> = Stan
     readonly actions: { readonly [Action in Actions]: Right };
 };
 
-/** Права конфигурации: вид объекта → имя объекта → права, и отдельно права платформы. */
-export type ConfigurationRights<Builders extends ObjectBuilder> = {
+/**
+ * Права страницы. Право `open` управляет только видимостью пункта меню и адреса страницы:
+ * доступ к данным, которые страница показывает, проверяется по правам объектов.
+ */
+export interface PageRights {
+    readonly open: Right;
+}
+
+/** Права конфигурации: вид объекта → имя объекта → права, страницы по именам и отдельно права платформы. */
+export type ConfigurationRights<Builders extends ObjectBuilder, Pages extends PageBuilder = never> = {
     readonly [Kind in ObjectKind]: {
         readonly [Builder in Extract<Builders, { readonly kind: Kind }> as Builder['name']]: ObjectRights<Kind, Builder['~actions']>;
     };
-} & { readonly platform: typeof platformRights };
+} & {
+    readonly page: { readonly [Page in Pages as Page['name']]: PageRights };
+    readonly platform: typeof platformRights;
+};
 
-/** Значения экспорта модуля. Условный тип распределяет объединение модулей: иначе остались бы только общие имена экспорта. */
-type ExportsOf<Module> = Module extends unknown ? Module[keyof Module] : never;
-
-/** Билдеры объектов среди экспорта модулей конфигурации. */
-type BuildersOf<Modules extends ReadonlyArray<object>> = Extract<ExportsOf<Modules[number]>, ObjectBuilder>;
+/** Билдеры страниц среди экспорта модулей объявлений страниц. */
+type PagesOf<Modules extends ReadonlyArray<object>> = Extract<ExportsOf<Modules[number]>, PageBuilder>;
 
 /**
- * Строит объект `Rights` из модулей объектов конфигурации. Вызывается в сгенерированном реестре
- * `configuration.generated.ts` со списком всех модулей, поэтому права появляются вместе с файлом
- * объекта. Значения экспорта, которые не являются билдерами, пропускаются: соглашение о файлах
- * конфигурации проверяет сервис метаданных при запуске, и он сообщит о нарушении понятнее.
+ * Строит объект `Rights` из модулей объектов конфигурации и модулей объявлений страниц.
+ * Вызывается в сгенерированном реестре `configuration.generated.ts` со списком всех модулей,
+ * поэтому права появляются вместе с файлом объекта или страницы. Значения экспорта, которые
+ * не являются билдерами, пропускаются: соглашение о файлах конфигурации проверяется при запуске
+ * сервера, и там о нарушении сообщается понятнее.
  */
-export function defineRights<const Modules extends ReadonlyArray<object>>(modules: Modules): ConfigurationRights<BuildersOf<Modules>> {
+export function defineRights<const Modules extends ReadonlyArray<object>, const PageModules extends ReadonlyArray<object> = []>(
+    modules: Modules,
+    pageModules?: PageModules,
+): ConfigurationRights<BuildersOf<Modules>, PagesOf<PageModules>> {
     const rights: { [Kind in ObjectKind]: { [name: string]: object } } = { catalog: {}, document: {}, register: {}, informationRegister: {} };
     for (const module of modules) {
         for (const value of Object.values(module)) {
@@ -104,14 +129,26 @@ export function defineRights<const Modules extends ReadonlyArray<object>>(module
             rights[value.kind][value.name] = Object.freeze({ ...Object.fromEntries(standard), actions: Object.freeze(Object.fromEntries(actions)) });
         }
     }
+    const pages: { [name: string]: PageRights } = {};
+    for (const module of pageModules ?? []) {
+        for (const value of Object.values(module)) {
+            if (isPageBuilder(value)) pages[value.name] = Object.freeze({ open: pageOpenRight(value.name) });
+        }
+    }
     // Точный тип существует только на уровне типов: он выведен из типов билдеров, а объект собран по их состоянию.
     return Object.freeze({
         catalog: Object.freeze(rights.catalog),
         document: Object.freeze(rights.document),
         register: Object.freeze(rights.register),
         informationRegister: Object.freeze(rights.informationRegister),
+        page: Object.freeze(pages),
         platform: platformRights,
-    }) as unknown as ConfigurationRights<BuildersOf<Modules>>;
+    }) as unknown as ConfigurationRights<BuildersOf<Modules>, PagesOf<PageModules>>;
+}
+
+/** Право открыть страницу конфигурации. Без него страницы нет ни в меню, ни в ответе `GET /api/metadata`. */
+export function pageOpenRight(name: string): Right {
+    return right(pageKind, name, 'open');
 }
 
 /**

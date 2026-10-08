@@ -2,7 +2,7 @@
   "name": "collection-zarplata",
   "scripts": {
     "prepare": "effect-tsgo patch --typescript --no-oxlint",
-    "typecheck": "npm run metadata:generate && tsc --noEmit -p tsconfig.json && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p src/web/tsconfig.json",
+    "typecheck": "npm run metadata:generate && node scripts/page-imports-check.ts && tsc --noEmit -p tsconfig.json && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p src/web/tsconfig.json",
     "diagnostics": "effect-tsgo diagnostics --project tsconfig.json",
     "dev": "npm run metadata:generate && npm run build:server && concurrently --prefix-colors blue,green,magenta,yellow \"npm:dev:*\"",
     "dev:metadata": "node scripts/metadata-generate.ts --watch",

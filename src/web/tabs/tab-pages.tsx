@@ -1,8 +1,10 @@
 import { theme } from 'antd';
 import { memo, useMemo, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
+import { ConfigurationPage } from '../application/configuration-pages';
 import { HomePage, ObjectPage } from '../application/pages';
 import { NotFoundPage } from '../common/not-found';
+import { pageSegment } from '../common/paths';
 import { RecordPage } from '../forms/record-page';
 import { useWindowTabs, WindowTabScope } from './window-tabs';
 
@@ -45,6 +47,8 @@ const TabPage = memo(function TabPage({ id, path, search, active }: TabPagePrope
         <PageArea visible={active}>
             <WindowTabScope id={id} active={active}>
                 <Routes location={location}>
+                    {/* Постоянная часть адреса точнее параметра, поэтому этот маршрут выбирается раньше списка объекта. */}
+                    <Route path={`${pageSegment}/:name`} element={<ConfigurationPage />} />
                     <Route path=":kind/:name" element={<ObjectPage />} />
                     <Route path=":kind/:name/:guid" element={<RecordPage />} />
                     <Route path="*" element={<NotFoundPage />} />

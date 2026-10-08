@@ -1,18 +1,19 @@
 /**
- * Схема оболочки: подсистемы, их группы и ссылки на объекты конфигурации.
+ * Схема оболочки: подсистемы, их группы и ссылки на объекты и страницы конфигурации.
  *
  * Схема — часть конфигурации, как объекты и роли: платформа не знает, как конкретному магазину
  * удобно разложить объекты по разделам. Она описывается билдером в `src/configuration/shell.ts`.
  *
- * Содержимое подсистемы — список ссылок, а не владение: один объект можно указать в нескольких
- * группах и подсистемах, а объект, не указанный нигде, остаётся доступным по адресу.
+ * Содержимое подсистемы — список ссылок, а не владение: один объект или страницу можно указать
+ * в нескольких группах и подсистемах, а не указанные нигде остаются доступными по адресу.
  *
  * Вся проверка схемы выполняется типами, поэтому у билдера нет шага сборки с ошибками, как
- * `commit()` у объектов: объект указывается импортированным билдером, а имена подсистем
- * накапливаются в параметре типа, и повтор имени не компилируется.
+ * `commit()` у объектов: объект и страница указываются импортированными билдерами, а имена
+ * подсистем накапливаются в параметре типа, и повтор имени не компилируется.
  */
 import type { ObjectBuilder } from '../metadata/builders.js';
-import type { ShellGroup, ShellObject, ShellSubsystem, ShellView } from './descriptions.js';
+import type { ShellGroup, ShellItem, ShellSubsystem, ShellView } from './descriptions.js';
+import type { PageBuilder } from './pages.js';
 
 /** Билдер подсистемы: заголовок и группы. Неизменяем, как и билдеры объектов. */
 export class SubsystemBuilder {
@@ -30,11 +31,12 @@ export class SubsystemBuilder {
     }
 
     /**
-     * Группа объектов с заголовком; объекты показываются в указанном порядке. Объект передаётся
-     * билдером из файла объекта, поэтому опечатка в имени невозможна, а строка не компилируется.
+     * Группа с заголовком; объекты и страницы показываются в указанном порядке. Пункт передаётся
+     * билдером из файла объекта или объявления страницы, поэтому опечатка в имени невозможна,
+     * а строка не компилируется.
      */
-    group(title: string, objects: ReadonlyArray<ObjectBuilder>): SubsystemBuilder {
-        const group: ShellGroup = { title, objects: objects.map((object): ShellObject => ({ kind: object.kind, name: object.name })) };
+    group(title: string, items: ReadonlyArray<ObjectBuilder | PageBuilder>): SubsystemBuilder {
+        const group: ShellGroup = { title, items: items.map((item): ShellItem => ({ kind: item.kind, name: item.name })) };
         return new SubsystemBuilder(this['~title'], [...this['~groups'], group]);
     }
 }
@@ -71,16 +73,16 @@ export function shell(): ShellBuilder {
 }
 
 /**
- * Схема оболочки для одного пользователя: в ней остаются только объекты, для которых `readable`
- * возвращает `true`. Группа без таких объектов и подсистема без групп в результат не попадают:
- * пустой раздел показал бы пользователю, что от него что-то скрыто. По той же причине не
- * попадает и группа, которая пуста уже в конфигурации.
+ * Схема оболочки для одного пользователя: в ней остаются только объекты и страницы, для которых
+ * `available` возвращает `true`. Группа без таких пунктов и подсистема без групп в результат
+ * не попадают: пустой раздел показал бы пользователю, что от него что-то скрыто. По той же причине
+ * не попадает и группа, которая пуста уже в конфигурации.
  */
-export function restrictShell(builder: ShellBuilder<string>, readable: (object: ShellObject) => boolean): ShellView {
+export function restrictShell(builder: ShellBuilder<string>, available: (item: ShellItem) => boolean): ShellView {
     const subsystems = builder['~subsystems'].flatMap((subsystem): ReadonlyArray<ShellSubsystem> => {
         const groups = subsystem.groups.flatMap((group): ReadonlyArray<ShellGroup> => {
-            const objects = group.objects.filter(readable);
-            return objects.length === 0 ? [] : [{ ...group, objects }];
+            const items = group.items.filter(available);
+            return items.length === 0 ? [] : [{ ...group, items }];
         });
         return groups.length === 0 ? [] : [{ ...subsystem, groups }];
     });

@@ -39,6 +39,9 @@ export type {
 export { useObjectView } from '../data-provider/metadata';
 export type { PerformTarget } from '../data-provider/perform';
 
+// Ссылки на объекты конфигурации: по ним компилятор проверяет имена полей и действий.
+export type { ActedObject, FieldName, ListedObject, ObjectReference, ReadObject, RecordCondition, RecordSort } from './object-reference';
+
 // Данные: чтение списка и записи, выполнение действий.
 export { ApiError } from '../common/api';
 export { useAction, type ActionCall } from '../data-provider/actions';
@@ -51,8 +54,8 @@ export { defaultPageSize, useRecordList, type RecordList, type RecordListOptions
 export { recordPresentation, recordTitle, useReferencePresentation, type ReferencePresentation } from '../references/presentation';
 export { RecordLink, type RecordLinkProperties } from '../references/reference-display';
 
-// Вкладка страницы и адреса страниц объектов.
-export { newRecordPath, objectPath, recordPath } from '../common/paths';
+// Вкладка страницы, адреса страниц объектов и собственных страниц конфигурации.
+export { newRecordPath, objectPath, pagePath, recordPath } from '../common/paths';
 export { useTabTitle, useUnsavedChanges, useWindowTab, type CurrentTab } from '../tabs/window-tabs';
 export { Page, type PageProperties } from './page';
 

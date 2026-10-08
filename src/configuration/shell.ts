@@ -1,9 +1,9 @@
 /**
- * Схема оболочки: какие подсистемы видит пользователь слева и какие объекты в них лежат.
+ * Схема оболочки: какие подсистемы видит пользователь слева и какие объекты и страницы в них лежат.
  *
- * Объекты указываются импортированными билдерами, а не строками: переименование или удаление
- * объекта сразу даёт ошибку компиляции здесь. Объект, не указанный в схеме, в окнах подсистем
- * не показывается, но открывается по адресу и по ссылке из другой записи.
+ * Объекты и страницы указываются импортированными билдерами, а не строками: переименование или
+ * удаление сразу даёт ошибку компиляции здесь. Объект или страница, не указанные в схеме, в окнах
+ * подсистем не показываются, но открываются по адресу, а запись объекта ещё и по ссылке из другой записи.
  */
 import { shell } from '../server/ui/shell.js';
 import { Nomenclature } from './catalogs/nomenclature.catalog.js';
@@ -13,6 +13,7 @@ import { PeriodClosing } from './documents/period-closing.document.js';
 import { SampleDocument } from './documents/sample.document.js';
 import { ExternalLinks } from './information-registers/external-links.information-register.js';
 import { SampleInformation } from './information-registers/sample.information-register.js';
+import { SampleWorkplace } from './pages/sample-workplace.page.js';
 import { SampleRegister } from './registers/sample.register.js';
 
 export const applicationShell = shell()
@@ -20,4 +21,5 @@ export const applicationShell = shell()
         .title('НСИ')
         .group('Справочники', [PhysicalPersons, Nomenclature, Sample])
         .group('Документы', [PeriodClosing, SampleDocument])
-        .group('Регистры', [SampleRegister, ExternalLinks, SampleInformation]));
+        .group('Регистры', [SampleRegister, ExternalLinks, SampleInformation])
+        .group('Рабочие места', [SampleWorkplace]));
