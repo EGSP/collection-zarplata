@@ -8,7 +8,7 @@
  * поэтому построение не завершается ошибкой.
  */
 import { readRight, requiredRight, type Right } from '../authorization/rights.js';
-import type { FieldDescription, FormOverride, ObjectDescription } from '../metadata/descriptions.js';
+import type { FieldDescription, FormOverride, ObjectDescription, RecordOpeningMode } from '../metadata/descriptions.js';
 import { formHiddenStandardFields } from '../metadata/standard-fields.js';
 import {
     filterOperators,
@@ -109,10 +109,12 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
     const hidden = new Set(formHiddenStandardFields);
     const titles = new Map<string, string>();
     const inputs = new Map<string, string>();
+    let creationMode: RecordOpeningMode = 'tab';
     for (const override of overrides) {
         if (override.kind === 'hide') hidden.add(override.field);
         if (override.kind === 'title') titles.set(override.field, override.title);
         if (override.kind === 'input') inputs.set(override.field, override.element);
+        if (override.kind === 'creation') creationMode = override.mode;
     }
 
     const fields = object.fields
@@ -141,7 +143,7 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
         })),
     ];
 
-    return { fields, tableParts, groups, traversal, actions };
+    return { fields, tableParts, groups, traversal, actions, creationMode };
 }
 
 /**

@@ -34,6 +34,7 @@ export type {
     ObjectKind,
     ObjectTarget,
     ObjectView,
+    RecordOpeningMode,
     SortDirection,
     ValidationRules,
 } from '../../server/ui/descriptions';
@@ -55,8 +56,9 @@ export { defaultPageSize, useRecordList, type RecordList, type RecordListOptions
 export { recordPresentation, recordTitle, useReferencePresentation, type ReferencePresentation } from '../references/presentation';
 export { RecordLink, type RecordLinkProperties } from '../references/reference-display';
 
-// Область окна страницы, адреса страниц объектов и собственных страниц конфигурации.
+// Область окна страницы, открытие формы записи, адреса страниц объектов и собственных страниц конфигурации.
 export { newRecordPath, objectPath, pagePath, recordPath } from '../common/paths';
+export { useOpenRecord, type OpenRecord } from './open-record';
 export { useUnsavedChanges, useWindowScope, useWindowTitle, type WindowScope } from '../window/window-scope';
 export { Page, type PageProperties } from './page';
 

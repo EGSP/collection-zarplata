@@ -9,9 +9,9 @@
  * Описание уже учитывает переопределения формы из конфигурации: клиенту не нужно знать,
  * что задано по умолчанию, а что переопределено.
  */
-import type { FieldKind, FieldRole, FormElementReference, ObjectKind, ObjectTarget, RecorderValue } from '../metadata/descriptions.js';
+import type { FieldKind, FieldRole, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
 
-export type { FieldKind, FormElementReference, ObjectKind, ObjectTarget, RecorderValue };
+export type { FieldKind, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
 
 /**
  * Правила проверки значения поля. Клиент проверяет по ним ввод до отправки, окончательную
@@ -108,6 +108,11 @@ export interface FormView {
      * у пользователя есть право; форму без действия `save` клиент показывает только для просмотра.
      */
     readonly actions: ReadonlyArray<FormAction>;
+    /**
+     * Режим, в котором форма новой записи открывается, когда место вызова режим не указало.
+     * Существующая запись без указания режима открывается во вкладке.
+     */
+    readonly creationMode: RecordOpeningMode;
 }
 
 /** Колонка списка: поле записи. */

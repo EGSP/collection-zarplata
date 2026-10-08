@@ -17,7 +17,7 @@
  */
 import type { Effect } from 'effect';
 import { commitObject } from './commit.js';
-import type { FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RegisterMovements } from './descriptions.js';
+import type { FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RecordOpeningMode, RegisterMovements } from './descriptions.js';
 import {
     fieldFactory,
     type AnyFieldBuilder,
@@ -255,6 +255,15 @@ export class FormBuilder<Names extends string, Fields extends string = Names> {
      */
     input(field: Fields, element: FormElementBuilder): FormBuilder<Names, Fields> {
         return new FormBuilder([...this['~overrides'], { kind: 'input', field, element: element.name }]);
+    }
+
+    /**
+     * Режим, в котором форма новой записи открывается по умолчанию: во вкладке либо в модальном
+     * окне поверх списка. Это только умолчание: место вызова может указать режим само, а прямой
+     * адрес новой записи всегда открывает вкладку. Без этого вызова запись создаётся во вкладке.
+     */
+    creation(mode: RecordOpeningMode): FormBuilder<Names, Fields> {
+        return new FormBuilder([...this['~overrides'], { kind: 'creation', mode }]);
     }
 }
 

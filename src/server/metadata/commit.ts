@@ -170,6 +170,8 @@ function describeFields(
  * элементы попадают в реестр компонентов клиента. Полем ввода элемент назначается полю, которое
  * пользователь заполняет на форме: у скрытого поля и у поля, которое заполняет платформа,
  * поля ввода нет, и назначение молча не сработало бы.
+ *
+ * Режим создания записи задаётся один раз: из двух указаний действовало бы только одно.
  */
 function checkForm(
     overrides: ReadonlyArray<FormOverride>,
@@ -183,6 +185,7 @@ function checkForm(
     const groupedElements = new Map<string, string>();
     const hidden = new Set<string>();
     const inputs = new Map<string, string>();
+    let creationDefined = false;
     const checkElement = (location: string, element: string) => {
         if (!formElements.has(element)) {
             problems.add(location, `элемент формы «${element}» не объявлен: ожидается файл *.form-element.ts с formElement('${element}')`);
@@ -206,6 +209,11 @@ function checkForm(
                 if (formHiddenStandardFields.has(item)) problems.add(location, `стандартное поле «${item}» не выводится на форму`);
                 grouped.set(item, override.title);
             }
+            continue;
+        }
+        if (override.kind === 'creation') {
+            if (creationDefined) problems.add('форма', 'режим создания записи задан больше одного раза');
+            creationDefined = true;
             continue;
         }
         if (override.kind === 'input') {

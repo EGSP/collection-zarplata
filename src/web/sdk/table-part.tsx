@@ -91,7 +91,7 @@ function RowTable({ part, disabled = false, ref, onPrevious, rows, add, remove }
             title: <>{column.title}{isMarkedRequired(column) && <Typography.Text type="danger"> *</Typography.Text>}</>,
             render: (_value: unknown, row: Row, rowIndex: number) => (
                 <div onKeyDownCapture={(event) => {
-                    if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing || disabled || hasOpenDialog() || hasOpenPicker(event.target)) return;
+                    if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing || disabled || hasOpenDialog(event.currentTarget) || hasOpenPicker(event.target)) return;
                     if (event.target instanceof HTMLElement && event.target.closest('button, a') !== null) return;
                     event.preventDefault();
                     event.stopPropagation();

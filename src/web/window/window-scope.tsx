@@ -8,7 +8,11 @@
  * конфигурации зависел бы от того, где он показан.
  *
  * Что значит каждое обращение, решает реализация области. Вкладка по сообщению о созданной записи
- * меняет свой адрес, а область без адреса ничего не делает.
+ * меняет свой адрес, а модальное окно закрывается и отдаёт `guid` записи тому, кто его открыл.
+ *
+ * У области может быть рамка: собственные места для заголовка и кнопок действий. У модального окна
+ * это шапка и нижняя часть окна. Каркас страницы выводит заголовок и кнопки туда, а в области
+ * без рамки, например во вкладке, над своим содержимым.
  *
  * Несохранённые изменения область узнаёт через проверки: функции, которые читают признак в момент
  * вызова. Проверок может быть несколько, например форма и редактор рядом с ней. Вложенная область
@@ -33,11 +37,29 @@ export interface WindowScope {
      * после этого адрес существующей записи. Форму область не пересоздаёт и не закрывает.
      */
     readonly recordCreated: (object: PerformTarget, guid: string) => void;
+    /**
+     * Сообщает области, что форма изменила запись объекта на сервере: записала её или выполнила над
+     * ней действие. Вызывается раньше `recordCreated` и раньше закрытия после действия. По этому
+     * сообщению модальное окно узнаёт, какую запись отдать открывшему его коду.
+     */
+    readonly recordWritten: (object: PerformTarget, guid: string) => void;
+}
+
+/**
+ * Рамка области: элементы страницы, в которые каркас страницы выводит свои части. Пока область
+ * элемент не создала, на его месте `null`, и соответствующая часть не выводится.
+ */
+export interface WindowFrame {
+    /** Место заголовка и отметок состояния. */
+    readonly header: HTMLElement | null;
+    /** Место кнопок действий. */
+    readonly footer: HTMLElement | null;
 }
 
 /** Область вместе с тем, что страница вызывает только через хуки этого модуля. */
 interface WindowScopeValue extends WindowScope {
     readonly retitle: (title: string) => void;
+    readonly frame: WindowFrame | null;
 }
 
 /**
@@ -91,6 +113,13 @@ export interface WindowScopeProviderProperties {
     readonly onClose: () => void;
     /** Принимает сообщение о созданной записи. */
     readonly onRecordCreated: (object: PerformTarget, guid: string) => void;
+    /** Принимает сообщение об изменённой записи. Области, которой оно не нужно, свойство не передают. */
+    readonly onRecordWritten?: (object: PerformTarget, guid: string) => void;
+    /**
+     * Рамка области. Без неё каркас страницы выводит заголовок и кнопки над содержимым.
+     * Объект должен быть постоянным, пока не изменились его элементы.
+     */
+    readonly frame?: WindowFrame | null;
     /** Текст вопроса о закрытии с несохранёнными изменениями: он называет то, что закроется. */
     readonly unsavedChangesWarning: string;
     readonly children: ReactNode;
@@ -101,7 +130,16 @@ export interface WindowScopeProviderProperties {
  * содержимое и передаёт обработчики. Обработчики должны быть постоянными между отрисовками:
  * от них зависит объект области, который страницы указывают в зависимостях эффектов.
  */
-export function WindowScopeProvider({ active, onTitle, onClose, onRecordCreated, unsavedChangesWarning, children }: WindowScopeProviderProperties) {
+export function WindowScopeProvider({
+    active,
+    onTitle,
+    onClose,
+    onRecordCreated,
+    onRecordWritten = ignoreRecord,
+    frame = null,
+    unsavedChangesWarning,
+    children,
+}: WindowScopeProviderProperties) {
     const { modal } = App.useApp();
     const parentScope = useContext(WindowScopeContext);
     const parentRegistration = useContext(UnsavedChangesContext);
@@ -124,8 +162,8 @@ export function WindowScopeProvider({ active, onTitle, onClose, onRecordCreated,
 
     const visible = active && (parentScope?.active ?? true);
     const scope = useMemo<WindowScopeValue>(
-        () => ({ active: visible, close, recordCreated: onRecordCreated, retitle: onTitle }),
-        [visible, close, onRecordCreated, onTitle],
+        () => ({ active: visible, close, recordCreated: onRecordCreated, recordWritten: onRecordWritten, retitle: onTitle, frame }),
+        [visible, close, onRecordCreated, onRecordWritten, onTitle, frame],
     );
 
     return (
@@ -134,6 +172,9 @@ export function WindowScopeProvider({ active, onTitle, onClose, onRecordCreated,
         </WindowScopeContext.Provider>
     );
 }
+
+// Постоянная функция: новая при каждой отрисовке пересоздавала бы объект области.
+function ignoreRecord(): void {}
 
 /** Ближайшая область окна. Вызывается только на странице, показанной в области окна, иначе завершается ошибкой. */
 export function useWindowScope(): WindowScope {
@@ -144,6 +185,11 @@ function useScopeValue(): WindowScopeValue {
     const scope = useContext(WindowScopeContext);
     if (scope === null) throw new Error('Страница должна быть показана в области окна');
     return scope;
+}
+
+/** Рамка ближайшей области окна либо `null`, если своих мест для заголовка и кнопок у области нет. */
+export function useWindowFrame(): WindowFrame | null {
+    return useScopeValue().frame;
 }
 
 /** Задаёт заголовок ближайшей области окна. При `null` заголовок не меняется: его задаёт вложенная страница. */
