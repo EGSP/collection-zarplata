@@ -165,33 +165,71 @@ function describeFields(
  * Проверяет переопределения формы. Кроме существования имён проверяет, что раскладка однозначна:
  * элемент входит не больше чем в одну группу и не бывает одновременно скрыт и выведен в группу.
  * Обязательное поле, которое заполняет пользователь, скрыть нельзя: без него запись не сохранится.
+ *
+ * Собственный элемент формы должен быть объявлен в файле `*.form-element.ts`: только такие
+ * элементы попадают в реестр компонентов клиента. Полем ввода элемент назначается полю, которое
+ * пользователь заполняет на форме: у скрытого поля и у поля, которое заполняет платформа,
+ * поля ввода нет, и назначение молча не сработало бы.
  */
 function checkForm(
     overrides: ReadonlyArray<FormOverride>,
     fields: ReadonlyArray<FieldDescription>,
     fieldNames: ReadonlySet<string>,
     partNames: ReadonlySet<string>,
+    formElements: ReadonlySet<string>,
     problems: Problems,
 ): void {
     const grouped = new Map<string, string>();
+    const groupedElements = new Map<string, string>();
     const hidden = new Set<string>();
-    for (const override of overrides) {
-        const names = override.kind === 'group' ? override.fields : [override.field];
-        for (const name of names) {
-            if (!fieldNames.has(name) && !partNames.has(name)) {
-                problems.add('форма', `нет поля или табличной части «${name}»`);
-            }
+    const inputs = new Map<string, string>();
+    const checkElement = (location: string, element: string) => {
+        if (!formElements.has(element)) {
+            problems.add(location, `элемент формы «${element}» не объявлен: ожидается файл *.form-element.ts с formElement('${element}')`);
         }
+    };
+    for (const override of overrides) {
         if (override.kind === 'group') {
             const location = `форма, группа «${override.title}»`;
             if (override.fields.length === 0) problems.add(location, 'в группе нет элементов');
-            for (const name of override.fields) {
-                const previous = grouped.get(name);
-                if (previous !== undefined) problems.add(location, `«${name}» уже входит в группу «${previous}»`);
-                if (formHiddenStandardFields.has(name)) problems.add(location, `стандартное поле «${name}» не выводится на форму`);
-                grouped.set(name, override.title);
+            for (const item of override.fields) {
+                if (typeof item !== 'string') {
+                    checkElement(location, item.element);
+                    const previous = groupedElements.get(item.element);
+                    if (previous !== undefined) problems.add(location, `элемент формы «${item.element}» уже входит в группу «${previous}»`);
+                    groupedElements.set(item.element, override.title);
+                    continue;
+                }
+                if (!fieldNames.has(item) && !partNames.has(item)) problems.add('форма', `нет поля или табличной части «${item}»`);
+                const previous = grouped.get(item);
+                if (previous !== undefined) problems.add(location, `«${item}» уже входит в группу «${previous}»`);
+                if (formHiddenStandardFields.has(item)) problems.add(location, `стандартное поле «${item}» не выводится на форму`);
+                grouped.set(item, override.title);
             }
-        } else if (override.kind === 'hide') {
+            continue;
+        }
+        if (override.kind === 'input') {
+            const location = `форма, поле ввода «${override.field}»`;
+            checkElement(location, override.element);
+            const previous = inputs.get(override.field);
+            if (previous !== undefined) problems.add(location, `полю уже назначен элемент формы «${previous}»`);
+            inputs.set(override.field, override.element);
+            const field = fields.find((candidate) => candidate.name === override.field);
+            if (partNames.has(override.field)) {
+                problems.add(location, 'элемент назначается полем ввода только полю, а это табличная часть');
+            } else if (!fieldNames.has(override.field)) {
+                problems.add(location, `нет поля «${override.field}»`);
+            } else if (formHiddenStandardFields.has(override.field)) {
+                problems.add(location, `стандартное поле «${override.field}» не выводится на форму`);
+            } else if (field?.managed === true) {
+                problems.add(location, 'поле заполняет платформа, и поля ввода у него нет');
+            }
+            continue;
+        }
+        if (!fieldNames.has(override.field) && !partNames.has(override.field)) {
+            problems.add('форма', `нет поля или табличной части «${override.field}»`);
+        }
+        if (override.kind === 'hide') {
             hidden.add(override.field);
             const field = fields.find((candidate) => candidate.name === override.field);
             if (field !== undefined && field.required && !field.managed) {
@@ -202,6 +240,7 @@ function checkForm(
     for (const name of hidden) {
         const group = grouped.get(name);
         if (group !== undefined) problems.add('форма', `«${name}» скрыто и одновременно входит в группу «${group}»`);
+        if (inputs.has(name)) problems.add(`форма, поле ввода «${name}»`, 'поле скрыто, и элемент формы на его месте не появится');
     }
 }
 
@@ -225,6 +264,7 @@ function freeze<T>(value: T): T {
 function validateObject(
     state: ObjectState,
     configuration: ReadonlyArray<ObjectBuilder>,
+    formElements: ReadonlySet<string>,
 ): { readonly problems: ReadonlyArray<MetadataProblem>; readonly description: ObjectDescription } {
     const problems = new Problems(objectLabel(state));
 
@@ -286,7 +326,7 @@ function validateObject(
     // Тип билдера даёт posting(...) только документу, но состояние может прийти и без проверки типов.
     if (state.posting !== null && state.kind !== 'document') problems.add(null, 'обработчик проведения допустим только у документа');
 
-    if (state.form !== null) checkForm(state.form, fields, fieldNames, partNames, problems);
+    if (state.form !== null) checkForm(state.form, fields, fieldNames, partNames, formElements, problems);
 
     const description: ObjectDescription = {
         kind: state.kind,
@@ -306,18 +346,26 @@ function validateObject(
  * Реализация `commit()` билдера. Проверка откладывается до запуска Effect: функции целей ссылок
  * должны вызываться, когда все файлы конфигурации уже загружены.
  */
-export function commitObject(state: ObjectState, configuration: ReadonlyArray<ObjectBuilder>): Effect.Effect<ObjectDescription, MetadataError> {
+export function commitObject(
+    state: ObjectState,
+    configuration: ReadonlyArray<ObjectBuilder>,
+    formElements: ReadonlySet<string>,
+): Effect.Effect<ObjectDescription, MetadataError> {
     return Effect.suspend(() => {
-        const { problems, description } = validateObject(state, configuration);
+        const { problems, description } = validateObject(state, configuration, formElements);
         return problems.length > 0 ? Effect.fail(new MetadataError({ problems })) : Effect.succeed(freeze(description));
     });
 }
 
 /**
  * Собирает описания всех объектов конфигурации. Кроме проверок каждого объекта проверяет,
- * что имена объектов одного вида не повторяются. Ошибка перечисляет проблемы всех объектов.
+ * что имена объектов одного вида не повторяются. `formElements` — имена объявленных элементов
+ * формы; без них форма со ссылкой на любой элемент отклоняется. Ошибка перечисляет проблемы всех объектов.
  */
-export function commitConfiguration(configuration: ReadonlyArray<ObjectBuilder>): Effect.Effect<ReadonlyArray<ObjectDescription>, MetadataError> {
+export function commitConfiguration(
+    configuration: ReadonlyArray<ObjectBuilder>,
+    formElements: ReadonlySet<string> = new Set(),
+): Effect.Effect<ReadonlyArray<ObjectDescription>, MetadataError> {
     return Effect.suspend(() => {
         const problems: Array<MetadataProblem> = [];
         const seen = new Set<string>();
@@ -327,7 +375,7 @@ export function commitConfiguration(configuration: ReadonlyArray<ObjectBuilder>)
                 problems.push({ object: label, location: null, message: `${kindTitles[builder.kind]} с именем «${builder.name}» объявлен дважды` });
             }
             seen.add(label);
-            const result = validateObject(builder['~state'], configuration);
+            const result = validateObject(builder['~state'], configuration, formElements);
             problems.push(...result.problems);
             return result.description;
         });

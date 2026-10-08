@@ -7,6 +7,7 @@ import {
     actionSuccessMessage,
     ApiError,
     FieldGroup,
+    FormDataProvider,
     formFieldPaths,
     hasOpenDialog,
     hasOpenPicker,
@@ -24,6 +25,7 @@ import {
     useUnsavedChanges,
     useWindowTab,
     type FormAction,
+    type FormElementReference,
     type FormField,
     type FormTablePart,
     type FormValues,
@@ -31,6 +33,7 @@ import {
     type ObjectView,
     type RecordData,
 } from '../sdk';
+import { formElementComponent } from './form-elements';
 
 interface RecordFormProperties {
     readonly object: ObjectView;
@@ -61,6 +64,10 @@ interface RecordFormProperties {
  * не выполняют действие сами: форма заменяет их выполнение своим.
  *
  * Форма без действия `save` в описании открывается только для просмотра.
+ *
+ * Собственные элементы конфигурации получают значения и записанное состояние от поставщика данных
+ * формы SDK и о форме Ant Design не знают. Изменение значения элементом форма учитывает так же,
+ * как ввод пользователя: оно считается несохранённым и уходит в `save`.
  *
  * Форма показана во вкладке и остаётся смонтированной, пока вкладка скрыта. Кнопка «Закрыть»
  * и Esc закрывают вкладку; подтверждение при несохранённых изменениях спрашивает вкладка.
@@ -255,21 +262,36 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                         changed.current = true;
                     }}
                 >
-                    <Flex vertical gap="middle">
-                        {view.groups.map((group, index) => (
-                            <FieldGroup key={index} title={group.title} elements={groupElements(view, group.elements)} record={saved} disabled={!editable} traversal={traversal} />
-                        ))}
-                    </Flex>
+                    <FormDataProvider
+                        object={object}
+                        view={view}
+                        saved={saved}
+                        readOnly={!editable}
+                        elements={formElementComponent}
+                        onChange={() => {
+                            changed.current = true;
+                        }}
+                    >
+                        <Flex vertical gap="middle">
+                            {view.groups.map((group, index) => (
+                                <FieldGroup key={index} title={group.title} elements={groupElements(view, group.elements)} record={saved} disabled={!editable} traversal={traversal} />
+                            ))}
+                        </Flex>
+                    </FormDataProvider>
                 </Form>
             </div>
         </Page>
     );
 }
 
-/** Описания полей и табличных частей группы по их именам в порядке показа. */
-function groupElements(view: FormView, names: ReadonlyArray<string>): Array<FormField | FormTablePart> {
-    return names.flatMap((name) => {
-        const element = view.fields.find((field) => field.name === name) ?? view.tableParts.find((part) => part.name === name);
+/**
+ * Элементы группы в порядке показа: описания полей и табличных частей по их именам,
+ * собственные элементы конфигурации без изменений.
+ */
+function groupElements(view: FormView, items: ReadonlyArray<string | FormElementReference>): Array<FormField | FormTablePart | FormElementReference> {
+    return items.flatMap((item): ReadonlyArray<FormField | FormTablePart | FormElementReference> => {
+        if (typeof item !== 'string') return [item];
+        const element = view.fields.find((field) => field.name === item) ?? view.tableParts.find((part) => part.name === item);
         return element === undefined ? [] : [element];
     });
 }

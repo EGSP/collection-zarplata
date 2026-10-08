@@ -9,9 +9,9 @@
  * Описание уже учитывает переопределения формы из конфигурации: клиенту не нужно знать,
  * что задано по умолчанию, а что переопределено.
  */
-import type { FieldKind, FieldRole, ObjectKind, ObjectTarget, RecorderValue } from '../metadata/descriptions.js';
+import type { FieldKind, FieldRole, FormElementReference, ObjectKind, ObjectTarget, RecorderValue } from '../metadata/descriptions.js';
 
-export type { FieldKind, ObjectKind, ObjectTarget, RecorderValue };
+export type { FieldKind, FormElementReference, ObjectKind, ObjectTarget, RecorderValue };
 
 /**
  * Правила проверки значения поля. Клиент проверяет по ним ввод до отправки, окончательную
@@ -47,6 +47,11 @@ export interface FormField {
     /** Значение заполняет платформа: поле показывается, но не редактируется и не входит в порядок обхода. */
     readonly readOnly: boolean;
     readonly rules: ValidationRules;
+    /**
+     * Имя собственного элемента конфигурации, который на форме служит полем ввода вместо виджета
+     * вида поля. Заполнено только у поля шапки, которому элемент назначен переопределением формы.
+     */
+    readonly inputElement: string | null;
 }
 
 /** Табличная часть формы: колонки — поля одной строки в порядке объявления. */
@@ -57,13 +62,15 @@ export interface FormTablePart {
 }
 
 /**
- * Группа элементов формы. `elements` — имена полей и табличных частей в порядке показа;
- * их описания лежат в `fields` и `tableParts` формы. Группа без заголовка (`title: null`)
- * показывается без рамки: в неё попадают элементы, которые конфигурация не распределила по группам.
+ * Группа элементов формы. `elements` перечисляет их в порядке показа. Строка — имя поля или
+ * табличной части; их описания лежат в `fields` и `tableParts` формы. Объект `{ element }` —
+ * собственный элемент конфигурации: его компонент клиент находит по имени в своём реестре.
+ * Группа без заголовка (`title: null`) показывается без рамки: в неё попадают поля и табличные
+ * части, которые конфигурация не распределила по группам.
  */
 export interface FormGroup {
     readonly title: string | null;
-    readonly elements: ReadonlyArray<string>;
+    readonly elements: ReadonlyArray<string | FormElementReference>;
 }
 
 /**
@@ -91,8 +98,9 @@ export interface FormView {
     readonly groups: ReadonlyArray<FormGroup>;
     /**
      * Порядок обхода с клавиатуры: имена редактируемых полей и табличных частей. Следует
-     * за раскладкой групп; поля только для чтения пропускаются. Табличная часть — одна
-     * остановка, внутри неё клиент обходит ячейки сам.
+     * за раскладкой групп; поля только для чтения и собственные элементы в группах пропускаются.
+     * Табличная часть — одна остановка, внутри неё клиент обходит ячейки сам. Поле, которому
+     * назначен собственный элемент, остаётся в порядке на своём месте.
      */
     readonly traversal: ReadonlyArray<string>;
     /**

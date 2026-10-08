@@ -98,11 +98,24 @@ export interface ActionDescription {
     readonly handler: ((input: never) => unknown) | null;
 }
 
-/** Переопределение формы. Применяет его построение описаний форм в `src/server/ui`. */
+/**
+ * Место собственного элемента формы в группе: имя объявления элемента. Объект отличает элемент
+ * от поля и табличной части, которые в раскладке названы строкой: имена элементов общие для всей
+ * конфигурации и могут совпасть с именем поля объекта.
+ */
+export interface FormElementReference {
+    readonly element: string;
+}
+
+/**
+ * Переопределение формы. Применяет его построение описаний форм в `src/server/ui`.
+ * `input` назначает собственный элемент полем ввода для поля: на форме он заменяет виджет вида поля.
+ */
 export type FormOverride =
-    | { readonly kind: 'group'; readonly title: string; readonly fields: ReadonlyArray<string> }
+    | { readonly kind: 'group'; readonly title: string; readonly fields: ReadonlyArray<string | FormElementReference> }
     | { readonly kind: 'hide'; readonly field: string }
-    | { readonly kind: 'title'; readonly field: string; readonly title: string };
+    | { readonly kind: 'title'; readonly field: string; readonly title: string }
+    | { readonly kind: 'input'; readonly field: string; readonly element: string };
 
 /** Переопределения формы в порядке объявления. Форму по умолчанию строит платформа из полей. */
 export interface FormDescription {

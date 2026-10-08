@@ -22,6 +22,7 @@ export type {
     FieldKind,
     FilterOperator,
     FormAction,
+    FormElementReference,
     FormField,
     FormGroup,
     FormTablePart,
@@ -64,6 +65,7 @@ export { FieldDisplay, FieldInput, hasInput } from '../widgets/registry';
 export { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage, validationMessage } from '../widgets/validation';
 export type { DisplayProperties, FieldValues, InputHandle, InputProperties, WidgetField } from '../widgets/widget';
 export { FieldGroup, type FieldGroupProperties } from './field-group';
+export { FormDataProvider, useFormData, useFormValue, type EnteredValue, type FormData, type FormDataProviderProperties, type FormElementComponent } from './form-data';
 export { useFieldTraversal, type FieldTraversal } from './field-traversal';
 export { hasOpenDialog, hasOpenPicker } from './keyboard';
 export { newRecordValues, recordValues, saveFields, type FormValues } from './record-values';
