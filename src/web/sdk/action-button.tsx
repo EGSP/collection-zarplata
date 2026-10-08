@@ -3,9 +3,9 @@ import { useRef, useState, type ReactNode } from 'react';
 import type { FormAction } from '../../server/ui/descriptions';
 import { useAction } from '../data-provider/actions';
 import { useObjectView } from '../data-provider/metadata';
-import type { PerformTarget } from '../data-provider/perform';
 import { recordGuid, type RecordData } from '../data-provider/records';
 import { ActionDialog } from './action-dialog';
+import type { ActedObject } from './object-reference';
 import type { FormValues } from './record-values';
 
 /** Заголовки уведомлений об успехе стандартных действий. У собственного действия заголовком служит его название. */
@@ -41,14 +41,17 @@ export function actionApplies(action: FormAction, record: RecordData | null): bo
     }
 }
 
-/** Свойства кнопки действия. */
-export interface ActionButtonProperties {
-    /** Объект конфигурации, которому принадлежит действие. Подходит и его описание `ObjectView`. */
-    readonly object: PerformTarget;
+/**
+ * Свойства кнопки действия. `Action` — имена действий объекта: у ссылки на объект конфигурации
+ * имя действия проверяет компилятор, у описания с сервера это любая строка.
+ */
+export interface ActionButtonProperties<Action extends string = string> {
+    /** Объект конфигурации, которому принадлежит действие: ссылка на объект либо его описание `ObjectView`. */
+    readonly object: ActedObject<Action>;
     /** Запись, над которой выполняется действие. `null`, если записи ещё нет или действие к записи не относится. */
     readonly record: RecordData | null;
     /** Имя действия: стандартное (`post`, `markDeleted`) или собственное действие объекта. */
-    readonly action: string;
+    readonly action: NoInfer<Action>;
     /**
      * Входные данные собственного действия. Если они заданы, окно входных данных не открывается:
      * так экран передаёт действию значения, которые знает сам, например `guid` открытой записи.
@@ -87,7 +90,18 @@ export interface ActionButtonProperties {
  * Во время запроса кнопка недоступна. Об успехе и отказе сервера сообщает уведомление, после
  * успеха сохранённые ответы сервера сбрасываются: открытые списки и ссылки перечитываются.
  */
-export function ActionButton({ object, record, action: name, input, execute, onCompleted, loading = false, disabled = false, type, children }: ActionButtonProperties) {
+export function ActionButton<Action extends string = string>({
+    object,
+    record,
+    action: name,
+    input,
+    execute,
+    onCompleted,
+    loading = false,
+    disabled = false,
+    type,
+    children,
+}: ActionButtonProperties<Action>) {
     const action = useObjectView(object)?.form?.actions.find((candidate) => candidate.name === name);
     const performAction = useAction();
     const [running, setRunning] = useState(false);
@@ -105,7 +119,11 @@ export function ActionButton({ object, record, action: name, input, execute, onC
         try {
             if (execute !== undefined) return await execute(values);
             const payload = action.standard && record !== null ? { guid: recordGuid(record) } : (values ?? {});
-            onCompleted?.(await performAction({ object, action: action.name, payload, successMessage: actionSuccessMessage(action) }));
+            // Имя взято из описания формы, а не из свойства: по типу это строка, и объект передаётся без типа действий.
+            const result = await performAction({ object: { kind: object.kind, name: object.name }, action: action.name, payload, successMessage: actionSuccessMessage(action) });
+            // Вызов действия стоит отдельно от необязательного обработчика: внутри `onCompleted?.(…)`
+            // без обработчика аргумент не вычисляется, и запрос не был бы отправлен.
+            onCompleted?.(result);
         } finally {
             executing.current = false;
             setRunning(false);

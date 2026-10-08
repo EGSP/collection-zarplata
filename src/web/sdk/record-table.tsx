@@ -5,10 +5,12 @@ import { Link, useNavigate } from 'react-router';
 import type { ListColumn, ObjectView } from '../../server/ui/descriptions';
 import { recordPath } from '../common/paths';
 import { useAction } from '../data-provider/actions';
+import { useObjectView } from '../data-provider/metadata';
 import { recordGuid, type RecordData } from '../data-provider/records';
 import { ListPresentationsContext } from '../references/presentation';
 import { FieldDisplay } from '../widgets/registry';
 import { actionSuccessMessage } from './action-button';
+import type { FieldName, ListedObject } from './object-reference';
 import type { RecordList } from './record-list';
 
 /** Размеры страницы, которые предлагает таблица. */
@@ -17,12 +19,29 @@ const pageSizes = [20, 50, 100];
 /** Виды полей, значения которых в колонке прижимаются к правому краю, как принято для чисел. */
 const rightAligned: ReadonlySet<ListColumn['kind']> = new Set(['number', 'money']);
 
-/** Свойства таблицы записей. */
-export interface RecordTableProperties {
-    /** Описание объекта: из него берутся колонки, сортируемые поля и действия, доступные пользователю. */
-    readonly object: ObjectView;
+/** Свойства таблицы записей объекта со строками типа `Row`. */
+export interface RecordTableProperties<Row extends RecordData = RecordData> {
+    /**
+     * Объект, записи которого показывает таблица: ссылка на объект конфигурации либо его описание
+     * `ObjectView`. Колонки, сортируемые поля и доступные действия таблица берёт из описания объекта.
+     */
+    readonly object: ListedObject<Row>;
     /** Страница списка этого же объекта от `useRecordList`. */
-    readonly list: RecordList;
+    readonly list: RecordList<Row>;
+    /**
+     * Имена полей, которые выводятся колонками, в порядке показа. Без свойства выводятся все
+     * колонки описания списка. У ссылки на объект имена проверяет компилятор. Поле, которого нет
+     * среди колонок описания списка, например `guid`, не выводится.
+     */
+    readonly columns?: ReadonlyArray<FieldName<Row>> | undefined;
+    /**
+     * Выбранная строка либо `null`. Если свойство задано, таблица показывает выбор строки
+     * и сообщает о нём через `onSelect`. Строка сравнивается по ключу записи, поэтому выбранной
+     * остаётся и запись, перечитанная с сервера.
+     */
+    readonly selected?: Row | null | undefined;
+    /** Пользователь выбрал строку. Выбор хранит экран: таблица показывает то, что получила в `selected`. */
+    readonly onSelect?: ((record: Row) => void) | undefined;
 }
 
 /**
@@ -36,8 +55,34 @@ export interface RecordTableProperties {
  * У справочников и документов строка открывает форму записи, а меню строки ставит и снимает
  * пометку удаления, если эти действия доступны пользователю. Оба вида регистров показывают
  * таблицу без формы и меню.
+ *
+ * Если описания объекта нет, у пользователя нет права его читать. Тогда таблица не выводится:
+ * чтение списка завершилось отказом сервера, и его показывает экран по `list.error`.
  */
-export function RecordTable({ object, list }: RecordTableProperties) {
+export function RecordTable<Row extends RecordData = RecordData>({ object, list, columns, selected, onSelect }: RecordTableProperties<Row>) {
+    const view = useObjectView(object);
+    if (view === undefined) return null;
+    // Точный тип строки нужен только экрану: таблица строит колонки по описанию с сервера и читает значения по именам.
+    return (
+        <DescribedTable
+            object={view}
+            list={list}
+            columns={columns}
+            selected={selected}
+            onSelect={onSelect as ((record: RecordData) => void) | undefined}
+        />
+    );
+}
+
+interface DescribedTableProperties {
+    readonly object: ObjectView;
+    readonly list: RecordList;
+    readonly columns: ReadonlyArray<string> | undefined;
+    readonly selected: RecordData | null | undefined;
+    readonly onSelect: ((record: RecordData) => void) | undefined;
+}
+
+function DescribedTable({ object, list, columns: columnNames, selected, onSelect }: DescribedTableProperties) {
     const { token } = theme.useToken();
     const navigate = useNavigate();
     const performAction = useAction();
@@ -57,7 +102,12 @@ export function RecordTable({ object, list }: RecordTableProperties) {
     const primarySort = list.sort[0];
     const sortable = new Set(description.sortable);
 
-    const columns: NonNullable<TableProps<RecordData>['columns']> = description.columns.map((column, index) => ({
+    const shown =
+        columnNames === undefined
+            ? description.columns
+            : columnNames.flatMap((name) => description.columns.find((column) => column.field === name) ?? []);
+
+    const columns: NonNullable<TableProps<RecordData>['columns']> = shown.map((column, index) => ({
         key: column.field,
         dataIndex: column.field,
         title: column.title,
@@ -126,7 +176,17 @@ export function RecordTable({ object, list }: RecordTableProperties) {
                     pageSizeOptions: pageSizes,
                     showTotal: (total) => `Записей: ${total}`,
                 }}
+                {...(selected === undefined
+                    ? {}
+                    : {
+                          rowSelection: {
+                              type: 'radio' as const,
+                              selectedRowKeys: selected === null ? [] : [rowKey(object, selected)],
+                              onSelect: (record: RecordData) => onSelect?.(record),
+                          },
+                      })}
                 onRow={(record) => ({
+                    ...(selected === undefined ? {} : { onClick: () => onSelect?.(record) }),
                     ...(form === null ? {} : { onDoubleClick: () => void navigate(recordPath(object, recordGuid(record))) }),
                     // Помеченная на удаление запись остаётся в списке, но её строка бледнее обычной.
                     ...(description.deletionMark && isMarkedDeleted(record) ? { style: { color: token.colorTextDisabled } } : {}),

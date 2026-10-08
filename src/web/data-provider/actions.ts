@@ -23,12 +23,15 @@ function useInvalidateData(): () => Promise<void> {
     return useCallback(() => queryClient.invalidateQueries({ queryKey: keys().data().get() }), [queryClient]);
 }
 
-/** Действие, которое выполняет `useAction`. */
-export interface ActionCall {
-    /** Объект конфигурации, которому принадлежит действие. Подходит и его описание `ObjectView`. */
-    readonly object: PerformTarget;
+/**
+ * Действие, которое выполняет `useAction`. `Action` — имена действий объекта: у ссылки на объект
+ * конфигурации это его стандартные и собственные действия, у описания с сервера любая строка.
+ */
+export interface ActionCall<Action extends string = string> {
+    /** Объект конфигурации, которому принадлежит действие: ссылка на объект либо его описание `ObjectView`. */
+    readonly object: PerformTarget & { readonly '~action'?: Action };
     /** Имя действия: стандартное (`save`, `post`, `markDeleted`) или собственное действие объекта. */
-    readonly action: string;
+    readonly action: NoInfer<Action>;
     /** Входные данные действия. Без них действие получает пустой объект. */
     readonly payload?: object;
     /** Заголовок уведомления об успехе. */
@@ -44,12 +47,16 @@ export interface ActionCall {
  *
  * Для кода вне платформы это единственный способ изменить данные: так уведомления и сброс
  * сохранённых ответов не зависят от того, какой экран выполнил действие.
+ *
+ * Имя действия выводится из объекта и идёт первым параметром типа, поэтому тип результата
+ * вызывающий код задаёт типом переменной, а не параметром: явный параметр отключил бы вывод
+ * имён действий, и опечатка в имени перестала бы быть ошибкой компиляции.
  */
-export function useAction(): <Result>(call: ActionCall) => Promise<Result> {
+export function useAction(): <Action extends string = string, Result = unknown>(call: ActionCall<Action>) => Promise<Result> {
     const { mutateAsync } = useCustomMutation<BaseRecord, ApiError>();
     const invalidateData = useInvalidateData();
     return useCallback(
-        async <Result>({ object, action, payload = {}, successMessage, failureMessage }: ActionCall) => {
+        async <Action extends string = string, Result = unknown>({ object, action, payload = {}, successMessage, failureMessage }: ActionCall<Action>) => {
             const response = await mutateAsync({
                 url: `${resourceName(object)}/${action}`,
                 method: 'post',

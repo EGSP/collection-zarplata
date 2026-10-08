@@ -122,13 +122,14 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         }
         const fields = saveFields(view, saved, entered);
         try {
-            return await performAction<RecordData>({
+            const record: RecordData = await performAction({
                 object,
                 action: 'save',
                 payload: saved === null ? { fields } : { guid: recordGuid(saved), fields },
                 successMessage: saved === null ? 'Запись создана' : 'Запись сохранена',
                 failureMessage: saved === null ? 'Не удалось создать запись' : 'Не удалось сохранить запись',
             });
+            return record;
         } catch (error) {
             // Текст сервера показало уведомление. Отдельного текста на каждое поле у сервера нет,
             // поэтому поля из его перечня только отмечаются.
@@ -162,7 +163,8 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                 completed = true;
             } else if (action.standard) {
                 // Стандартное действие возвращает обновлённую запись, и повторно читать её не нужно.
-                current = await performAction<RecordData>({ object, action: action.name, payload: { guid: recordGuid(current) }, successMessage: actionSuccessMessage(action) });
+                const posted: RecordData = await performAction({ object, action: action.name, payload: { guid: recordGuid(current) }, successMessage: actionSuccessMessage(action) });
+                current = posted;
                 show(current);
                 completed = true;
             } else {
