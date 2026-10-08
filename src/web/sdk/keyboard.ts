@@ -9,8 +9,15 @@ export function hasOpenPicker(target: EventTarget | null): boolean {
         || target.closest('[data-picker-open="true"]') !== null;
 }
 
-/** Окно поверх формы получает сочетания само, чтобы Escape не закрыл и окно, и запись. */
-export function hasOpenDialog(): boolean {
+/**
+ * Открыто ли модальное окно поверх экрана. Такое окно получает сочетания само, чтобы Escape
+ * не закрыл и окно, и запись под ним.
+ *
+ * `screen` — корневой элемент экрана, который спрашивает. Окно, внутри которого экран показан,
+ * поверх него не лежит и не учитывается: иначе форма в модальном окне сочла бы себя закрытой
+ * собственным окном и отключила бы свои сочетания. Без `screen` учитывается любое видимое окно.
+ */
+export function hasOpenDialog(screen: Element | null = null): boolean {
     return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
-        .some((dialog) => dialog.getClientRects().length > 0);
+        .some((dialog) => dialog.getClientRects().length > 0 && (screen === null || !dialog.contains(screen)));
 }

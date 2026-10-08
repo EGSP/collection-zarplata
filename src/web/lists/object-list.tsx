@@ -1,6 +1,5 @@
 import { Alert, Button } from 'antd';
-import { useNavigate } from 'react-router';
-import { Icons, ListFilters, ListSearch, newRecordPath, Page, RecordTable, useRecordList, type ObjectView } from '../sdk';
+import { Icons, ListFilters, ListSearch, Page, RecordTable, useOpenRecord, useRecordList, type ObjectView } from '../sdk';
 
 /**
  * Список объекта конфигурации: поиск, отбор и таблица записей по описанию списка. Собран
@@ -10,11 +9,13 @@ import { Icons, ListFilters, ListSearch, newRecordPath, Page, RecordTable, useRe
  * сохранить в закладки. Пока вкладка списка открыта, список остаётся смонтированным и своё
  * состояние не теряет.
  *
- * Кнопка «Создать» есть, если в описании формы есть действие `save`. У обоих видов регистров
- * формы нет: их списки доступны только для просмотра.
+ * Кнопка «Создать» есть, если в описании формы есть действие `save`. Режим она не указывает:
+ * форма открывается во вкладке или в окне поверх списка, как задано в конфигурации объекта.
+ * Запись, созданную в окне, список показывает сам: действие записи помечает его данные устаревшими.
+ * У обоих видов регистров формы нет: их списки доступны только для просмотра.
  */
 export function ObjectList({ object }: { readonly object: ObjectView }) {
-    const navigate = useNavigate();
+    const openRecord = useOpenRecord();
     const list = useRecordList(object, { sort: object.list.defaultSort, address: true });
     const creatable = object.form?.actions.some((action) => action.name === 'save') === true;
     return (
@@ -22,7 +23,7 @@ export function ObjectList({ object }: { readonly object: ObjectView }) {
             title={object.title}
             actions={
                 creatable ? (
-                    <Button type="primary" icon={<Icons.add />} onClick={() => void navigate(newRecordPath(object))}>
+                    <Button type="primary" icon={<Icons.add />} onClick={() => void openRecord(object, null)}>
                         Создать
                     </Button>
                 ) : undefined

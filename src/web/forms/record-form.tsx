@@ -68,10 +68,12 @@ interface RecordFormProperties {
  * формы SDK и о форме Ant Design не знают. Изменение значения элементом форма учитывает так же,
  * как ввод пользователя: оно считается несохранённым и уходит в `save`.
  *
- * Форма показана в области окна и не знает, вкладка это или что-то другое. Кнопка «Закрыть» и Esc
- * закрывают область; подтверждение при несохранённых изменениях спрашивает она же. О созданной
- * записи форма сообщает области: вкладка в ответ меняет свой адрес. Область может оставаться
- * смонтированной, пока скрыта, поэтому сочетания клавиш действуют только в активной.
+ * Форма показана в области окна и не знает, вкладка это или модальное окно. Кнопка «Закрыть» и Esc
+ * закрывают область; подтверждение при несохранённых изменениях спрашивает она же. Об изменённой
+ * и о созданной записи форма сообщает области: вкладка в ответ на созданную запись меняет свой
+ * адрес, а модальное окно закрывается. Область может оставаться смонтированной, пока скрыта,
+ * поэтому сочетания клавиш действуют только в активной. Не действуют они и в форме, поверх которой
+ * открыто модальное окно, в том числе окно с другой формой.
  */
 export function RecordForm({ object, view, record, reload }: RecordFormProperties) {
     const [form] = Form.useForm<FormValues>();
@@ -85,6 +87,8 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
 
     const changed = useRef(false);
     const executing = useRef(false);
+    /** Корневой элемент формы: по нему форма отличает окно, в котором показана, от окна поверх себя. */
+    const root = useRef<HTMLDivElement>(null);
     // Виджет может закрыть выбор до глобального обработчика Escape. Сохраняем состояние до события.
     const pickerEvents = useRef(new WeakSet<KeyboardEvent>());
     useUnsavedChanges(changed);
@@ -158,6 +162,8 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         if (executing.current) throw new Error('Действие уже выполняется');
         executing.current = true;
         let completed = false;
+        /** Изменило ли действие запись на сервере. Запись перед отклонённым действием тоже считается. */
+        let written = false;
         const isSave = action.standard && action.name === 'save';
         let current = saved;
         setRunning(action.name);
@@ -166,6 +172,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                 current = await save();
                 if (current === null) throw new Error('Запись не сохранена');
                 show(current);
+                written = true;
             }
             if (isSave) {
                 completed = true;
@@ -174,15 +181,20 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                 const posted: RecordData = await performAction({ object, action: action.name, payload: { guid: recordGuid(current) }, successMessage: actionSuccessMessage(action) });
                 current = posted;
                 show(current);
+                written = true;
                 completed = true;
             } else {
                 await performAction({ object, action: action.name, payload: input ?? {}, successMessage: actionSuccessMessage(action) });
+                written = true;
                 if (reload !== null) show(await reload());
                 completed = true;
             }
         } finally {
             executing.current = false;
             setRunning(null);
+            // Сообщение идёт раньше закрытия: область, которая отдаёт запись открывшему её коду,
+            // должна знать о записи к моменту, когда закрывается.
+            if (written && current !== null) scope.recordWritten(object, recordGuid(current));
             // Что делать с созданной записью, решает область: вкладка переходит на адрес записи,
             // и повторное открытие этой записи находит эту же вкладку.
             if (completed && closeAfter) scope.close();
@@ -202,7 +214,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
     };
 
     const keyboardAction = (name: string, closeAfter = false) => {
-        if (hasOpenDialog() || executing.current) return;
+        if (hasOpenDialog(root.current) || executing.current) return;
         const action = view.actions.find((candidate) => candidate.standard && candidate.name === name && isVisible(candidate));
         // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
         if (action !== undefined) run(action, null, closeAfter).catch(() => undefined);
@@ -215,9 +227,14 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
     useHotkey('Control+Enter', (event) => {
         if (!event.isComposing) keyboardAction('post', true);
     }, hotkeyOptions);
-    // Ant Design обрабатывает Esc на window: событие должно дойти туда и закрыть верхнее окно.
+    // Ant Design обрабатывает Esc на window. Пока поверх формы открыто окно, событие должно дойти
+    // туда и закрыть это окно, поэтому сочетание событие не останавливает.
     useHotkey('Escape', (event) => {
-        if (!event.isComposing && !hasOpenDialog() && !pickerEvents.current.has(event) && !executing.current) scope.close();
+        if (event.isComposing || hasOpenDialog(root.current) || pickerEvents.current.has(event) || executing.current) return;
+        // Esc обработала сама форма. Закрытие может открыть окно подтверждения ещё до того, как
+        // событие дойдёт до window, и Ant Design закрыл бы это окно тем же нажатием.
+        event.stopPropagation();
+        scope.close();
     }, { ...hotkeyOptions, preventDefault: false, stopPropagation: false });
 
     return (
@@ -249,6 +266,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
             }
         >
             <div
+                ref={root}
                 onKeyDownCapture={(event) => {
                     if (event.key === 'Escape' && hasOpenPicker(event.target)) pickerEvents.current.add(event.nativeEvent);
                     traversal.onKeyDownCapture(event);

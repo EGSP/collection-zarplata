@@ -46,7 +46,7 @@ export function useFieldTraversal(order: ReadonlyArray<string>, enabled = true):
         previous: (name) => move(name, -1),
         onKeyDownCapture: (event) => {
             // Открытый список выбора или календарь получает Enter сам; окно поверх формы тоже.
-            if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing || !enabled || hasOpenDialog() || hasOpenPicker(event.target)) return;
+            if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing || !enabled || hasOpenDialog(event.currentTarget) || hasOpenPicker(event.target)) return;
             const target = event.target;
             // Табличная часть обходит свои ячейки сама, а кнопка и ссылка по Enter срабатывают.
             if (!(target instanceof HTMLElement) || target.closest('[data-table-part], button, a') !== null) return;

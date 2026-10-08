@@ -108,14 +108,22 @@ export interface FormElementReference {
 }
 
 /**
+ * Режим открытия формы записи: `tab` открывает её во вкладке с собственным адресом, `dialog` —
+ * в модальном окне поверх страницы, из которой она открыта. У окна адреса нет.
+ */
+export type RecordOpeningMode = 'tab' | 'dialog';
+
+/**
  * Переопределение формы. Применяет его построение описаний форм в `src/server/ui`.
  * `input` назначает собственный элемент полем ввода для поля: на форме он заменяет виджет вида поля.
+ * `creation` задаёт режим, в котором форма новой записи открывается по умолчанию.
  */
 export type FormOverride =
     | { readonly kind: 'group'; readonly title: string; readonly fields: ReadonlyArray<string | FormElementReference> }
     | { readonly kind: 'hide'; readonly field: string }
     | { readonly kind: 'title'; readonly field: string; readonly title: string }
-    | { readonly kind: 'input'; readonly field: string; readonly element: string };
+    | { readonly kind: 'input'; readonly field: string; readonly element: string }
+    | { readonly kind: 'creation'; readonly mode: RecordOpeningMode };
 
 /** Переопределения формы в порядке объявления. Форму по умолчанию строит платформа из полей. */
 export interface FormDescription {
