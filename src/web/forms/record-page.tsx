@@ -1,16 +1,10 @@
-import { useOne } from '@refinedev/core';
 import { Button, Result } from 'antd';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import type { FormView, ObjectView } from '../../server/ui/descriptions';
-import type { ApiError } from '../common/api';
 import { NotFoundPage } from '../common/not-found';
-import { newRecordSegment, objectPath } from '../common/paths';
+import { newRecordSegment } from '../common/paths';
 import { Pending } from '../common/pending';
-import { useObjectView } from '../data-provider/metadata';
-import { resourceName } from '../data-provider/perform';
-import type { RecordData } from '../data-provider/records';
-import { useTabTitle } from '../tabs/window-tabs';
+import { objectPath, useObjectView, useRecord, useTabTitle, type FormView, type ObjectView, type RecordData } from '../sdk';
 import { RecordForm } from './record-form';
 
 /**
@@ -27,7 +21,7 @@ export function RecordPage() {
     if (object === undefined || object.form === null || guid === undefined) return <NotFoundPage />;
     // После записи новой формы вкладка получает адрес существующей записи. Ключ пересоздаёт форму:
     // существующую запись она читает с сервера, а действия над ней перечитывают её тем же запросом.
-    const key = `${resourceName(object)}/${guid}`;
+    const key = `${objectPath(object)}/${guid}`;
     if (guid !== newRecordSegment) return <ExistingRecord key={key} object={object} view={object.form} guid={guid} />;
     if (!object.form.actions.some((action) => action.name === 'save')) return <NotFoundPage />;
     return <RecordForm key={key} object={object} view={object.form} record={null} reload={null} />;
@@ -38,12 +32,7 @@ export function RecordPage() {
  * его сообщение и кнопка возврата в список.
  */
 function ExistingRecord({ object, view, guid }: { readonly object: ObjectView; readonly view: FormView; readonly guid: string }) {
-    const { query } = useOne<RecordData, ApiError>({
-        resource: resourceName(object),
-        id: guid,
-        // Об ошибке сообщает сама страница, уведомление её только повторило бы.
-        errorNotification: false,
-    });
+    const query = useRecord(object, guid);
 
     // Форма получает запись один раз и дальше ведёт её состояние сама по ответам на свои действия.
     // Запрос после этих действий перечитывается, но его новые ответы форму не меняют: иначе
@@ -52,17 +41,10 @@ function ExistingRecord({ object, view, guid }: { readonly object: ObjectView; r
     const [record, setRecord] = useState<RecordData | null>(null);
     // Пока записи нет, представления тоже нет. Дальше заголовок вкладки задаёт форма.
     useTabTitle(record === null ? object.title : null);
-    if (record === null && query.isSuccess && !query.isFetching && !query.isPlaceholderData) setRecord(query.data.data);
+    if (record === null && query.record !== undefined && !query.loading) setRecord(query.record);
 
-    if (record !== null) {
-        const reload = async () => {
-            const { data, error } = await query.refetch();
-            if (data === undefined) throw error ?? new Error('Не удалось прочитать запись');
-            return data.data;
-        };
-        return <RecordForm object={object} view={view} record={record} reload={reload} />;
-    }
-    if (query.isError && !query.isFetching) {
+    if (record !== null) return <RecordForm object={object} view={view} record={record} reload={query.reload} />;
+    if (query.error !== null && !query.loading) {
         return (
             <Result
                 status="warning"
