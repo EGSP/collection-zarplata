@@ -55,9 +55,11 @@
     "@vitejs/plugin-react": "6.1.1",
     "concurrently": "10.0.5",
     "esbuild": "0.28.2",
+    "mermaid": "11.17.2",
     "postject": "1.0.0-alpha.6",
     "typescript": "7.0.2",
     "vite": "8.3.1",
-    "vitepress": "1.6.4"
+    "vitepress": "1.6.4",
+    "vitepress-plugin-mermaid": "2.0.17"
   }
 }
