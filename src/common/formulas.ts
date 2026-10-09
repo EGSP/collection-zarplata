@@ -3,10 +3,21 @@
  * исполняют одно выражение без импорта конфигурации и без выполнения строкового кода.
  * Пустое значение считается нулём; деление на ноль и бесконечный результат отклоняются.
  */
+
+/**
+ * Условие отбора строк части: в расчёт входят строки, у которых колонка `field` равна `equals`.
+ * Колонка может быть любого вида, например строкой состояния: числом становится только результат.
+ */
+export interface RowCondition {
+    readonly field: string;
+    readonly equals: string | number | boolean;
+}
+
 export type Formula =
     | { readonly operation: 'value'; readonly value: number }
     | { readonly operation: 'field'; readonly field: string }
-    | { readonly operation: 'sum'; readonly part: string; readonly field: string }
+    | { readonly operation: 'sum'; readonly part: string; readonly field: string; readonly where?: RowCondition }
+    | { readonly operation: 'count'; readonly part: string; readonly where?: RowCondition }
     | { readonly operation: 'add' | 'subtract' | 'multiply' | 'divide'; readonly left: Formula; readonly right: Formula }
     | { readonly operation: 'round'; readonly value: Formula };
 
@@ -14,7 +25,10 @@ export type Formula =
 export const formula = {
     value: (value: number): Formula => ({ operation: 'value', value }),
     field: (field: string): Formula => ({ operation: 'field', field }),
-    sum: (part: string, field: string): Formula => ({ operation: 'sum', part, field }),
+    /** Сумма колонки части; с условием `where` складываются только подходящие строки. */
+    sum: (part: string, field: string, where?: RowCondition): Formula => ({ operation: 'sum', part, field, ...(where === undefined ? {} : { where }) }),
+    /** Число строк части; с условием `where` считаются только подходящие строки. */
+    count: (part: string, where?: RowCondition): Formula => ({ operation: 'count', part, ...(where === undefined ? {} : { where }) }),
     add: (left: Formula, right: Formula): Formula => ({ operation: 'add', left, right }),
     subtract: (left: Formula, right: Formula): Formula => ({ operation: 'subtract', left, right }),
     multiply: (left: Formula, right: Formula): Formula => ({ operation: 'multiply', left, right }),
@@ -30,15 +44,23 @@ export interface FormulaField {
 
 /** Проверяет ссылки выражения и возвращает его зависимости в текущей строке. */
 export function formulaDependencies(expression: Formula, fields: ReadonlyArray<FormulaField>, parts: ReadonlyArray<{ readonly name: string; readonly fields: ReadonlyArray<FormulaField> }>): ReadonlyArray<string> {
+    const checkCondition = (part: string, where: RowCondition | undefined): void => {
+        if (where !== undefined && !parts.find((candidate) => candidate.name === part)?.fields.some((field) => field.name === where.field)) throw new Error(`В условии формулы нет колонки «${part}.${where.field}»`);
+    };
     switch (expression.operation) {
         case 'value':
             if (!Number.isFinite(expression.value)) throw new Error('Константа формулы должна быть конечным числом');
+            return [];
+        case 'count':
+            if (!parts.some((part) => part.name === expression.part)) throw new Error(`В формуле нет части «${expression.part}»`);
+            checkCondition(expression.part, expression.where);
             return [];
         case 'field':
             if (!fields.some((field) => field.name === expression.field)) throw new Error(`В формуле нет поля «${expression.field}»`);
             return [expression.field];
         case 'sum':
             if (!parts.find((part) => part.name === expression.part)?.fields.some((field) => field.name === expression.field)) throw new Error(`В формуле нет колонки «${expression.part}.${expression.field}»`);
+            checkCondition(expression.part, expression.where);
             return [];
         case 'round': return formulaDependencies(expression.value, fields, parts);
         default: return [...formulaDependencies(expression.left, fields, parts), ...formulaDependencies(expression.right, fields, parts)];
@@ -52,11 +74,16 @@ export function evaluateFormula(expression: Formula, record: Readonly<Record<str
         if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Формула ожидает конечное число');
         return value;
     };
+    const rows = (part: string, where: RowCondition | undefined): ReadonlyArray<Record<string, unknown>> => {
+        const all = (record[part] ?? []) as ReadonlyArray<Record<string, unknown>>;
+        return where === undefined ? all : all.filter((row) => row[where.field] === where.equals);
+    };
     let result: number;
     switch (expression.operation) {
         case 'value': result = expression.value; break;
         case 'field': result = number(record[expression.field]); break;
-        case 'sum': result = ((record[expression.part] ?? []) as ReadonlyArray<Record<string, unknown>>).reduce((sum, row) => sum + number(row[expression.field]), 0); break;
+        case 'sum': result = rows(expression.part, expression.where).reduce((sum, row) => sum + number(row[expression.field]), 0); break;
+        case 'count': result = rows(expression.part, expression.where).length; break;
         case 'round': result = Math.round(evaluateFormula(expression.value, record)); break;
         case 'add': result = evaluateFormula(expression.left, record) + evaluateFormula(expression.right, record); break;
         case 'subtract': result = evaluateFormula(expression.left, record) - evaluateFormula(expression.right, record); break;

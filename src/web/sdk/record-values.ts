@@ -12,10 +12,12 @@ import type { RecordData } from '../data-provider/records';
 export type FormValues = { readonly [name: string]: unknown };
 
 /**
- * Значение поля в новой записи или в новой строке. Обязательный флажок сразу снят, а обязательные
- * дата и время равны текущему моменту: так заполняется дата нового документа. Остальные поля пусты.
+ * Значение поля в новой записи или в новой строке. Строка с начальным значением из описания
+ * получает его. Обязательный флажок сразу снят, а обязательные дата и время равны текущему
+ * моменту: так заполняется дата нового документа. Остальные поля пусты.
  */
 function initialValue(field: FormField): unknown {
+    if (field.initial != null) return field.initial;
     if (!field.rules.required) return null;
     if (field.kind === 'boolean') return false;
     if (field.kind === 'dateTime') return new Date().toISOString();

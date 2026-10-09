@@ -46,6 +46,8 @@ export interface FormField {
     readonly target: ObjectTarget | null;
     /** Допустимые строковые значения для выбора. */
     readonly choices?: ReadonlyArray<string> | null;
+    /** Значение строки в новой записи или новой строке вместо пустого. */
+    readonly initial?: string | null;
     /** Значение заполняет платформа: поле показывается, но не редактируется и не входит в порядок обхода. */
     readonly readOnly: boolean;
     readonly computed?: Formula | null;

@@ -19,6 +19,7 @@ import type { PerformTarget } from '../data-provider/perform';
 import type { RecordData } from '../data-provider/records';
 import type { FormRestrictionRegistry, FormRestrictions } from './form-restrictions';
 import type { ActedObject, FieldName, ReadObject } from './object-reference';
+import type { FormValues } from './record-values';
 
 /**
  * Значение поля на форме по типу значения в записи. До записи поле может быть не заполнено,
@@ -34,8 +35,11 @@ export type EnteredValue<Value> = Value extends ReadonlyArray<infer Row> ? Reado
  */
 export type FormElementComponent = ComponentType<never>;
 
-/** Данные формы записи типа `Record`. По ссылке на объект конфигурации запись получает точный тип. */
-export interface FormData<Record extends RecordData = RecordData> {
+/**
+ * Данные формы записи типа `Record` с действиями `Action`. По ссылке на объект конфигурации запись
+ * и имена действий получают точные типы.
+ */
+export interface FormData<Record extends RecordData = RecordData, Action extends string = string> {
     /** Описание объекта формы с сервера: поля, табличные части и действия, доступные пользователю. */
     readonly object: ObjectView;
     /**
@@ -68,6 +72,16 @@ export interface FormData<Record extends RecordData = RecordData> {
         field: Field,
         value: EnteredValue<Record[Field]> | ((current: EnteredValue<Record[Field]>) => EnteredValue<Record[Field]>),
     ) => void;
+    /**
+     * Выполняет действие формы так же, как его кнопка: сначала записывает несохранённые изменения,
+     * затем выполняет действие и показывает на форме запись в новом состоянии. Собственное действие
+     * получает `input` как входные данные: `guid` записи форма к ним не добавляет, его передаёт
+     * элемент. Возвращает результат действия. Так элемент выводит собственную кнопку действия,
+     * скрыв стандартную через `useFormRestrictions`: скрытие на этот вызов не влияет.
+     * Неизвестное имя, действие без права и отказ сервера завершают вызов ошибкой; об отказе
+     * пользователю уже сообщило уведомление.
+     */
+    readonly runAction: (action: Action, input?: FormValues) => Promise<unknown>;
 }
 
 /** Всё, что форма передаёт своим элементам. Форма Ant Design наружу не выходит: её читают только хуки модуля. */
@@ -97,6 +111,11 @@ export interface FormDataProviderProperties {
     /** Вызывается, когда элемент изменил значение: экран отмечает у себя несохранённые изменения. */
     readonly onChange: () => void;
     /**
+     * Выполняет действие формы по имени для элемента на ней (`FormData.runAction`). Без обработчика
+     * элемент, который выполняет действие, завершается ошибкой.
+     */
+    readonly onAction?: (action: string, input: FormValues | null) => Promise<unknown>;
+    /**
      * Компонент собственного элемента конфигурации по имени. Без этой функции собственных элементов
      * на форме нет: поле выводится виджетом своего вида, а элемент в группе пропускается.
      */
@@ -108,8 +127,11 @@ export interface FormDataProviderProperties {
  * Поставщик данных формы. Стоит внутри формы Ant Design и снаружи её групп полей: значения он
  * берёт из формы, в которой стоит, а остальное получает от экрана.
  */
-export function FormDataProvider({ object, view, saved, readOnly, restrictions, onChange, elements, children }: FormDataProviderProperties) {
+export function FormDataProvider({ object, view, saved, readOnly, restrictions, onChange, onAction, elements, children }: FormDataProviderProperties) {
     const form = Form.useFormInstance();
+    // Обработчик действия экран тоже создаёт заново при каждой отрисовке.
+    const action = useRef(onAction);
+    action.current = onAction;
     // Обработчик экран создаёт заново при каждой отрисовке; по ссылке данные формы от него не зависят
     // и не обновляются без причины.
     const changed = useRef(onChange);
@@ -131,6 +153,10 @@ export function FormDataProvider({ object, view, saved, readOnly, restrictions, 
                 changed.current();
                 // Об ошибке проверки сообщает само поле; отклонённый промис здесь только повторил бы её в консоли.
                 form.validateFields([field], { recursive: true }).catch(() => undefined);
+            },
+            runAction: (name, input) => {
+                if (action.current === undefined) return Promise.reject(new Error('Экран формы не выполняет действия по запросу элементов'));
+                return action.current(name, input ?? null);
             },
         };
         return { data, form, restrictions, elements: elements ?? (() => undefined) };
@@ -162,9 +188,9 @@ function useFormDataContext(object: PerformTarget | undefined): FormDataContextV
  * и имена полей получают точные типы. Без ссылки элемент подходит форме любого объекта, а запись
  * имеет общий тип. Вне формы и на форме другого объекта вызов завершается ошибкой.
  */
-export function useFormData<Record extends RecordData = RecordData>(object?: ReadObject<Record>): FormData<Record> {
+export function useFormData<Record extends RecordData = RecordData, Action extends string = string>(object?: ReadObject<Record> & ActedObject<Action>): FormData<Record, Action> {
     // Точный тип существует только на уровне типов: форма хранит запись того объекта, с которым сверена ссылка.
-    return useFormDataContext(object).data as unknown as FormData<Record>;
+    return useFormDataContext(object).data as unknown as FormData<Record, Action>;
 }
 
 /**
