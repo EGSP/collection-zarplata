@@ -1,4 +1,4 @@
-import { Card, Flex, Form, theme } from 'antd';
+import { Card, ConfigProvider, Flex, Form, theme } from 'antd';
 import type { ComponentType } from 'react';
 import type { FormElementReference, FormField, FormTablePart } from '../../server/ui/descriptions';
 import type { RecordData } from '../data-provider/records';
@@ -6,7 +6,7 @@ import { FieldDisplay, FieldInput } from '../widgets/registry';
 import { fieldRules, isMarkedRequired } from '../widgets/validation';
 import type { InputProperties } from '../widgets/widget';
 import { fieldAttribute, type FieldTraversal } from './field-traversal';
-import { useFormElement } from './form-data';
+import { useFieldRestricted, useFormElement } from './form-data';
 import { TablePart } from './table-part';
 
 /** Свойства группы полей. */
@@ -56,12 +56,7 @@ export function FieldGroup({ title = null, elements, record = null, disabled = f
                 if (!('columns' in element)) return <FieldItem key={element.name} field={element} record={record} traversal={traversal} />;
                 return (
                     <div key={element.name} style={{ gridColumn: '1 / -1', marginBottom: token.marginLG }}>
-                        <TablePart
-                            part={element}
-                            disabled={disabled}
-                            ref={traversal?.register(element.name)}
-                            onPrevious={traversal === undefined ? undefined : () => traversal.previous(element.name)}
-                        />
+                        <TablePartItem part={element} disabled={disabled} traversal={traversal} />
                     </div>
                 );
             })}
@@ -81,6 +76,32 @@ interface FieldItemProperties {
     readonly traversal: FieldTraversal | undefined;
 }
 
+interface TablePartItemProperties {
+    readonly part: FormTablePart;
+    readonly disabled: boolean;
+    readonly traversal: FieldTraversal | undefined;
+}
+
+/**
+ * Табличная часть группы. Часть, которую элемент формы сделал недоступной для изменения, выглядит
+ * так же, как на форме только для просмотра, и в обход с клавиатуры не входит.
+ */
+function TablePartItem({ part, disabled, traversal }: TablePartItemProperties) {
+    const restricted = useFieldRestricted(part.name);
+    return (
+        // Недоступность ячейкам передаёт контекст Ant Design, как на форме только для просмотра.
+        <ConfigProvider {...(restricted ? { componentDisabled: true } : {})}>
+            <TablePart
+                part={part}
+                disabled={disabled || restricted}
+                // Обход останавливается на имени, у которого есть ссылка, поэтому недоступная часть её не получает.
+                ref={restricted ? undefined : traversal?.register(part.name)}
+                onPrevious={traversal === undefined ? undefined : () => traversal.previous(part.name)}
+            />
+        </ConfigProvider>
+    );
+}
+
 /** Собственный элемент конфигурации в группе. Что он показывает, решает сам: данные формы он читает хуками SDK. */
 function ElementBlock({ name }: { readonly name: string }) {
     // В группе элемент свойств не получает; тип свойств в реестре закрыт (`FormElementComponent`).
@@ -91,12 +112,17 @@ function ElementBlock({ name }: { readonly name: string }) {
 /**
  * Поле шапки. Поле только для чтения показывает значение из записи и в значения формы не входит.
  * Если полю назначен собственный элемент, он стоит на месте виджета вида поля.
+ *
+ * Поле, которое элемент формы сделал недоступным для изменения, остаётся полем ввода: его значение
+ * по-прежнему входит в значения формы и уходит в `save`. Изменить его нельзя, и обход с клавиатуры
+ * его пропускает.
  */
 function FieldItem({ field, record, traversal }: FieldItemProperties) {
     const { token } = theme.useToken();
     // На месте поля ввода элемент получает свойства поля ввода: значение и обработчик изменения
     // ему передаёт элемент формы Ant Design, как и виджету.
     const Input = (useFormElement(field.inputElement) as ComponentType<InputProperties<unknown>> | undefined) ?? FieldInput;
+    const restricted = useFieldRestricted(field.name);
     if (field.readOnly) {
         return (
             <Form.Item label={field.title}>
@@ -108,9 +134,13 @@ function FieldItem({ field, record, traversal }: FieldItemProperties) {
     }
     return (
         <div {...{ [fieldAttribute]: field.name }}>
-            <Form.Item name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>
-                <Input field={field} ref={traversal?.register(field.name)} />
-            </Form.Item>
+            {/* Недоступность полю ввода и кнопкам собственного элемента передаёт контекст Ant Design, как на форме только для просмотра. */}
+            <ConfigProvider {...(restricted ? { componentDisabled: true } : {})}>
+                <Form.Item name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>
+                    {/* Обход останавливается на имени, у которого есть ссылка, поэтому недоступное поле её не получает. */}
+                    <Input field={field} ref={restricted ? undefined : traversal?.register(field.name)} />
+                </Form.Item>
+            </ConfigProvider>
         </div>
     );
 }

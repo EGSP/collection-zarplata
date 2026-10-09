@@ -21,6 +21,7 @@ import {
     serverRejectionMessage,
     useAction,
     useFieldTraversal,
+    useFormRestrictionRegistry,
     useUnsavedChanges,
     useWindowScope,
     type FormAction,
@@ -62,7 +63,11 @@ interface RecordFormProperties {
  * сохранённой, и форма показывает её сохранённое состояние. Из-за этого порядка кнопки действий
  * не выполняют действие сами: форма заменяет их выполнение своим.
  *
- * Форма без действия `save` в описании открывается только для просмотра.
+ * Форма без действия `save` в описании открывается только для просмотра. Недоступной для изменения
+ * форму, отдельное поле или табличную часть может сделать и собственный элемент конфигурации,
+ * и он же может скрыть действие: требования элементов собирает учёт ограничений SDK. Пока они
+ * не собраны, форма недоступна целиком и действий не показывает: иначе запись, которую менять
+ * нельзя, на время выглядела бы изменяемой.
  *
  * Собственные элементы конфигурации получают значения и записанное состояние от поставщика данных
  * формы SDK и о форме Ant Design не знают. Изменение значения элементом форма учитывает так же,
@@ -95,14 +100,19 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
 
     const performAction = useAction();
 
-    const editable = view.actions.some((action) => action.name === 'save');
+    const restrictions = useFormRestrictionRegistry();
+    const editable = view.actions.some((action) => action.name === 'save') && !restrictions.readOnly;
 
     const traversal = useFieldTraversal(view.traversal, editable);
+    const focused = useRef(false);
     useEffect(() => {
-        // В новой записи пользователь сразу начинает ввод с первого поля порядка обхода.
-        if (record === null) traversal.focusFirst();
+        // Пока ограничения не собраны, поля недоступны и фокус принять не могут.
+        if (record !== null || focused.current || restrictions.pending) return;
         // Фокус ставится один раз при открытии формы.
-    }, []);
+        focused.current = true;
+        // В новой записи пользователь сразу начинает ввод с первого поля порядка обхода.
+        traversal.focusFirst();
+    }, [restrictions.pending]);
 
     /** Показывает запись, которую вернул сервер: она становится записанным состоянием формы. */
     const show = (next: RecordData) => {
@@ -202,15 +212,19 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         }
     };
 
-    /** Показывает ли форма действие. Применимость к состоянию записи проверяет SDK, остальное зависит от самой формы. */
+    /**
+     * Показывает ли форма действие. Применимость к состоянию записи проверяет SDK, остальное зависит
+     * от самой формы и от ограничений её элементов. По этой же проверке работают сочетания клавиш.
+     */
     const isVisible = (action: FormAction): boolean => {
-        if (!actionApplies(action, saved)) return false;
+        if (restrictions.isActionHidden(action.name) || !actionApplies(action, saved)) return false;
         // Собственное действие выполняется над записанной записью и после него запись читается заново.
         if (!action.standard) return saved !== null && reload !== null;
         // Провести можно и проведённый документ: повторное проведение переписывает движения.
         // Новую запись перед проведением нужно записать, поэтому без права записи провести её нельзя.
         if (action.name === 'post') return saved !== null || editable;
-        return action.name === 'save' || saved !== null;
+        // Записывать на форме, недоступной для изменения, нечего.
+        return action.name === 'save' ? editable : saved !== null;
     };
 
     const keyboardAction = (name: string, closeAfter = false) => {
@@ -286,6 +300,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                         view={view}
                         saved={saved}
                         readOnly={!editable}
+                        restrictions={restrictions}
                         elements={formElementComponent}
                         onChange={() => {
                             changed.current = true;

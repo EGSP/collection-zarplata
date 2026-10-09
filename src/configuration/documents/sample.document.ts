@@ -2,13 +2,15 @@
  * Пробный документ для проверки платформы, пока в конфигурации нет прикладных документов.
  * Ссылается на пробный справочник в шапке и в табличной части, при проведении записывает
  * строки табличной части в пробный регистр. На его форме стоят пробные собственные элементы:
- * блок «Итого» под табличной частью и поле ввода комментария с кнопкой. Удаляется, когда
- * появятся настоящие документы.
+ * блок «Итого» под табличной частью, поле ввода комментария с кнопкой и элемент, который делает
+ * форму документа с комментарием недоступной для изменения. Удаляется, когда появятся настоящие
+ * документы.
  */
 import { Effect } from 'effect';
 import { document, movements } from '../../server/metadata/index.js';
 import { Sample } from '../catalogs/sample.catalog.js';
 import { SampleComment } from '../form-elements/sample-comment.form-element.js';
+import { SampleLock } from '../form-elements/sample-lock.form-element.js';
 import { SampleTotal } from '../form-elements/sample-total.form-element.js';
 import { SampleRegister } from '../registers/sample.register.js';
 import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
@@ -26,7 +28,7 @@ export const SampleDocument = document('sample')
     // Элемент ставится на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе строки оказались бы над ней.
     .form((form) => form
-        .group('Основное', ['number', 'date', 'posted', 'item', 'comment'])
+        .group('Основное', ['number', 'date', 'posted', 'item', 'comment', SampleLock])
         .group('Строки и итог', ['lines', SampleTotal])
         .input('comment', SampleComment))
     .policy(closedPeriodByDocumentDate())
