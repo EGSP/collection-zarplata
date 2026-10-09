@@ -7,28 +7,52 @@ import { NotFoundPage } from '../common/not-found';
 import { pageSegment } from '../common/paths';
 import { RecordDialogHost, RecordDialogLayerContext } from '../forms/record-dialog';
 import { RecordPage } from '../forms/record-page';
+import { WindowScopeProvider } from '../window/window-scope';
 import { useWindowTabs, WindowTabScope } from './window-tabs';
 
 /**
- * Страницы открытых вкладок и главный экран. Страницы всех вкладок остаются смонтированными,
- * неактивные скрыты: так вкладка сохраняет несохранённые значения формы, отбор и страницу списка.
- * Если бы страница пересоздавалась при каждом переключении, ввод терялся бы.
+ * Страницы открытых вкладок и главный экран. Страницы всех вкладок и главный экран остаются
+ * смонтированными, неактивные скрыты: так вкладка сохраняет несохранённые значения формы, отбор
+ * и страницу списка. Если бы страница пересоздавалась при каждом переключении, ввод терялся бы.
  */
 export function TabPages() {
     const { tabs, activeId } = useWindowTabs();
     return (
         <>
-            {activeId === null && (
-                <PageArea visible>
-                    <HomePage />
-                </PageArea>
-            )}
+            <HomeArea active={activeId === null} />
             {tabs.map((tab) => (
                 <TabPage key={tab.id} id={tab.id} path={tab.path} search={tab.search} active={tab.id === activeId} />
             ))}
         </>
     );
 }
+
+// Постоянная функция: новая при каждой отрисовке пересоздавала бы объект области.
+function ignore(): void {}
+
+/**
+ * Главный экран в собственной области окна. Область нужна компонентам конфигурации на нём: без неё
+ * они не могли бы открыть форму записи в модальном окне. Закрыть главный экран нельзя, заголовка
+ * у его вкладки нет, а адрес не зависит от записей, поэтому на все обращения, кроме признака
+ * активности, область не отвечает. Запись, созданную в окне, получает код, открывший окно.
+ */
+const HomeArea = memo(function HomeArea({ active }: { readonly active: boolean }) {
+    return (
+        <PageArea visible={active}>
+            <WindowScopeProvider
+                active={active}
+                onTitle={ignore}
+                onClose={ignore}
+                onRecordCreated={ignore}
+                unsavedChangesWarning="На главном экране есть несохранённые изменения. Если закрыть его, они будут потеряны."
+            >
+                <RecordDialogHost>
+                    <HomePage />
+                </RecordDialogHost>
+            </WindowScopeProvider>
+        </PageArea>
+    );
+});
 
 interface TabPageProperties {
     readonly id: number;
