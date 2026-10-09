@@ -85,3 +85,8 @@ export { ActionDialog, type ActionDialogProperties } from './action-dialog';
 export { ListFilters, type ListFiltersProperties } from './list-filters';
 export { ListSearch, type ListSearchProperties } from './list-search';
 export { RecordTable, type RecordTableProperties } from './record-table';
+
+// Клиентские группы и управление действиями стандартного списка.
+export { defineShellGroups, shellGroup, ShellGroups, type ShellGroup, type ShellGroupComponent, type ShellGroupEntry } from './shell-groups';
+export { ListControlsProvider, useListControls, useListControlsState, type ListControls } from './list-controls';
+export { ShellGroupContent, ShellGroupsProvider } from './shell-group-content';

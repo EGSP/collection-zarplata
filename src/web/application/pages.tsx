@@ -1,17 +1,23 @@
 import { Empty } from 'antd';
+import { useState } from 'react';
 import { useParams } from 'react-router';
 import { NotFoundPage } from '../common/not-found';
 import { useMetadata, useObjectView } from '../data-provider/metadata';
 import { ObjectList } from '../lists/object-list';
+import { ShellGroups } from '../sdk/shell-groups';
+import { ShellGroupContent } from '../sdk/shell-group-content';
 
 /**
- * Главный экран: открывается после входа и по адресу `/`. Экран пуст, объекты пользователь
- * открывает из окон подсистем. У пользователя без прав подсистем нет, и экран объясняет,
- * почему открывать нечего.
+ * Главный экран: выводит клиентскую группу конфигурации. Сообщение об отсутствии объектов
+ * появляется, только если нет ни подсистем, ни фактически выведенных компонентов.
  */
 export function HomePage() {
     const subsystems = useMetadata().data?.shell.subsystems ?? [];
-    return subsystems.length === 0 ? <Empty description="Нет доступных объектов" /> : null;
+    const [hasContent, setHasContent] = useState(false);
+    return <>
+        <ShellGroupContent group={ShellGroups.home} onContent={setHasContent} />
+        {subsystems.length === 0 && !hasContent && <Empty description="Нет доступных объектов" />}
+    </>;
 }
 
 /**
