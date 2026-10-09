@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# Кеш VitePress при сборке и правке документации
+docs/.vitepress/cache/
 *.db
 *.db-wal
 *.db-shm

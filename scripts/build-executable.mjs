@@ -53,18 +53,20 @@ await build({
 const assets = {
     'turso.node': path.join(projectRoot, 'node_modules', '@tursodatabase', 'database-win32-x64-msvc', 'turso.win32-x64-msvc.node'),
 };
-const webRoot = path.join(projectRoot, 'dist', 'web');
-function addWebFiles(directory) {
+// Клиент и сайт документации встраиваются одинаково: каждый файл становится ресурсом,
+// имя которого начинается с имени каталога сборки.
+function addSiteFiles(prefix, root, directory = root) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const filePath = path.join(directory, entry.name);
         if (entry.isDirectory()) {
-            addWebFiles(filePath);
+            addSiteFiles(prefix, root, filePath);
         } else if (entry.isFile()) {
-            assets[`web/${path.relative(webRoot, filePath).replaceAll('\\', '/')}`] = filePath;
+            assets[`${prefix}/${path.relative(root, filePath).replaceAll('\\', '/')}`] = filePath;
         }
     }
 }
-addWebFiles(webRoot);
+addSiteFiles('web', path.join(projectRoot, 'dist', 'web'));
+addSiteFiles('docs', path.join(projectRoot, 'dist', 'docs'));
 
 const seaConfigurationPath = path.join(outputDirectory, 'sea.json');
 const blobPath = path.join(outputDirectory, 'application.blob');
