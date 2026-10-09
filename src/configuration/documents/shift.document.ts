@@ -23,7 +23,9 @@ const shift = document('shift')
     .field('closedAt', (field) => field.dateTime().title('Закрыта'))
     .tablePart('employees', (part) => part
         .title('Состав')
-        .field('employee', (field) => field.reference(Employees).title('Сотрудник').required()));
+        .field('employee', (field) => field.reference(Employees).title('Сотрудник').required()))
+    // В документах продаж смену выбирают и узнают по составу, а не только по номеру и дате.
+    .presentation([{ text: '№ ' }, { field: 'number', format: 'number' }, { text: ' от ' }, { field: 'date', format: 'date' }, { text: ', ' }, { tablePart: 'employees', field: 'employee' }]);
 
 type ShiftRecord = RecordOf<typeof shift>;
 

@@ -166,8 +166,9 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
      * Выполняет действие формы. `input` содержит входные данные собственного действия.
      * При `closeAfter` закрывает форму после успешного действия; при ошибке оставляет её открытой.
      * Если действие не выполнено, вызов завершается ошибкой, из-за которой это произошло.
+     * Возвращает результат действия: у стандартного это запись, у собственного ответ его обработчика.
      */
-    const run = async (action: FormAction, input: FormValues | null, closeAfter = false): Promise<void> => {
+    const run = async (action: FormAction, input: FormValues | null, closeAfter = false): Promise<unknown> => {
         // Состояние React обновится позже; ссылка блокирует повторное нажатие в том же кадре.
         if (executing.current) throw new Error('Действие уже выполняется');
         executing.current = true;
@@ -176,6 +177,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
         let written = false;
         const isSave = action.standard && action.name === 'save';
         let current = saved;
+        let result: unknown;
         setRunning(action.name);
         try {
             if (isSave || current === null || changed.current) {
@@ -185,16 +187,18 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                 written = true;
             }
             if (isSave) {
+                result = current;
                 completed = true;
             } else if (action.standard) {
                 // Стандартное действие возвращает обновлённую запись, и повторно читать её не нужно.
                 const posted: RecordData = await performAction({ object, action: action.name, payload: { guid: recordGuid(current) }, successMessage: actionSuccessMessage(action) });
                 current = posted;
+                result = posted;
                 show(current);
                 written = true;
                 completed = true;
             } else {
-                await performAction({ object, action: action.name, payload: input ?? {}, successMessage: actionSuccessMessage(action) });
+                result = await performAction({ object, action: action.name, payload: input ?? {}, successMessage: actionSuccessMessage(action) });
                 written = true;
                 if (reload !== null) show(await reload());
                 completed = true;
@@ -210,6 +214,13 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
             if (completed && closeAfter) scope.close();
             else if (saved === null && current !== null) scope.recordCreated(object, recordGuid(current));
         }
+        return result;
+    };
+
+    /** Действие по запросу элемента формы: имя ищется среди действий, на которые у пользователя есть право. */
+    const runByName = (name: string, input: FormValues | null): Promise<unknown> => {
+        const action = view.actions.find((candidate) => candidate.name === name);
+        return action === undefined ? Promise.reject(new Error(`Действия «${name}» нет среди действий формы «${object.title}»`)) : run(action, input);
     };
 
     /**
@@ -275,7 +286,9 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                             type={action.standard && action.name === 'save' ? 'primary' : 'default'}
                             loading={running === action.name}
                             disabled={running !== null}
-                            execute={(input) => run(action, input)}
+                            execute={async (input) => {
+                                await run(action, input);
+                            }}
                         />
                     ))}
                     <Button onClick={scope.close}>Закрыть</Button>
@@ -305,6 +318,7 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
                         readOnly={!editable}
                         restrictions={restrictions}
                         elements={formElementComponent}
+                        onAction={runByName}
                         onChange={() => {
                             changed.current = true;
                         }}

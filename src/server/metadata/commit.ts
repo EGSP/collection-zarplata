@@ -153,6 +153,7 @@ function describeFields(
             maximum: state.maximum,
             integer: state.integer,
             choices: state.choices,
+            initial: state.initial,
             target: state.kind === 'reference' ? resolveTarget(entry, location, problems, configuration) : null,
         };
         checkBounds(description, location, problems);
@@ -171,6 +172,9 @@ function describeFields(
             description.choices.some((value) => value.trim() === '')
         )) {
             problems.add(location, 'Предопределённые значения должны быть непустыми уникальными строками');
+        }
+        if (state.initial !== null && (state.kind !== 'string' || state.computed !== null || (state.choices !== null && !state.choices.includes(state.initial)))) {
+            problems.add(location, 'Начальное значение задаётся строковому полю и входит в его предопределённые значения');
         }
         return description;
     });

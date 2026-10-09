@@ -90,6 +90,8 @@ export interface FieldDescription {
     readonly target: ObjectTarget | null;
     /** Предопределённые строковые значения либо null для свободного ввода. */
     readonly choices: ReadonlyArray<string> | null;
+    /** Значение строки в новой записи или новой строке формы. */
+    readonly initial?: string | null;
     /** Формула числового значения, исполняемая до записи и при вводе. */
     readonly computed?: Formula | null;
     /** Справочник, из которого можно подставить число. */

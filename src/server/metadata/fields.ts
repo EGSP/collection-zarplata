@@ -30,6 +30,8 @@ export interface FieldState {
     readonly target: ReferenceTarget | null;
     /** Допустимые строковые значения; null означает свободный ввод. */
     readonly choices: ReadonlyArray<string> | null;
+    /** Значение строки в новой записи или новой строке формы; null оставляет поле пустым. */
+    readonly initial: string | null;
     readonly computed: Formula | null;
     readonly suggestions: { readonly target: ReferenceTarget; readonly field: string } | null;
     readonly expandedTablePart: string | null;
@@ -75,6 +77,14 @@ export class StringFieldBuilder extends FieldBuilder<string> {
     /** Ограничивает ввод заданными значениями и включает выбор из списка в форме. */
     choices(values: ReadonlyArray<string>): this {
         return this.with({ choices: Object.freeze([...values]) });
+    }
+
+    /**
+     * Значение, которым форма заполняет поле в новой записи и в новой строке табличной части.
+     * Действует только на форму: запись через единый эндпоинт без значения поле не заполняет.
+     */
+    initial(value: string): this {
+        return this.with({ initial: value });
     }
 
     minimumLength(minimumLength: number): this {
@@ -164,6 +174,7 @@ function initialState(kind: FieldKind): FieldState {
         integer: kind === 'money',
         target: null,
         choices: null,
+        initial: null,
         computed: null,
         suggestions: null,
         expandedTablePart: null,

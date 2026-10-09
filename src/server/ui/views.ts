@@ -69,6 +69,7 @@ function formField(field: FieldDescription, title: string = field.title, inputEl
         kind: field.kind,
         target: field.target,
         choices: field.choices,
+        initial: field.initial ?? null,
         readOnly: field.managed || field.computed != null,
         computed: field.computed ?? null,
         suggestions: field.suggestions ?? null,
