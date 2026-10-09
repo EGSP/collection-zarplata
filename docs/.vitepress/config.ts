@@ -10,6 +10,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig, type DefaultTheme } from 'vitepress';
+import { withMermaid } from 'vitepress-plugin-mermaid';
 
 const documentationRoot = path.resolve(import.meta.dirname, '..');
 
@@ -74,7 +75,11 @@ function sidebar(): Array<DefaultTheme.SidebarItem> {
     ];
 }
 
-export default defineConfig({
+/**
+ * Обёртка плагина Mermaid превращает блоки кода `mermaid` в схемы. GitHub рисует такие блоки сам,
+ * поэтому схема видна и на сайте, и в репозитории, а её исходник остаётся текстом раздела.
+ */
+export default withMermaid(defineConfig({
     lang: 'ru-RU',
     title: 'Учёт зарплаты и продаж',
     description: 'Документация приложения для учёта зарплаты и продаж магазина',
@@ -120,4 +125,4 @@ export default defineConfig({
             },
         },
     },
-});
+}));
