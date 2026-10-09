@@ -26,9 +26,9 @@ function initialValues(fields: ReadonlyArray<FormField>): { [name: string]: unkn
     return Object.fromEntries(fields.map((field) => [field.name, initialValue(field)]));
 }
 
-/** Поля шапки, которые пользователь заполняет. Поля только для чтения в значения формы не входят. */
+/** Значения шапки для формы: пользовательские и вычисляемые; служебные поля остаются в записи. */
 function editableFields(form: FormView): ReadonlyArray<FormField> {
-    return form.fields.filter((field) => !field.readOnly);
+    return form.fields.filter((field) => !field.readOnly || field.computed != null);
 }
 
 /** Значения формы новой записи: редактируемые поля шапки и пустые табличные части. */

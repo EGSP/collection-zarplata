@@ -13,6 +13,7 @@ import { DataValidationError } from '../../server/data/data.errors.js';
  */
 export const Sample = catalog('sample')
     .title('Пробный справочник')
+    .field('percentage', (field) => field.number().title('Процент').minimum(0).maximum(100))
     .field('comment', (field) => field.string().title('Комментарий').maximumLength(500))
     .field('quantity', (field) => field.number().title('Количество').integer().minimum(0))
     .field('amount', (field) => field.money().title('Сумма').minimum(0))

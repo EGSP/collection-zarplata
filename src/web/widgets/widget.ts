@@ -10,6 +10,7 @@
  * обработчик изменения, признак недоступности. Поэтому одно и то же поле ввода ставится в шапку
  * формы, в ячейку табличной части, в условие отбора списка и в окно входных данных действия.
  */
+import type { ValueSuggestions } from '../../server/metadata/descriptions';
 import type { ComponentType, Ref } from 'react';
 import type { ObjectReferenceValue } from '../../server/metadata/descriptions';
 import type { FieldKind, ObjectTarget, RecorderValue, ValidationRules } from '../../server/ui/descriptions';
@@ -20,6 +21,7 @@ import type { FieldKind, ObjectTarget, RecorderValue, ValidationRules } from '..
  */
 export interface WidgetField {
     readonly kind: FieldKind;
+    readonly suggestions?: ValueSuggestions | null;
     /** Объект, из записей которого выбирается ссылка. Заполнен только у вида `reference`. */
     readonly target: ObjectTarget | null;
     /** Допустимые строковые значения для выбора. */

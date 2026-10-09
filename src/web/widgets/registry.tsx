@@ -6,6 +6,7 @@
  * типами. Если на сервере появится новый вид поля, клиент не соберётся, пока для него
  * не добавлена пара компонентов.
  */
+import { ValueSuggestionInput } from './value-suggestions';
 import type { ComponentType } from 'react';
 import type { FieldKind } from '../../server/ui/descriptions';
 import { ObjectReferenceDisplay, RecorderDisplay, ReferenceDisplay } from '../references/reference-display';
@@ -40,6 +41,7 @@ export function hasInput(field: WidgetField): boolean {
  * и описание поля. Для вида без компонента ввода ничего не выводится.
  */
 export function FieldInput(properties: InputProperties<unknown>) {
+    if (properties.field.suggestions != null) return <ValueSuggestionInput {...properties as InputProperties<number>} />;
     const Input = widgets[properties.field.kind].input as ComponentType<InputProperties<unknown>> | null;
     return Input === null ? null : <Input {...properties} />;
 }

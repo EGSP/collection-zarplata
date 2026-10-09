@@ -1,4 +1,7 @@
 /** DSL описания объектов конфигурации: билдеры, описания и схемы входных данных. */
+export { formula, type Formula } from '../../common/formulas.js';
+export { tablePart } from './builders.js';
+export type { PresentationPart } from './descriptions.js';
 export {
     ActionBuilder,
     ActionInputBuilder,

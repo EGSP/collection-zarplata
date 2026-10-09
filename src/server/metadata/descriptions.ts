@@ -3,6 +3,20 @@
  * и с ними работает остальная платформа: структура БД, диспетчер, формы.
  */
 
+import type { Formula } from '../../common/formulas.js';
+
+/** Часть представления: текст, поле либо значения колонки через разделитель. */
+export type PresentationPart =
+    | { readonly text: string }
+    | { readonly field: string; readonly format?: 'date' | 'dateTime' | 'number' }
+    | { readonly tablePart: string; readonly field: string; readonly separator?: string };
+
+/** Источник числовых подсказок, не сохраняющий ссылку в записи. */
+export interface ValueSuggestions {
+    readonly target: ObjectTarget;
+    readonly field: string;
+}
+
 /** Вид объекта конфигурации. */
 export type ObjectKind = 'catalog' | 'document' | 'register' | 'informationRegister';
 
@@ -76,6 +90,12 @@ export interface FieldDescription {
     readonly target: ObjectTarget | null;
     /** Предопределённые строковые значения либо null для свободного ввода. */
     readonly choices: ReadonlyArray<string> | null;
+    /** Формула числового значения, исполняемая до записи и при вводе. */
+    readonly computed?: Formula | null;
+    /** Справочник, из которого можно подставить число. */
+    readonly suggestions?: ValueSuggestions | null;
+    /** Табличная часть записи по ссылке для раскрытия строки формы. */
+    readonly expandedTablePart?: string | null;
 }
 
 /** Табличная часть: список строк внутри объекта. В записи она представлена массивом строк. */
@@ -91,6 +111,8 @@ export interface ActionDescription {
     readonly name: string;
     readonly title: string;
     readonly input: ReadonlyArray<FieldDescription>;
+    /** Строки во входных данных действия. */
+    readonly tableParts: ReadonlyArray<TablePartDescription>;
     /**
      * Аргумент типизирован как `never`, чтобы в одном списке хранились обработчики с разными
      * входными данными. Вызывать обработчик можно только после проверки входных данных по `input`.
@@ -172,6 +194,10 @@ export interface ObjectDescription {
      * представление: наименование справочника либо заголовок, номер и дата документа.
      */
     readonly presentation: DelegatedPresentation | null;
+    /** Части собственного представления; пустой массив оставляет стандартный текст. */
+    readonly presentationParts: ReadonlyArray<PresentationPart>;
+    /** Табличные части для раскрытия в списке. */
+    readonly listTableParts: ReadonlyArray<string>;
     /**
      * Обработчик проведения документа; у справочников и регистров, а также у документа без
      * движений равен `null`. Аргумент типизирован как `never` по той же причине, что и у

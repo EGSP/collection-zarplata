@@ -11,6 +11,7 @@
  * Значение поля читается отдельным хуком с подпиской на одно это поле, поэтому элемент
  * перерисовывается только при изменении значений, которые читает.
  */
+import { ComputedValues } from './computed-values';
 import { Form, type FormInstance } from 'antd';
 import { createContext, useContext, useId, useLayoutEffect, useMemo, useRef, type ComponentType, type ReactNode } from 'react';
 import type { FormView, ObjectView } from '../../server/ui/descriptions';
@@ -134,7 +135,7 @@ export function FormDataProvider({ object, view, saved, readOnly, restrictions, 
         };
         return { data, form, restrictions, elements: elements ?? (() => undefined) };
     }, [object, view, saved, readOnly, restrictions, form, elements]);
-    return <FormDataContext value={value}>{children}</FormDataContext>;
+    return <FormDataContext value={value}><ComputedValues view={view.calculations ?? view} saved={saved} />{children}</FormDataContext>;
 }
 
 /**

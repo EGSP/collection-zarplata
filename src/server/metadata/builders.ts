@@ -15,6 +15,7 @@
  * Свойства с префиксом `~` служебные. Их читают `commit()` и выводы типов, а в подсказках
  * редактора они стоят в конце списка и не мешают методам описания.
  */
+import type { PresentationPart } from './descriptions.js';
 import type { Effect } from 'effect';
 import { commitObject } from './commit.js';
 import type { FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RecordOpeningMode, RegisterMovements } from './descriptions.js';
@@ -56,6 +57,7 @@ export interface ActionEntry {
     readonly name: string;
     readonly title: string | null;
     readonly input: ReadonlyArray<FieldEntry>;
+    readonly tableParts: ReadonlyArray<TablePartEntry>;
     readonly handler: ((input: never) => unknown) | null;
 }
 
@@ -71,6 +73,8 @@ export interface ObjectState {
     readonly policies: ReadonlyArray<PolicyDescription>;
     /** Имя поля-ссылки, по которому строится представление записи; задаётся только у справочника. */
     readonly presentation: string | null;
+    readonly presentationParts: ReadonlyArray<PresentationPart>;
+    readonly listTableParts: ReadonlyArray<string>;
     /** Обработчик проведения; задаётся только у документа. */
     readonly posting: ((record: never) => unknown) | null;
     /** Вызван ли `withStandardFields()`: без стандартных полей `commit()` завершается ошибкой. */
@@ -139,6 +143,11 @@ export class TablePartBuilder<Fields extends FieldMap = {}> {
         this['~entries'] = entries;
     }
 
+    /** Подключает общие колонки; добавленные затем поля сохраняют точные типы. */
+    include<Common extends FieldMap>(part: TablePartBuilder<Common>): TablePartBuilder<Fields & Common> {
+        return new TablePartBuilder(this['~title'], [...this['~entries'], ...part['~entries']]);
+    }
+
     title(title: string): TablePartBuilder<Fields> {
         return new TablePartBuilder(title, this['~entries']);
     }
@@ -152,22 +161,35 @@ export class TablePartBuilder<Fields extends FieldMap = {}> {
     }
 }
 
+/** Общее описание строк, подключаемое к нескольким объектам через part.include(). */
+export function tablePart<Fields extends FieldMap>(define: (part: TablePartBuilder) => TablePartBuilder<Fields>): TablePartBuilder<Fields> {
+    return define(new TablePartBuilder());
+}
+
 /** Билдер входных данных собственного действия. Поля объявляются так же, как поля объекта. */
-export class ActionInputBuilder<Fields extends FieldMap = {}> {
+export class ActionInputBuilder<Fields extends FieldMap = {}, Parts extends TablePartMap = {}> {
     /** Только для вывода типов: во время выполнения свойства нет. */
     declare readonly '~fields': Fields;
     readonly '~entries': ReadonlyArray<FieldEntry>;
 
-    constructor(entries: ReadonlyArray<FieldEntry> = []) {
+    readonly '~parts': ReadonlyArray<TablePartEntry>;
+    declare readonly '~tableParts': Parts;
+    constructor(entries: ReadonlyArray<FieldEntry> = [], parts: ReadonlyArray<TablePartEntry> = []) {
+        this['~parts'] = parts;
         this['~entries'] = entries;
     }
 
     /** Поле входных данных с уникальным литеральным именем в пределах этого действия. */
     field<const Name extends string, Field extends AnyFieldBuilder>(
-        name: Name & AvailableName<NoInfer<Name>, keyof Fields, 'имя поля повторяется'>,
+        name: Name & AvailableName<NoInfer<Name>, keyof Fields | keyof Parts, 'имя поля повторяется'>,
         define: (field: FieldFactory) => Field,
-    ): ActionInputBuilder<Fields & { readonly [K in Name]: Field }> {
-        return new ActionInputBuilder([...this['~entries'], attribute(name, define)]);
+    ): ActionInputBuilder<Fields & { readonly [K in Name]: Field }, Parts> {
+        return new ActionInputBuilder([...this['~entries'], attribute(name, define)], this['~parts']);
+    }
+    /** Строки входных данных; имя не пересекается с полями и другими частями. */
+    tablePart<const Name extends string, PartFields extends FieldMap>(name: Name & AvailableName<NoInfer<Name>, keyof Fields | keyof Parts, 'имя входных данных повторяется'>, define: (part: TablePartBuilder) => TablePartBuilder<PartFields>): ActionInputBuilder<Fields, Parts & { readonly [K in Name]: PartFields }> {
+        const part = define(new TablePartBuilder());
+        return new ActionInputBuilder(this['~entries'], [...this['~parts'], { name, title: part['~title'], fields: part['~entries'] }]);
     }
 }
 
@@ -180,34 +202,38 @@ export class ActionInputBuilder<Fields extends FieldMap = {}> {
 export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, unknown>;
 
 /** Билдер собственного действия; обработчик вызывается диспетчером после проверки данных. */
-export class ActionBuilder<Input extends FieldMap = {}> {
+export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartMap = {}> {
     /** Только для вывода типов: во время выполнения свойства нет. */
     declare readonly '~input': Input;
     readonly '~title': string | null;
     readonly '~entries': ReadonlyArray<FieldEntry>;
     readonly '~handler': ((input: never) => unknown) | null;
 
-    constructor(title: string | null = null, entries: ReadonlyArray<FieldEntry> = [], handler: ((input: never) => unknown) | null = null) {
+    readonly '~parts': ReadonlyArray<TablePartEntry>;
+    declare readonly '~tableParts': Parts;
+    constructor(title: string | null = null, entries: ReadonlyArray<FieldEntry> = [], handler: ((input: never) => unknown) | null = null, parts: ReadonlyArray<TablePartEntry> = []) {
+        this['~parts'] = parts;
         this['~title'] = title;
         this['~entries'] = entries;
         this['~handler'] = handler;
     }
 
-    title(title: string): ActionBuilder<Input> {
-        return new ActionBuilder(title, this['~entries'], this['~handler']);
+    title(title: string): ActionBuilder<Input, Parts> {
+        return new ActionBuilder(title, this['~entries'], this['~handler'], this['~parts']);
     }
 
     /**
      * Поля входных данных. Заменяет ранее объявленные и сбрасывает обработчик: тип его аргумента
      * выводится из полей, поэтому заданный раньше обработчик мог ожидать другие данные.
      */
-    input<Fields extends FieldMap>(define: (input: ActionInputBuilder) => ActionInputBuilder<Fields>): ActionBuilder<Fields> {
-        return new ActionBuilder(this['~title'], define(new ActionInputBuilder())['~entries'], null);
+    input<Fields extends FieldMap, InputParts extends TablePartMap>(define: (input: ActionInputBuilder) => ActionInputBuilder<Fields, InputParts>): ActionBuilder<Fields, InputParts> {
+        const input = define(new ActionInputBuilder());
+        return new ActionBuilder(this['~title'], input['~entries'], null, input['~parts']);
     }
 
     /** Обработчик действия; получает входные данные, проверенные по объявленным полям. */
-    handle(handler: ActionHandler<FieldsRecord<Input>>): ActionBuilder<Input> {
-        return new ActionBuilder(this['~title'], this['~entries'], handler);
+    handle(handler: ActionHandler<FieldsRecord<Input> & { readonly [Name in keyof Parts]: ReadonlyArray<FieldsRecord<Parts[Name]>> }>): ActionBuilder<Input, Parts> {
+        return new ActionBuilder(this['~title'], this['~entries'], handler, this['~parts']);
     }
 }
 
@@ -358,10 +384,15 @@ export interface RecordObjectBuilder<
     ): RecordBuilderOf<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }, Actions>;
 
     /** Собственное действие с уникальным литеральным именем; имя также определяет право на действие. */
-    action<const ActionName extends string, Input extends FieldMap>(
+    action<const ActionName extends string, Input extends FieldMap, InputParts extends TablePartMap>(
         name: ActionName & AvailableName<NoInfer<ActionName>, Actions, 'имя собственного действия повторяется'>,
-        define: (action: ActionBuilder) => ActionBuilder<Input>,
+        define: (action: ActionBuilder) => ActionBuilder<Input, InputParts>,
     ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions | ActionName>;
+
+    /** Части собственного представления; ссылки разрешает сервер при чтении. */
+    presentation(parts: ReadonlyArray<PresentationPart>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+    /** Табличные части, раскрываемые под строкой списка. */
+    listTableParts(names: ReadonlyArray<keyof Parts & string>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 
     /** Переопределение формы. Повторный вызов заменяет предыдущее. */
     form(
@@ -386,6 +417,7 @@ export interface CatalogBuilder<Name extends string, Fields extends FieldMap, Pa
      * обязательным полем. Повторный вызов заменяет поле.
      */
     presentation(field: keyof Fields & string): CatalogBuilder<Name, Fields, Parts, Actions>;
+    presentation(parts: ReadonlyArray<PresentationPart>): CatalogBuilder<Name, Fields, Parts, Actions>;
 }
 
 /**
@@ -528,9 +560,9 @@ class ObjectBuilderImplementation {
         return this.with({ tableParts: [...this['~state'].tableParts, { name, title: part['~title'], fields: part['~entries'] }] });
     }
 
-    action(name: string, define: (action: ActionBuilder) => ActionBuilder<FieldMap>): this {
+    action(name: string, define: (action: ActionBuilder) => ActionBuilder<FieldMap, TablePartMap>): this {
         const action = define(new ActionBuilder());
-        const entry: ActionEntry = { name, title: action['~title'], input: action['~entries'], handler: action['~handler'] };
+        const entry: ActionEntry = { name, title: action['~title'], input: action['~entries'], tableParts: action['~parts'], handler: action['~handler'] };
         return this.with({ actions: [...this['~state'].actions, entry] });
     }
 
@@ -551,9 +583,11 @@ class ObjectBuilderImplementation {
         return this.with({ policies: [...this['~state'].policies, description] });
     }
 
-    presentation(field: string): this {
-        return this.with({ presentation: field });
+    presentation(value: string | ReadonlyArray<PresentationPart>): this {
+        return this.with(typeof value === 'string' ? { presentation: value, presentationParts: [] } : { presentation: null, presentationParts: value });
     }
+
+    listTableParts(names: ReadonlyArray<string>): this { return this.with({ listTableParts: names }); }
 
     posting(handler: PostingHandler<never>): this {
         return this.with({ posting: handler });
@@ -590,7 +624,7 @@ export function isObjectBuilder(value: unknown): value is ObjectBuilder {
 }
 
 function emptyState(kind: ObjectKind, name: string): ObjectState {
-    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], presentation: null, posting: null, standardFieldsAdded: false };
+    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, standardFieldsAdded: false };
 }
 
 // Функции ниже приводят реализацию к интерфейсу через unknown: точные типы полей существуют

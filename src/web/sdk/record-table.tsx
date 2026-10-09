@@ -1,7 +1,9 @@
-import { Button, Dropdown, Flex, Table, theme, type TableProps } from 'antd';
-import { useMemo } from 'react';
+import { Switch, Button, Dropdown, Flex, Table, theme, type TableProps } from 'antd';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import type { ListColumn, ObjectView } from '../../server/ui/descriptions';
+import { useSearchParams } from 'react-router';
+import { RecordTablePart } from './record-table-part';
 import { recordPath } from '../common/paths';
 import { useAction } from '../data-provider/actions';
 import { useObjectView } from '../data-provider/metadata';
@@ -92,6 +94,10 @@ function DescribedTable({ object, list, columns: columnNames, hiddenRowActions, 
     const performAction = useAction();
     const { form } = object;
     const description = object.list;
+    const [searchParameters, setSearchParameters] = useSearchParams();
+    const expandAll = searchParameters.get('expandTableParts') === 'true';
+    const [expandedKeys, setExpandedKeys] = useState<ReadonlyArray<React.Key>>([]);
+    const parts = description.tableParts ?? [];
 
     const formActions = useMemo(() => new Map(form?.actions.filter((action) => !hiddenRowActions?.includes(action.name)).map((action) => [action.name, action])), [form, hiddenRowActions]);
 
@@ -165,12 +171,19 @@ function DescribedTable({ object, list, columns: columnNames, hiddenRowActions, 
 
     return (
         <ListPresentationsContext.Provider value={list.presentations}>
+            {parts.length > 0 && <Flex gap="small" align="center" style={{ marginBottom: token.marginSM }}><Switch checked={expandAll} onChange={(checked) => { const next = new URLSearchParams(searchParameters); if (checked) next.set('expandTableParts', 'true'); else { next.delete('expandTableParts'); setExpandedKeys([]); } setSearchParameters(next, { replace: true }); }} />Раскрыть строки страницы</Flex>}
             <Table<RecordData>
                 size="small"
                 rowKey={(record) => rowKey(object, record)}
                 columns={columns}
                 dataSource={[...list.records]}
                 loading={list.loading}
+                expandable={parts.length === 0 ? {} : {
+                    expandedRowKeys: expandAll ? list.records.map((row) => rowKey(object, row)) : [...expandedKeys],
+                    onExpandedRowsChange: (keys) => setExpandedKeys(keys),
+                    // Ant Design сохраняет скрытую строку; без условия её запросы продолжались бы после сворачивания.
+                    expandedRowRender: (record) => expandAll || expandedKeys.includes(rowKey(object, record)) ? <Flex vertical gap="small">{parts.map((part) => <RecordTablePart key={part} object={object} guid={recordGuid(record)} part={part} />)}</Flex> : null,
+                }}
                 onChange={onTableChange}
                 pagination={{
                     current: list.page,

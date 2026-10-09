@@ -62,11 +62,8 @@ function ReferenceSelect({ object, field, value, onChange, disabled, id, ref }: 
         const conditions: Array<CrudFilter> = [];
         // Помеченную на удаление запись выбрать заново нельзя. Уже сделанная ссылка на неё остаётся в силе.
         if (object.list.deletionMark) conditions.push({ field: 'deletedAt', operator: 'null', value: true });
-        // Представление по ссылке хранится в другом объекте, и ищет по нему сервер.
-        if (object.presentation !== null) return [...conditions, ...presentationFilters(searched)];
-        // Справочник ищется по наименованию, документ по номеру: это части их представлений.
-        if (searched !== '') conditions.push({ field: object.kind === 'document' ? 'number' : 'name', operator: 'contains', value: searched });
-        return conditions;
+        // Составной текст может использовать строки и ссылки; его отбирает сервер до выбора страницы.
+        return [...conditions, ...presentationFilters(searched)];
     }, [object, searched]);
 
     const { result, query } = useList<RecordData, ApiError>({
