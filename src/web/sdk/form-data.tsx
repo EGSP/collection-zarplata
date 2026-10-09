@@ -57,8 +57,16 @@ export interface FormData<Record extends RecordData = RecordData> {
      * сделал недоступным для изменения, значение не меняется.
      * Имя поля, которого нет среди редактируемых полей формы, завершает вызов ошибкой:
      * значение скрытого поля или поля, которое заполняет платформа, форма не записывает.
+     *
+     * Вместо значения можно передать функцию, которая получает текущее значение формы и возвращает
+     * новое. Так меняют значение, которое зависит от прежнего, например добавляют строку табличной
+     * части: значение из `useFormValue` элемент получает с отрисовкой, и при двух изменениях подряд
+     * второе, вычисленное по нему, отменило бы первое.
      */
-    readonly setValue: <Field extends FieldName<Record>>(field: Field, value: EnteredValue<Record[Field]>) => void;
+    readonly setValue: <Field extends FieldName<Record>>(
+        field: Field,
+        value: EnteredValue<Record[Field]> | ((current: EnteredValue<Record[Field]>) => EnteredValue<Record[Field]>),
+    ) => void;
 }
 
 /** Всё, что форма передаёт своим элементам. Форма Ant Design наружу не выходит: её читают только хуки модуля. */
@@ -115,7 +123,8 @@ export function FormDataProvider({ object, view, saved, readOnly, restrictions, 
                 if (readOnly || restrictions?.isFieldReadOnly(field) === true) return;
                 const editable = view.fields.some((candidate) => candidate.name === field && !candidate.readOnly) || view.tableParts.some((part) => part.name === field);
                 if (!editable) throw new Error(`Поля «${field}» нет среди редактируемых полей формы «${object.title}»`);
-                form.setFieldValue(field, entered);
+                // Введённое значение функцией не бывает: это значение поля либо список строк.
+                form.setFieldValue(field, typeof entered === 'function' ? entered((form.getFieldValue(field) ?? saved?.[field] ?? null) as never) : entered);
                 // Программное изменение форма Ant Design изменением пользователя не считает
                 // и сама ни о нём не сообщает, ни значение не проверяет.
                 changed.current();

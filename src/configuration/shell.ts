@@ -13,6 +13,7 @@ import { SampleDelegate } from './catalogs/sample-delegate.catalog.js';
 import { Sample } from './catalogs/sample.catalog.js';
 import { PeriodClosing } from './documents/period-closing.document.js';
 import { SampleDocument } from './documents/sample.document.js';
+import { Shift } from './documents/shift.document.js';
 import { ExternalLinks } from './information-registers/external-links.information-register.js';
 import { SampleInformation } from './information-registers/sample.information-register.js';
 import { SampleWorkplace } from './pages/sample-workplace.page.js';
@@ -22,6 +23,6 @@ export const applicationShell = shell()
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')
         .group('Справочники', [PhysicalPersons, Employees, Nomenclature, Sample, SampleDelegate])
-        .group('Документы', [PeriodClosing, SampleDocument])
+        .group('Документы', [Shift, PeriodClosing, SampleDocument])
         .group('Регистры', [SampleRegister, ExternalLinks, SampleInformation])
         .group('Рабочие места', [SampleWorkplace]));
