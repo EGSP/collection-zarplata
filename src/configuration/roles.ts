@@ -15,5 +15,5 @@ export const roles = [
     role('reader')
         .title('Только чтение')
         // Пробные сведения исключены, чтобы проверять скрытие клиентских блоков без запрещённых запросов.
-        .grant(Rights.catalog.physicalPersons.read, Rights.catalog.nomenclature.read, Rights.informationRegister.externalLinks.read, Rights.catalog.sample.read, Rights.catalog.sampleDelegate.read, Rights.document.sample.read, Rights.document.periodClosing.read, Rights.register.sample.read),
+        .grant(Rights.catalog.physicalPersons.read, Rights.catalog.employees.read, Rights.catalog.nomenclature.read, Rights.informationRegister.externalLinks.read, Rights.catalog.sample.read, Rights.catalog.sampleDelegate.read, Rights.document.sample.read, Rights.document.periodClosing.read, Rights.register.sample.read),
 ];
