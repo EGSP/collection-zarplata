@@ -36,6 +36,14 @@ export function newRecordValues(form: FormView): FormValues {
     return { ...initialValues(editableFields(form)), ...Object.fromEntries(form.tableParts.map((part) => [part.name, []])) };
 }
 
+/**
+ * Начальные значения окна входных данных действия. Они заполняются так же, как поля новой записи:
+ * обязательные дата и время равны текущему моменту, например дата закрытия смены.
+ */
+export function newInputValues(fields: ReadonlyArray<FormField>): FormValues {
+    return initialValues(fields);
+}
+
 /** Значения новой строки табличной части. */
 export function newRowValues(part: FormTablePart): FormValues {
     return initialValues(part.columns);

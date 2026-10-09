@@ -4,7 +4,7 @@ import type { FormAction } from '../../server/ui/descriptions';
 import { ApiError } from '../common/api';
 import { FieldInput } from '../widgets/registry';
 import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../widgets/validation';
-import type { FormValues } from './record-values';
+import { newInputValues, type FormValues } from './record-values';
 
 /** Свойства окна входных данных действия. */
 export interface ActionDialogProperties {
@@ -58,7 +58,7 @@ export function ActionDialog({ action, onExecute, onClose }: ActionDialogPropert
                 if (!executing) onClose();
             }}
         >
-            <Form form={form} layout="vertical" initialValues={Object.fromEntries(action.input.map((field) => [field.name, null]))} onFinish={(input) => void execute(input)}>
+            <Form form={form} layout="vertical" initialValues={newInputValues(action.input)} onFinish={(input) => void execute(input)}>
                 {action.input.map((field) => (
                     <Form.Item key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>
                         <FieldInput field={field} />
