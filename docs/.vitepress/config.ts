@@ -84,6 +84,9 @@ export default withMermaid(defineConfig({
     title: 'Учёт зарплаты и продаж',
     description: 'Документация приложения для учёта зарплаты и продаж магазина',
     base: '/docs/',
+    // Подписи схем выводятся текстом SVG, а не вложенным HTML: стили сайта меняют высоту строки
+    // вложенного HTML уже после расчёта размеров, и подпись в две строки обрезалась бы снизу.
+    mermaid: { htmlLabels: false, flowchart: { htmlLabels: false } },
     outDir: '../dist/docs',
     markdown: {
         anchor: { slugify: githubAnchor },
