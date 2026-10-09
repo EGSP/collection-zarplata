@@ -16,6 +16,8 @@ import { select } from '../database/sql.builder.js';
 import type { ObjectDescription, ObjectReferenceValue } from '../metadata/descriptions.js';
 import type { ListColumn } from '../ui/descriptions.js';
 import { columnReference, presentationSource, recordPresentation, referenceKey, type ReferencePresentations } from '../ui/reference-presentation.js';
+import { formatSearchValue, formatDate, formatDateTime } from '../ui/value-format.js';
+import { fieldValueFromRow } from './storage-values.js';
 import { tableName, type RecordValue } from './records.js';
 
 /** Кеш и пакетное чтение ссылок списка в транзакции вызывающего действия. */
@@ -45,9 +47,9 @@ export class ListPresentations {
     }
 
     /**
-     * Готовит представления самих записей порции для отбора по представлению. Собственное
-     * представление строится из записи без чтения, поэтому базу метод читает только для
-     * справочника с представлением по ссылке: целевые записи порции одним пакетом.
+     * Готовит представления самих записей порции. Читает используемые табличные части и
+     * ссылки пакетами, не добавляя строки частей в ответ списка. Уже загруженные части
+     * записи повторно не читает. Результат помещает в служебное поле `$presentation`.
      */
     loadOwn(object: ObjectDescription, records: ReadonlyArray<RecordValue>): Effect.Effect<void, DatabaseError, Database> {
         const references: Array<ObjectReferenceValue> = [];
@@ -55,13 +57,70 @@ export class ListPresentations {
             const source = presentationSource(object.presentation, record);
             if (source !== null) references.push(source);
         }
-        return this.loadReferences(references);
+        return Effect.gen(function* (this: ListPresentations) {
+            const database = yield* Database;
+            const guids = records.map((record) => record['guid'] as string);
+            const loaded = records.map((record) => ({ ...record }));
+            // Для представления читаются только используемые колонки частей, одним пакетом на часть.
+            const partNames = new Set(object.presentationParts.flatMap((part) => 'tablePart' in part ? [part.tablePart] : []));
+            for (const name of partNames) {
+                const part = object.tableParts.find((candidate) => candidate.name === name)!;
+                if (loaded.every((record) => Array.isArray(record[name]))) continue;
+                const usedFields = part.fields.filter((field) => object.presentationParts.some((piece) => 'tablePart' in piece && piece.tablePart === name && piece.field === field.name));
+                const owners = new Map(loaded.map((record) => [record['guid'], record]));
+                for (const record of loaded) record[name] = [];
+                for (let start = 0; start < guids.length; start += 500) {
+                    const identifiers = guids.slice(start, start + 500);
+                    const query = select(tableName(object) + '_' + name, { columns: ['ownerGuid', 'lineNumber', ...usedFields.map((field) => field.name)] });
+                    const rows = yield* database.all<RecordValue>({ sql: query.sql + ' WHERE "ownerGuid" IN (' + identifiers.map(() => '?').join(', ') + ') ORDER BY "lineNumber"', parameters: identifiers });
+                    for (const row of rows) {
+                        const owner = owners.get(row['ownerGuid']);
+                        if (owner !== undefined) (owner[name] as RecordValue[]).push(Object.fromEntries(usedFields.map((field) => [field.name, fieldValueFromRow(row[field.name], field.kind)])));
+                    }
+                }
+            }
+            for (const record of loaded) {
+                for (const part of object.presentationParts) {
+                    if ('text' in part) continue;
+                    const fields = 'tablePart' in part ? object.tableParts.find((candidate) => candidate.name === part.tablePart)!.fields : object.fields;
+                    const field = fields.find((candidate) => candidate.name === part.field)!;
+                    const rows = 'tablePart' in part ? record[part.tablePart] as RecordValue[] : [record];
+                    for (const row of rows) {
+                        const reference = columnReference({ ...field, field: field.name }, row[field.name]);
+                        if (reference !== null) references.push(reference);
+                    }
+                }
+            }
+            yield* this.loadReferences(references);
+            for (const [index, record] of loaded.entries()) {
+                let text: string | null;
+                const source = presentationSource(object.presentation, record);
+                if (source !== null) text = this.cache.get(referenceKey(source)) ?? null;
+                else if (object.presentationParts.length === 0) text = recordPresentation({ kind: object.kind as 'catalog' | 'document', name: object.name, title: object.title }, record);
+                else text = object.presentationParts.map((part) => {
+                    if ('text' in part) return part.text;
+                    const fields = 'tablePart' in part ? object.tableParts.find((candidate) => candidate.name === part.tablePart)!.fields : object.fields;
+                    const field = fields.find((candidate) => candidate.name === part.field)!;
+                    const rows = 'tablePart' in part ? record[part.tablePart] as RecordValue[] : [record];
+                    return rows.map((row) => {
+                        const value = row[field.name];
+                        const reference = columnReference({ ...field, field: field.name }, value);
+                        if (reference !== null) return this.cache.get(referenceKey(reference)) ?? 'Запись недоступна';
+                        if ('format' in part && part.format === 'number') return value == null ? '' : formatSearchValue('number', typeof value === 'string' ? Number(value) : value) ?? '';
+                        if ('format' in part && part.format !== undefined && typeof value === 'string') return part.format === 'date' ? formatDate(value) : formatDateTime(value);
+                        return formatSearchValue(field.kind, value) ?? '';
+                    }).join('separator' in part ? part.separator ?? ', ' : ', ');
+                }).join('');
+                records[index]!['$presentation'] = text;
+                this.cache.set(referenceKey({ kind: object.kind as 'catalog' | 'document', name: object.name, guid: record['guid'] as string }), text);
+            }
+        }.bind(this));
     }
 
     /**
-     * Читает записи по ссылкам, группируя их по целевым объектам. У справочника с представлением
-     * по ссылке вместо наименования читается поле-источник, а целевые записи дочитываются
-     * повторным вызовом. Глубже одного уровня он не уходит: цепочки отклоняет `commit()`.
+     * Читает записи по ссылкам, группируя их по целевым объектам, и строит их представления.
+     * Кеш резервирует ссылку до рекурсивного чтения: повторная ссылка, включая полный адрес
+     * записи, не вызывает бесконечного обхода. Статические циклы отклоняет `commit()`.
      */
     private loadReferences(references: ReadonlyArray<ObjectReferenceValue>): Effect.Effect<void, DatabaseError, Database> {
         return Effect.gen(function* (this: ListPresentations) {
@@ -78,34 +137,19 @@ export class ListPresentations {
                 group.set(reference.guid, reference);
                 groups.set(object, group);
             }
-            // Записи, которые получат представление своей целевой записи после её чтения.
-            const delegated: Array<{ readonly key: string; readonly source: ObjectReferenceValue }> = [];
             for (const [object, group] of groups) {
                 const guids = [...group.keys()];
-                const columns = object.presentation !== null ? ['guid', object.presentation.field]
-                    : object.kind === 'document' ? ['guid', 'number', 'date'] : ['guid', 'name'];
-                // Размер пакета ограничивает число параметров SQL, даже если у списка много ссылочных колонок.
                 for (let start = 0; start < guids.length; start += 500) {
-                    const selection = select(tableName(object), { columns });
+                    const selection = select(tableName(object), {});
                     const identifiers = guids.slice(start, start + 500);
-                    // Turso ограничивает глубину выражения сотней узлов: пакет из OR превышает её,
-                    // а IN хранит значения списком. Все GUID по-прежнему передаются параметрами.
                     const rows = yield* database.all<RecordValue>({
-                        sql: `${selection.sql} WHERE "guid" IN (${identifiers.map(() => '?').join(', ')})`,
+                        sql: selection.sql + ' WHERE "guid" IN (' + identifiers.map(() => '?').join(', ') + ')',
                         parameters: identifiers,
                     });
-                    for (const row of rows) {
-                        const reference = group.get(row['guid'] as string)!;
-                        const source = presentationSource(object.presentation, row);
-                        if (source !== null) delegated.push({ key: referenceKey(reference), source });
-                        else if (object.presentation === null) this.cache.set(referenceKey(reference), recordPresentation({ ...reference, title: object.title }, row));
-                    }
+                    for (const row of rows) for (const field of object.fields) row[field.name] = fieldValueFromRow(row[field.name], field.kind);
+                    yield* this.loadOwn(object, rows);
                 }
             }
-            if (delegated.length === 0) return;
-            yield* this.loadReferences(delegated.map((item) => item.source));
-            // Недоступная или отсутствующая целевая запись оставляет исходную без текста.
-            for (const item of delegated) this.cache.set(item.key, this.cache.get(referenceKey(item.source)) ?? null);
         }.bind(this));
     }
 
@@ -120,6 +164,7 @@ export class ListPresentations {
      * по ссылке перед вызовом нужен `loadOwn`; без доступной целевой записи возвращает null.
      */
     ownText(object: ObjectDescription & { readonly kind: 'catalog' | 'document' }, record: RecordValue): string | null {
+        if (Object.hasOwn(record, '$presentation')) return record['$presentation'] as string | null;
         if (object.presentation === null) return recordPresentation(object, record);
         const source = presentationSource(object.presentation, record);
         return source === null ? null : this.cache.get(referenceKey(source)) ?? null;

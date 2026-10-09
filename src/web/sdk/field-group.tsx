@@ -16,8 +16,7 @@ export interface FieldGroupProperties {
     /** Поля, табличные части и собственные элементы конфигурации в порядке показа. */
     readonly elements: ReadonlyArray<FormField | FormTablePart | FormElementReference>;
     /**
-     * Запись, из которой берутся значения полей только для чтения. Их заполняет платформа,
-     * и в значения формы они не входят. Без записи такие поля пусты.
+     * Запись со служебными полями только для чтения. Вычисляемые значения берутся из текущей формы.
      */
     readonly record?: RecordData | null;
     /** Строки табличных частей нельзя изменять. Поля шапки делает недоступными сама форма Ant Design. */
@@ -110,7 +109,7 @@ function ElementBlock({ name }: { readonly name: string }) {
 }
 
 /**
- * Поле шапки. Поле только для чтения показывает значение из записи и в значения формы не входит.
+ * Поле шапки. Служебное поле показывает записанное значение, вычисляемое следит за текущей формой.
  * Если полю назначен собственный элемент, он стоит на месте виджета вида поля.
  *
  * Поле, которое элемент формы сделал недоступным для изменения, остаётся полем ввода: его значение
@@ -123,11 +122,12 @@ function FieldItem({ field, record, traversal }: FieldItemProperties) {
     // ему передаёт элемент формы Ant Design, как и виджету.
     const Input = (useFormElement(field.inputElement) as ComponentType<InputProperties<unknown>> | undefined) ?? FieldInput;
     const restricted = useFieldRestricted(field.name);
+    const watched: unknown = Form.useWatch(field.name, { preserve: true });
     if (field.readOnly) {
         return (
-            <Form.Item label={field.title}>
+            <Form.Item label={field.title} {...(field.computed ? { name: field.name } : {})}>
                 <Flex align="center" style={{ minHeight: token.controlHeight }}>
-                    <FieldDisplay field={field} value={record?.[field.name]} />
+                    <FieldDisplay field={field} value={field.computed ? watched : record?.[field.name]} />
                 </Flex>
             </Form.Item>
         );

@@ -39,6 +39,7 @@ const unavailableText = 'Запись недоступна';
  * возвращает `useRecordPresentation`.
  */
 export function recordPresentation(object: ObjectView, record: RecordData): string {
+    if (typeof record['$presentation'] === 'string') return record['$presentation'];
     return formatPresentation({ kind: object.kind === 'document' ? 'document' : 'catalog', name: object.name, title: object.title }, record);
 }
 
@@ -58,6 +59,7 @@ export function recordTitle(object: ObjectView, presentation: string | null): st
  * поле-источник входит в колонки списка, поэтому сервер уже прочитал целевые записи пакетом.
  */
 export function listRecordPresentation(object: ObjectView, record: RecordData, presentations: ReferencePresentations | undefined): string {
+    if (typeof record['$presentation'] === 'string') return record['$presentation'];
     if (object.presentation === null) return recordPresentation(object, record);
     const source = presentationSource(object.presentation, record);
     return (source === null ? null : presentations?.[referenceKey(source)]) ?? unavailableText;
@@ -103,17 +105,18 @@ function useRecordRead(object: ObjectView, guid: string | null) {
 
 /**
  * Представление уже прочитанной записи: так называется запись в заголовке своей формы и вкладки.
- * Собственное представление строится сразу. Для справочника с представлением по ссылке хук
- * читает целевую запись; пока она не прочитана, `text` содержит поясняющий текст. Если целевой
+ * Готовое представление сервера используется сразу. Для прежнего ответа без служебного текста
+ * справочник с представлением по ссылке дочитывается; пока он не прочитан, `text` содержит пояснение. Если целевой
  * объект пользователю недоступен, запись не запрашивается и возвращается «Нет доступа».
  * При `record`, равном `null`, возвращает пустой текст.
  */
 export function useRecordPresentation(object: ObjectView, record: RecordData | null): ReferencePresentation {
     const targetObject = useObjectView(object.presentation?.target ?? null);
-    const source = record === null ? null : presentationSource(object.presentation, record);
+    const source = record === null || Object.hasOwn(record, '$presentation') ? null : presentationSource(object.presentation, record);
     // Хук чтения вызывается всегда; без целевого объекта чтение отключено, и ресурс значения не имеет.
     const target = useRecordRead(targetObject ?? object, targetObject === undefined ? null : source?.guid ?? null);
     if (record === null) return { text: '', loaded: false };
+    if (typeof record['$presentation'] === 'string') return { text: record['$presentation'], loaded: true };
     if (object.presentation === null) return { text: recordPresentation(object, record), loaded: true };
     if (targetObject === undefined) return { text: noAccessText, loaded: false };
     if (source === null) return { text: unavailableText, loaded: false };

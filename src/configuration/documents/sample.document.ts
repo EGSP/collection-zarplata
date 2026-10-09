@@ -7,8 +7,9 @@
  * форму документа с комментарием недоступной для изменения. Удаляется, когда появятся настоящие
  * документы.
  */
+import { SampleLines } from '../sample-lines.js';
 import { Effect } from 'effect';
-import { document, movements } from '../../server/metadata/index.js';
+import { document, formula, movements } from '../../server/metadata/index.js';
 import { SampleDelegate } from '../catalogs/sample-delegate.catalog.js';
 import { Sample } from '../catalogs/sample.catalog.js';
 import { SampleComment } from '../form-elements/sample-comment.form-element.js';
@@ -18,16 +19,18 @@ import { SampleRegister } from '../registers/sample.register.js';
 import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
 import { preventPostedDocumentDeletion } from '../policies/posted-document-deletion.js';
 
+/** Пробный документ с вычислениями, общими строками и составным представлением. */
 export const SampleDocument = document('sample')
     .title('Пробный документ')
     .field('item', (field) => field.reference(Sample).title('Элемент справочника').required())
     .field('delegate', (field) => field.reference(SampleDelegate).title('Элемент с представлением по ссылке'))
     .field('comment', (field) => field.string().title('Комментарий').maximumLength(500))
-    .tablePart('lines', (part) => part
-        .title('Строки')
-        .field('item', (field) => field.reference(Sample).title('Элемент справочника').required())
-        .field('quantity', (field) => field.number().title('Количество').minimum(0).required())
-        .field('amount', (field) => field.money().title('Сумма').minimum(0).required()))
+    .field('total', (field) => field.money().title('Итого после скидки').required().computed(formula.sum('lines', 'netAmount')))
+    .field('discount', (field) => field.number().title('Скидка шапки, %').suggestions(Sample, 'percentage'))
+    .tablePart('lines', (part) => part.title('Строки').include(SampleLines))
+    .listTableParts(['lines'])
+    .presentation([{ text: '№ ' }, { field: 'number', format: 'number' }, { text: ' от ' }, { field: 'date', format: 'date' }, { text: ', ' }, { tablePart: 'lines', field: 'item' }])
+    .action('acceptLines', (action) => action.title('Принять строки').input((input) => input.tablePart('lines', (part) => part.title('Строки действия').include(SampleLines))).handle((input) => Effect.succeed(input.lines)))
     // Элемент ставится на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе строки оказались бы над ней.
     .form((form) => form

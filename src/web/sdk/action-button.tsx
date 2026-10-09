@@ -137,7 +137,7 @@ export function ActionButton<Action extends string = string>({
                 loading={running || loading}
                 disabled={disabled || running}
                 onClick={() => {
-                    if (action.input.length > 0 && input === undefined) setDialogOpen(true);
+                    if ((action.input.length > 0 || (action.tableParts?.length ?? 0) > 0) && input === undefined) setDialogOpen(true);
                     // Об отказе уже сообщило уведомление либо сам экран, поэтому ошибка здесь не обрабатывается.
                     else run(input ?? null).catch(() => undefined);
                 }}

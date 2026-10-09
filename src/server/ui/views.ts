@@ -69,7 +69,10 @@ function formField(field: FieldDescription, title: string = field.title, inputEl
         kind: field.kind,
         target: field.target,
         choices: field.choices,
-        readOnly: field.managed,
+        readOnly: field.managed || field.computed != null,
+        computed: field.computed ?? null,
+        suggestions: field.suggestions ?? null,
+        expandedTablePart: field.expandedTablePart ?? null,
         rules: {
             required: field.required,
             minimumLength: field.minimumLength,
@@ -140,10 +143,11 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
             title: action.title,
             standard: false,
             input: action.input.map((field) => formField(field)),
+            tableParts: action.tableParts.map((part) => ({ name: part.name, title: part.title, columns: part.fields.map((field) => formField(field)) })),
         })),
     ];
 
-    return { fields, tableParts, groups, traversal, actions, creationMode };
+    return { fields, tableParts, groups, traversal, actions, creationMode, calculations: { fields: object.fields.map((field) => formField(field)), tableParts: object.tableParts.map((part) => ({ name: part.name, title: part.title, columns: part.fields.map((field) => formField(field)) })) } };
 }
 
 /**
@@ -164,6 +168,7 @@ export function buildList(object: ObjectDescription): ListView {
     const sortable = fields.filter((field) => field.kind !== 'recorder').map((field) => field.name);
     return {
         columns,
+        tableParts: object.listTableParts,
         filters,
         sortable,
         defaultSort: object.kind === 'informationRegister'
@@ -180,6 +185,7 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
         name: object.name,
         title: object.title,
         presentation: object.presentation,
+        tableParts: object.tableParts.map((part) => ({ name: part.name, title: part.title, columns: part.fields.map((field) => formField(field)) })),
         form: object.kind === 'catalog' || object.kind === 'document' ? buildForm({ ...object, kind: object.kind }) : null,
         list: buildList(object),
     };

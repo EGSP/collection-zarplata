@@ -12,6 +12,7 @@ import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { SampleDelegate } from './catalogs/sample-delegate.catalog.js';
 import { Sample } from './catalogs/sample.catalog.js';
 import { PeriodClosing } from './documents/period-closing.document.js';
+import { SampleSelection } from './documents/sample-selection.document.js';
 import { SampleDocument } from './documents/sample.document.js';
 import { Shift } from './documents/shift.document.js';
 import { ExternalLinks } from './information-registers/external-links.information-register.js';
@@ -23,6 +24,6 @@ export const applicationShell = shell()
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')
         .group('Справочники', [PhysicalPersons, Employees, Nomenclature, Sample, SampleDelegate])
-        .group('Документы', [Shift, PeriodClosing, SampleDocument])
+        .group('Документы', [Shift, PeriodClosing, SampleDocument, SampleSelection])
         .group('Регистры', [SampleRegister, ExternalLinks, SampleInformation])
         .group('Рабочие места', [SampleWorkplace]));

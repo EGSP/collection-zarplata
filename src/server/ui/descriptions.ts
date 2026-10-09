@@ -9,6 +9,8 @@
  * Описание уже учитывает переопределения формы из конфигурации: клиенту не нужно знать,
  * что задано по умолчанию, а что переопределено.
  */
+import type { Formula } from '../../common/formulas.js';
+import type { ValueSuggestions } from '../metadata/descriptions.js';
 import type { DelegatedPresentation, FieldKind, FieldRole, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
 
 export type { DelegatedPresentation, FieldKind, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
@@ -46,6 +48,9 @@ export interface FormField {
     readonly choices?: ReadonlyArray<string> | null;
     /** Значение заполняет платформа: поле показывается, но не редактируется и не входит в порядок обхода. */
     readonly readOnly: boolean;
+    readonly computed?: Formula | null;
+    readonly suggestions?: ValueSuggestions | null;
+    readonly expandedTablePart?: string | null;
     readonly rules: ValidationRules;
     /**
      * Имя собственного элемента конфигурации, который на форме служит полем ввода вместо виджета
@@ -83,6 +88,7 @@ export interface FormAction {
     readonly title: string;
     readonly standard: boolean;
     readonly input: ReadonlyArray<FormField>;
+    readonly tableParts?: ReadonlyArray<FormTablePart>;
 }
 
 /**
@@ -90,6 +96,8 @@ export interface FormAction {
  * только документы при проведении, поэтому формы регистра нет.
  */
 export interface FormView {
+    /** Полный состав для формул, включая скрытые элементы; их значения берутся из записанного состояния. */
+    readonly calculations?: { readonly fields: ReadonlyArray<FormField>; readonly tableParts: ReadonlyArray<FormTablePart> };
     /** Поля, которые выводятся на форму, в порядке объявления. Скрытых полей здесь нет. */
     readonly fields: ReadonlyArray<FormField>;
     /** Табличные части, которые выводятся на форму, в порядке объявления. */
@@ -189,10 +197,14 @@ export interface ListView {
      * показывает помеченные записи отдельным признаком строки. У регистров пометки нет.
      */
     readonly deletionMark: boolean;
+    /** Имена частей для раскрытия строки списка. */
+    readonly tableParts?: ReadonlyArray<string>;
 }
 
 /** Описание объекта для клиента: заголовок, форма и список. */
 export interface ObjectView {
+    /** Полный состав частей для просмотра строк независимо от раскладки формы. */
+    readonly tableParts?: ReadonlyArray<FormTablePart>;
     readonly kind: ObjectKind;
     readonly name: string;
     readonly title: string;

@@ -1,3 +1,4 @@
+import { calculatedInput } from './computed-values.js';
 import { Injectable } from '@nestjs/common';
 import { Effect } from 'effect';
 import { platformRights, requiredRight } from '../authorization/rights.js';
@@ -186,7 +187,8 @@ export class DataService {
             return Effect.gen(function* (this: DataService) {
                 const occurredAt = new Date().toISOString();
                 const schema = actionInputSchema(description, action)!;
-                const input = yield* validated(schema, payload, 'payload');
+                const computed = yield* calculatedInput(custom.input, custom.tableParts, payload, 'payload');
+                const input = yield* validated(schema, computed, 'payload');
                 // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
                 const result = custom.handler!(input as never);
                 if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик действия должен вернуть Effect'));
@@ -267,7 +269,7 @@ export class DataService {
         guid: string | undefined,
         createOperation: (existingRecord: RecordValue | undefined) => Effect.Effect<MutationOperation, unknown, ActionRequirements>,
     ): Effect.Effect<RecordValue, unknown, ActionRequirements> {
-        return Effect.gen(function* () {
+        return Effect.gen(function* (this: DataService) {
             const occurredAt = new Date().toISOString();
             const existingRecord = guid === undefined ? undefined : yield* loadRecord(description, guid);
             const operation = yield* createOperation(existingRecord);
@@ -279,13 +281,22 @@ export class DataService {
                 action,
                 changes: recordChanges(description, existingRecord, resultRecord),
             });
+            const context = yield* ActionContext;
+            const presentations = new ListPresentations(this.metadata.objects, yield* this.rightsGuard.rightsOf(context.userGuid), []);
+            yield* presentations.loadOwn(description, [resultRecord]);
             return resultRecord;
-        });
+        }.bind(this));
     }
 
     /** Читает одну запись вместе со всеми табличными частями; отсутствующая запись даёт 404. */
-    private get(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, Database> {
-        return Effect.suspend(() => loadRecord(description, this.guidPayload(payload)));
+    private get(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, Database | ActionContext> {
+        return Effect.gen(function* (this: DataService) {
+            const record = yield* loadRecord(description, this.guidPayload(payload));
+            const context = yield* ActionContext;
+            const presentations = new ListPresentations(this.metadata.objects, yield* this.rightsGuard.rightsOf(context.userGuid), []);
+            yield* presentations.loadOwn(description, [record]);
+            return record;
+        }.bind(this));
     }
 
     /**
@@ -426,6 +437,7 @@ export class DataService {
                     if (candidates.length < chunkSize) break;
                 }
                 yield* presentations.load(items);
+                if (presented !== null) yield* presentations.loadOwn(presented, items);
                 return { items, total, page, pageSize, presentations: presentations.forPage(items) };
             }
             // Подзапрос повторяет тот же отбор, чтобы total не зависел от размера текущей страницы.
@@ -437,6 +449,7 @@ export class DataService {
             const rows = yield* database.all<RecordValue>(select(table, { where, orderBy, limit: pageSize, offset }));
             const items = rows.map((row) => recordFromRow(row, description));
             yield* presentations.load(items);
+            if (presented !== null) yield* presentations.loadOwn(presented, items);
             return { items, total: count?.total ?? 0, page, pageSize, presentations: presentations.forPage(items) };
         }.bind(this));
     }
@@ -450,7 +463,8 @@ export class DataService {
             const request = objectValue(payload, 'payload');
             const guid = request['guid'] === undefined ? newGuid() : stringValue(request['guid'], 'payload.guid');
             if (request['guid'] !== undefined) yield* validated(fieldSchema(description.fields.find((field) => field.name === 'guid')!), guid, 'payload.guid');
-            const input = yield* validated(inputSchema(description), request['fields'], 'payload.fields') as Effect.Effect<RecordValue, DataValidationError>;
+            const computed = yield* calculatedInput(description.fields, description.tableParts, request['fields'], 'payload.fields');
+            const input = yield* validated(inputSchema(description), computed, 'payload.fields') as Effect.Effect<RecordValue, DataValidationError>;
             const values: Record<string, SqlValue> = { guid, deletedAt: null };
             for (const field of description.fields) {
                 if (!field.managed) values[field.name] = sqlValue(input[field.name]);

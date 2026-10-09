@@ -1,8 +1,11 @@
+import { ComputedValues } from './computed-values';
+import { TablePart } from './table-part';
+import { useFieldTraversal, fieldAttribute } from './field-traversal';
 import { Form, Modal } from 'antd';
 import { useState } from 'react';
 import type { FormAction } from '../../server/ui/descriptions';
 import { ApiError } from '../common/api';
-import { FieldInput } from '../widgets/registry';
+import { FieldDisplay, FieldInput } from '../widgets/registry';
 import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../widgets/validation';
 import { newInputValues, type FormValues } from './record-values';
 
@@ -27,6 +30,8 @@ export interface ActionDialogProperties {
 export function ActionDialog({ action, onExecute, onClose }: ActionDialogProperties) {
     const [form] = Form.useForm<FormValues>();
     const [executing, setExecuting] = useState(false);
+    const parts = action.tableParts ?? [];
+    const traversal = useFieldTraversal([...action.input.filter((field) => !field.readOnly).map((field) => field.name), ...parts.map((part) => part.name)], !executing);
 
     const execute = async (input: FormValues) => {
         setExecuting(true);
@@ -46,6 +51,7 @@ export function ActionDialog({ action, onExecute, onClose }: ActionDialogPropert
     return (
         <Modal
             open
+            width={parts.length > 0 ? 1100 : 520}
             title={action.title}
             okText="Выполнить"
             cancelText="Отмена"
@@ -58,12 +64,14 @@ export function ActionDialog({ action, onExecute, onClose }: ActionDialogPropert
                 if (!executing) onClose();
             }}
         >
-            <Form form={form} layout="vertical" initialValues={newInputValues(action.input)} onFinish={(input) => void execute(input)}>
+            <Form form={form} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])) }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
+                <ComputedValues view={{ fields: action.input, tableParts: parts }} />
                 {action.input.map((field) => (
-                    <Form.Item key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>
-                        <FieldInput field={field} />
+                    <Form.Item {...{ [fieldAttribute]: field.name }} key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>
+                        {field.readOnly ? <FieldDisplay field={field} /> : <FieldInput field={field} ref={traversal.register(field.name)} />}
                     </Form.Item>
                 ))}
+                {parts.map((part) => <div key={part.name} {...{ [fieldAttribute]: part.name }}><TablePart part={part} ref={traversal.register(part.name)} onPrevious={() => traversal.previous(part.name)} disabled={executing} /></div>)}
             </Form>
         </Modal>
     );

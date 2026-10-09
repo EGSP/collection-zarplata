@@ -161,5 +161,8 @@ export function inputSchema(description: ObjectDescription): Schema.Struct<Schem
 /** Схема входных данных собственного действия. */
 export function actionInputSchema(description: ObjectDescription, action: string): Schema.Struct<Schema.Struct.Fields> | null {
     const found = description.actions.find((candidate) => candidate.name === action);
-    return found === undefined ? null : fieldsSchema(found.input);
+    return found === undefined ? null : Schema.Struct({
+        ...fieldsSchema(found.input).fields,
+        ...Object.fromEntries(found.tableParts.map((part) => [part.name, Schema.Array(fieldsSchema(part.fields)).annotateKey({ messageMissingKey: 'табличная часть не передана' })])),
+    });
 }

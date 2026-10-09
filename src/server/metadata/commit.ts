@@ -6,6 +6,9 @@
  * записывают проблемы в общий список, а описание собирается даже из ошибочного состояния —
  * `commitConfiguration` нужно пройти все объекты, прежде чем сообщить об ошибке.
  */
+import type { Formula } from '../../common/formulas.js';
+import type { ReferenceTarget } from './fields.js';
+import { formulaDependencies } from '../../common/formulas.js';
 import { Effect } from 'effect';
 import type { FieldEntry, ObjectBuilder, ObjectState } from './builders.js';
 import type {
@@ -81,8 +84,7 @@ function checkBounds(field: FieldDescription, location: string, problems: Proble
  * Объекты сравниваются по виду и имени, а не по ссылке на билдер: `withStandardFields()`
  * создаёт новый билдер, и в конфигурации лежит уже не тот экземпляр, который импортирован для ссылки.
  */
-function resolveTarget(entry: FieldEntry, location: string, problems: Problems, configuration: ReadonlyArray<ObjectBuilder>): ObjectTarget | null {
-    const target = entry.builder['~state'].target;
+function resolveTarget(entry: FieldEntry, location: string, problems: Problems, configuration: ReadonlyArray<ObjectBuilder>, target: ReferenceTarget | null = entry.builder['~state'].target): ObjectTarget | null {
     if (target === null) {
         problems.add(location, 'не указан объект, на который ссылается поле');
         return null;
@@ -142,6 +144,9 @@ function describeFields(
             title: state.title ?? entry.name,
             required: state.required,
             managed: entry.managed,
+            computed: state.computed,
+            expandedTablePart: state.expandedTablePart,
+            suggestions: state.suggestions === null ? null : { target: resolveTarget(entry, location, problems, configuration, state.suggestions.target)!, field: state.suggestions.field },
             minimumLength: state.minimumLength,
             maximumLength: state.maximumLength,
             minimum: state.minimum,
@@ -151,6 +156,15 @@ function describeFields(
             target: state.kind === 'reference' ? resolveTarget(entry, location, problems, configuration) : null,
         };
         checkBounds(description, location, problems);
+        if (description.suggestions != null) {
+            const target = configuration.find((object) => object.kind === description.suggestions!.target?.kind && object.name === description.suggestions!.target?.name);
+            const source = target?.['~state'].fields.find((field) => field.name === description.suggestions!.field)?.builder['~state'];
+            if (target?.kind !== 'catalog' || source?.kind !== state.kind || state.computed !== null) problems.add(location, 'Подсказки требуют справочник с числовым полем того же вида, без формулы у получателя');
+        }
+        if (state.expandedTablePart !== null) {
+            const target = configuration.find((object) => object.kind === description.target?.kind && object.name === description.target?.name);
+            if (!target?.['~state'].tableParts.some((part) => part.name === state.expandedTablePart)) problems.add(location, 'Для раскрытия нужна существующая табличная часть объекта ссылки');
+        }
         if (description.choices !== null && (
             description.kind !== 'string' || description.choices.length === 0 ||
             new Set(description.choices).size !== description.choices.length ||
@@ -230,7 +244,7 @@ function checkForm(
                 problems.add(location, `нет поля «${override.field}»`);
             } else if (formHiddenStandardFields.has(override.field)) {
                 problems.add(location, `стандартное поле «${override.field}» не выводится на форму`);
-            } else if (field?.managed === true) {
+            } else if (field?.managed === true || field?.computed != null) {
                 problems.add(location, 'поле заполняет платформа, и поля ввода у него нет');
             }
             continue;
@@ -241,7 +255,7 @@ function checkForm(
         if (override.kind === 'hide') {
             hidden.add(override.field);
             const field = fields.find((candidate) => candidate.name === override.field);
-            if (field !== undefined && field.required && !field.managed) {
+            if (field !== undefined && field.required && !field.managed && !field.computed) {
                 problems.add('форма', `нельзя скрыть обязательное поле «${field.name}»: пользователь не сможет его заполнить`);
             }
         }
@@ -256,14 +270,11 @@ function checkForm(
 /**
  * Проверяет поле, по которому строится представление записи. Поле должно быть обязательным:
  * запись без ссылки осталась бы без представления. Цель должна быть задана в метаданных, иначе
- * целевые записи нельзя прочитать одним пакетом. Цель с представлением по ссылке отклоняется:
- * цепочка потребовала бы третьей записи, а кольцо из двух справочников не закончилось бы вовсе.
- * Цель ищется по виду и имени среди билдеров конфигурации, поэтому порядок сборки объектов не важен.
+ * целевые записи нельзя прочитать одним пакетом. Циклы целей проверяет сборка всей конфигурации.
  */
 function describePresentation(
     state: ObjectState,
     fields: ReadonlyArray<FieldDescription>,
-    configuration: ReadonlyArray<ObjectBuilder>,
     problems: Problems,
 ): DelegatedPresentation | null {
     if (state.presentation === null) return null;
@@ -283,11 +294,6 @@ function describePresentation(
         return null;
     }
     if (!field.required) problems.add(location, `поле «${field.name}» должно быть обязательным: запись без ссылки осталась бы без представления`);
-    const { kind, name } = field.target;
-    const target = configuration.find((object) => object.kind === kind && object.name === name);
-    if (target !== undefined && target['~state'].presentation !== null) {
-        problems.add(location, `${kindTitles[kind]} «${name}» сам строит представление по ссылке: цепочки представлений не поддерживаются`);
-    }
     return { field: field.name, target: field.target };
 }
 
@@ -362,10 +368,19 @@ function validateObject(
         if (actionNames.has(action.name)) problems.add(location, `имя действия «${action.name}» повторяется`);
         actionNames.add(action.name);
         if (action.handler === null) problems.add(location, 'не задан обработчик: вызовите handle(...)');
+        const names = new Set(action.input.map((field) => field.name));
+        for (const part of action.tableParts) {
+            const problem = checkName(part.name);
+            if (problem !== null) problems.add(location, problem);
+            if (names.has(part.name)) problems.add(location, 'Имя входных данных повторяется: ' + part.name);
+            if (part.fields.length === 0) problems.add(location, 'Во входной табличной части нет колонок');
+            names.add(part.name);
+        }
         return {
             name: action.name,
             title: action.title ?? action.name,
             input: describeFields(action.input, `${location}, `, problems, configuration),
+            tableParts: action.tableParts.map((part) => ({ name: part.name, title: part.title ?? part.name, fields: describeFields(part.fields, location + ', табличная часть ' + part.name + ', ', problems, configuration) })),
             handler: action.handler,
         };
     });
@@ -374,6 +389,48 @@ function validateObject(
     if (state.posting !== null && state.kind !== 'document') problems.add(null, 'обработчик проведения допустим только у документа');
 
     if (state.form !== null) checkForm(state.form, fields, fieldNames, partNames, formElements, problems);
+
+    for (const name of state.listTableParts) if (!partNames.has(name)) problems.add('список', 'Нет табличной части «' + name + '»');
+    for (const part of state.presentationParts) {
+        if ('text' in part) continue;
+        const source = 'tablePart' in part ? tableParts.find((candidate) => candidate.name === part.tablePart)?.fields : fields;
+        const field = source?.find((candidate) => candidate.name === part.field);
+        if (field === undefined) problems.add('представление', 'Нет поля «' + part.field + '»');
+        else if ('format' in part && part.format !== undefined) {
+            if (part.format === 'number') {
+                if (!['number', 'money'].includes(field.kind) && !(state.kind === 'document' && field.name === 'number')) problems.add('представление', 'Числовой формат требует числовое поле или номер документа');
+            } else if (!['date', 'dateTime'].includes(field.kind)) problems.add('представление', 'Формат даты требует поле даты или даты и времени');
+        }
+    }
+    const checkFormulas = (source: ReadonlyArray<FieldDescription>, parts: ReadonlyArray<TablePartDescription>) => {
+        const dependencies = new Map<string, ReadonlyArray<string>>();
+        for (const field of source) {
+            if (!field.computed) continue;
+            if (field.managed || (state.kind !== 'catalog' && state.kind !== 'document')) problems.add('поле ' + field.name, 'Вычисляемое поле доступно только в реквизитах и строках справочника или документа');
+            try {
+                const referenced = formulaDependencies(field.computed, source, parts);
+                const checkSum = (expression: Formula): void => {
+                    if (expression.operation === 'sum') {
+                        const column = parts.find((part) => part.name === expression.part)?.fields.find((field) => field.name === expression.field);
+                        if (column !== undefined && !['number', 'money'].includes(column.kind)) throw new Error('Сумма использует нечисловую колонку');
+                    } else if (expression.operation === 'round') checkSum(expression.value);
+                    else if ('left' in expression) { checkSum(expression.left); checkSum(expression.right); }
+                };
+                checkSum(field.computed);
+                dependencies.set(field.name, referenced);
+                for (const name of referenced) if (!['number', 'money'].includes(source.find((candidate) => candidate.name === name)!.kind)) throw new Error('Формула использует нечисловое поле');
+            } catch (cause) { problems.add('поле ' + field.name, String(cause)); }
+        }
+        const visit = (name: string, path: ReadonlySet<string>): void => {
+            if (path.has(name)) { problems.add('поле ' + name, 'Цикл вычисляемых полей'); return; }
+            const next = new Set([...path, name]);
+            for (const dependency of dependencies.get(name) ?? []) if (dependencies.has(dependency)) visit(dependency, next);
+        };
+        dependencies.forEach((_value, name) => visit(name, new Set()));
+    };
+    checkFormulas(fields, tableParts);
+    tableParts.forEach((part) => checkFormulas(part.fields, []));
+    actions.forEach((action) => { checkFormulas(action.input, action.tableParts); action.tableParts.forEach((part) => checkFormulas(part.fields, [])); });
 
     const description: ObjectDescription = {
         kind: state.kind,
@@ -384,8 +441,10 @@ function validateObject(
         actions,
         form: state.form === null ? null : { overrides: state.form },
         policies: state.policies,
-        presentation: describePresentation(state, fields, configuration, problems),
+        presentation: describePresentation(state, fields, problems),
         posting: state.posting,
+        presentationParts: state.presentationParts,
+        listTableParts: state.listTableParts,
     };
     return { problems: problems.items, description };
 }
@@ -407,7 +466,7 @@ export function commitObject(
 
 /**
  * Собирает описания всех объектов конфигурации. Кроме проверок каждого объекта проверяет,
- * что имена объектов одного вида не повторяются. `formElements` — имена объявленных элементов
+ * что имена объектов одного вида не повторяются и представления не образуют циклов. `formElements` — имена объявленных элементов
  * формы; без них форма со ссылкой на любой элемент отклоняется. Ошибка перечисляет проблемы всех объектов.
  */
 export function commitConfiguration(
@@ -427,6 +486,23 @@ export function commitConfiguration(
             problems.push(...result.problems);
             return result.description;
         });
+        // Представление может переходить по нескольким объектам, но кольцо не имеет конечного текста.
+        const visit = (object: ObjectDescription, path: ReadonlySet<ObjectDescription>): void => {
+            if (path.has(object)) { problems.push({ object: objectLabel(object), location: 'представление', message: 'Цикл ссылок в представлении' }); return; }
+            const targets: ObjectTarget[] = object.presentation === null ? [] : [object.presentation.target];
+            for (const part of object.presentationParts) {
+                if ('text' in part) continue;
+                const fields = 'tablePart' in part ? object.tableParts.find((candidate) => candidate.name === part.tablePart)?.fields : object.fields;
+                const field = fields?.find((candidate) => candidate.name === part.field);
+                if (field?.target != null) targets.push(field.target);
+            }
+            const next = new Set([...path, object]);
+            for (const target of targets) {
+                const found = descriptions.find((candidate) => candidate.kind === target.kind && candidate.name === target.name);
+                if (found !== undefined) visit(found, next);
+            }
+        };
+        if (problems.length === 0) descriptions.forEach((object) => visit(object, new Set()));
         return problems.length > 0 ? Effect.fail(new MetadataError({ problems })) : Effect.succeed(freeze(descriptions));
     });
 }

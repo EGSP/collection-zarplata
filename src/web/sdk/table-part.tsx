@@ -1,9 +1,10 @@
 import { Button, Flex, Form, Table, Typography, type TableProps } from 'antd';
-import { useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
+import { useImperativeHandle, useLayoutEffect, useRef, useState, type Key, type Ref } from 'react';
 import type { FormTablePart } from '../../server/ui/descriptions';
-import { FieldInput, hasInput } from '../widgets/registry';
+import { FieldDisplay, FieldInput, hasInput } from '../widgets/registry';
 import { fieldRules, isMarkedRequired } from '../widgets/validation';
 import type { InputHandle } from '../widgets/widget';
+import { RecordTablePart } from './record-table-part';
 import { useFieldFocus } from './field-focus';
 import { Icons } from './icons';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
@@ -57,6 +58,11 @@ interface RowTableProperties extends TablePartProperties {
  * ссылки на поля остальных строк. Новая строка получает фокус после регистрации её полей.
  */
 function RowTable({ part, disabled = false, ref, onPrevious, rows, add, remove }: RowTableProperties) {
+    const form = Form.useFormInstance();
+    const watched: unknown = Form.useWatch(part.name, { form, preserve: true });
+    const values = (Array.isArray(watched) ? watched : form.getFieldValue(part.name) ?? []) as Record<string, unknown>[];
+    const expanded = part.columns.filter((column) => column.expandedTablePart && column.target);
+    const [expandedKeys, setExpandedKeys] = useState<ReadonlyArray<Key>>([]);
     const cells = useFieldFocus();
     const pendingRow = useRef<number | null>(null);
     const inputColumns = part.columns.filter((column) => !column.readOnly && hasInput(column));
@@ -107,7 +113,7 @@ function RowTable({ part, disabled = false, ref, onPrevious, rows, add, remove }
                     else addRow();
                 }}>
                     <Form.Item name={[row.name, column.name]} rules={fieldRules(column)} style={{ margin: 0 }}>
-                        <FieldInput field={column} ref={cells.register(cellName(row, column.name))} />
+                        {column.readOnly ? <FieldDisplay field={column} /> : <FieldInput field={column} ref={cells.register(cellName(row, column.name))} />}
                     </Form.Item>
                 </div>
             ),
@@ -120,7 +126,12 @@ function RowTable({ part, disabled = false, ref, onPrevious, rows, add, remove }
     return (
         <Flex vertical gap="small" align="flex-start" data-table-part={part.name}>
             <Typography.Text strong>{part.title}</Typography.Text>
-            <Table<Row> size="small" style={{ width: '100%' }} rowKey="key" columns={columns} dataSource={[...rows]} pagination={false} locale={{ emptyText: 'Строк нет' }} />
+            <Table<Row> size="small" style={{ width: '100%' }} rowKey="key" columns={columns} dataSource={[...rows]} pagination={false} expandable={expanded.length === 0 ? {} : {
+                expandedRowKeys: [...expandedKeys],
+                onExpandedRowsChange: setExpandedKeys,
+                rowExpandable: (row) => expanded.some((column) => typeof values[row.name]?.[column.name] === 'string'),
+                expandedRowRender: (row) => expandedKeys.includes(row.key) ? <Flex vertical gap="small">{expanded.filter((column) => typeof values[row.name]?.[column.name] === 'string').map((column) => <RecordTablePart key={column.name} object={column.target!} guid={String(values[row.name]?.[column.name])} part={column.expandedTablePart!} />)}</Flex> : null,
+            }} locale={{ emptyText: 'Строк нет' }} />
             {!disabled && <Button icon={<Icons.add />} onClick={addRow}>Добавить строку</Button>}
         </Flex>
     );

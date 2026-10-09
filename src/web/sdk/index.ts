@@ -38,6 +38,7 @@ export type {
     SortDirection,
     ValidationRules,
 } from '../../server/ui/descriptions';
+export { RecordTablePart, type RecordTablePartProperties } from './record-table-part';
 export { useObjectView } from '../data-provider/metadata';
 export type { PerformTarget } from '../data-provider/perform';
 

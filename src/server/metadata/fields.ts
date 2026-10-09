@@ -6,6 +6,7 @@
  * Метка добавляется пересечением типов, а не отдельным параметром, чтобы `required()` можно было
  * объявить один раз в базовом классе и сохранить тип подкласса со всеми его методами.
  */
+import type { Formula } from '../../common/formulas.js';
 import type { FieldKind, ObjectTarget, RecorderValue, ObjectReferenceValue } from './descriptions.js';
 
 /**
@@ -29,6 +30,9 @@ export interface FieldState {
     readonly target: ReferenceTarget | null;
     /** Допустимые строковые значения; null означает свободный ввод. */
     readonly choices: ReadonlyArray<string> | null;
+    readonly computed: Formula | null;
+    readonly suggestions: { readonly target: ReferenceTarget; readonly field: string } | null;
+    readonly expandedTablePart: string | null;
 }
 
 /** Метка обязательного поля в типе билдера. Существует только на уровне типов. */
@@ -84,6 +88,10 @@ export class StringFieldBuilder extends FieldBuilder<string> {
 
 /** Число. Для сумм денег используется `MoneyFieldBuilder`: дробные рубли дают ошибки округления. */
 export class NumberFieldBuilder extends FieldBuilder<number> {
+    /** Значение вычисляет платформа; клиентское значение при записи игнорируется. */
+    computed(expression: Formula): this { return this.with({ computed: expression }); }
+    /** Выбор подставляет число, которое пользователь может затем изменить. */
+    suggestions(target: ReferenceTarget, field: string): this { return this.with({ suggestions: { target, field } }); }
     minimum(minimum: number): this {
         return this.with({ minimum });
     }
@@ -100,6 +108,10 @@ export class NumberFieldBuilder extends FieldBuilder<number> {
 
 /** Деньги: целое число копеек. Границы тоже задаются в копейках. */
 export class MoneyFieldBuilder extends FieldBuilder<number> {
+    /** Формула возвращает целое число копеек, например через formula.round(). */
+    computed(expression: Formula): this { return this.with({ computed: expression }); }
+    /** Источник подсказок сумм в копейках. */
+    suggestions(target: ReferenceTarget, field: string): this { return this.with({ suggestions: { target, field } }); }
     minimum(minimum: number): this {
         return this.with({ minimum });
     }
@@ -119,7 +131,10 @@ export class DateTimeFieldBuilder extends FieldBuilder<string> {}
 export class BooleanFieldBuilder extends FieldBuilder<boolean> {}
 
 /** Ссылка на справочник или документ. Значение — `guid` объекта. */
-export class ReferenceFieldBuilder extends FieldBuilder<string> {}
+export class ReferenceFieldBuilder extends FieldBuilder<string> {
+    /** Раскрытие строки формы показывает указанную часть записи по ссылке. */
+    expandTablePart(name: string): this { return this.with({ expandedTablePart: name }); }
+}
 
 /** Ссылка произвольного вида: значение содержит тип, имя объекта и guid записи. */
 export class ObjectReferenceFieldBuilder extends FieldBuilder<ObjectReferenceValue> {}
@@ -149,6 +164,9 @@ function initialState(kind: FieldKind): FieldState {
         integer: kind === 'money',
         target: null,
         choices: null,
+        computed: null,
+        suggestions: null,
+        expandedTablePart: null,
     };
 }
 
