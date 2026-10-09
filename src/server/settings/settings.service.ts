@@ -148,6 +148,8 @@ export class SettingsService {
     /** Срок refresh-токена и его cookie: `REFRESH_TOKEN_LIFETIME_SECONDS`, по умолчанию семь дней. */
     readonly refreshTokenLifetimeSeconds = lifetimeSeconds('REFRESH_TOKEN_LIFETIME_SECONDS', 7 * 24 * 60 * 60);
     readonly webRootPath = isSea() ? '' : path.resolve(import.meta.dirname, '../../web');
+    /** Каталог собранного сайта документации. В исполняемом файле сайт лежит в ресурсах, и путь не используется. */
+    readonly documentationRootPath = isSea() ? '' : path.resolve(import.meta.dirname, '../../docs');
 
     constructor(@Inject(LaunchArguments) launch: LaunchArguments) {
         this.settings = readSettings(launch);

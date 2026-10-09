@@ -8,6 +8,7 @@ import { SettingsService } from '../settings/settings.service.js';
 /**
  * Раздача собранного клиента. Файлы из dist/web отдаются как есть,
  * на остальные GET-запросы вне /api возвращается index.html: маршрутизацией занимается клиент.
+ * Адреса внутри /docs сюда не попадают: их обрабатывает более точный маршрут модуля документации.
  */
 @Module({})
 export class ClientModule implements OnModuleInit {

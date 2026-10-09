@@ -9,7 +9,7 @@ import { useWindowTabs } from '../tabs/window-tabs';
 import { SubsystemList } from './subsystems';
 
 /**
- * Раскладка приложения: слева список подсистем и выход, справа полоса вкладок и страница
+ * Раскладка приложения: слева список подсистем, документация и выход, справа полоса вкладок и страница
  * активной вкладки.
  *
  * Страницы строятся по описаниям объектов, поэтому раскладка показывает их только после
@@ -27,6 +27,7 @@ export function ApplicationLayout() {
                     <div style={{ flex: 1, overflowY: 'auto' }}>
                         <SubsystemList />
                     </div>
+                    <DocumentationButton />
                     <LogoutButton />
                 </Flex>
             </Layout.Sider>
@@ -57,6 +58,26 @@ function PageContent() {
                 </Button>
             }
         />
+    );
+}
+
+/**
+ * Документация открывается в новой вкладке браузера, а не во вкладке приложения: у сайта своё
+ * меню и оформление, внутри окна приложения они повторяли бы его каркас.
+ */
+function DocumentationButton() {
+    const { token } = theme.useToken();
+    return (
+        <Button
+            type="text"
+            icon={<Icons.documentation />}
+            href="/docs/"
+            target="_blank"
+            rel="noopener"
+            style={{ marginInline: token.marginXS, marginBlockStart: token.marginXS, justifyContent: 'flex-start' }}
+        >
+            Документация
+        </Button>
     );
 }
 

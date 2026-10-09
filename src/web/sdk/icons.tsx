@@ -29,6 +29,7 @@ import {
     MoreOutlined,
     PlusOutlined,
     ProfileOutlined,
+    ReadOutlined,
 } from '@ant-design/icons';
 
 /** Иконки приложения по смыслу. Правила пользования описаны во вводном комментарии модуля. */
@@ -47,6 +48,8 @@ export const Icons = {
     more: MoreOutlined,
     /** Главная вкладка. */
     home: HomeOutlined,
+    /** Документация приложения. */
+    documentation: ReadOutlined,
     /** Выход из приложения. */
     signOut: LogoutOutlined,
 

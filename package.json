@@ -2,16 +2,19 @@
   "name": "collection-zarplata",
   "scripts": {
     "prepare": "effect-tsgo patch --typescript --no-oxlint",
-    "typecheck": "npm run metadata:generate && node scripts/configuration-imports-check.ts && tsc --noEmit -p tsconfig.json && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p src/web/tsconfig.json",
+    "typecheck": "npm run metadata:generate && node scripts/configuration-imports-check.ts && node scripts/documentation-check.ts && tsc --noEmit -p tsconfig.json && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p docs/tsconfig.json && tsc --noEmit -p src/web/tsconfig.json",
     "diagnostics": "effect-tsgo diagnostics --project tsconfig.json",
-    "dev": "npm run metadata:generate && npm run build:server && concurrently --prefix-colors blue,green,magenta,yellow \"npm:dev:*\"",
+    "dev": "npm run metadata:generate && npm run build:server && npm run build:docs && concurrently --prefix-colors blue,green,magenta,yellow \"npm:dev:*\"",
     "dev:metadata": "node scripts/metadata-generate.ts --watch",
     "dev:build": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "dev:server": "node --enable-source-maps --watch dist/server/main.js",
     "dev:web": "vite",
-    "build": "npm run metadata:generate && npm run build:server && npm run build:web",
+    "build": "npm run metadata:generate && npm run build:server && npm run build:web && npm run build:docs",
     "build:server": "tsc -p tsconfig.json",
     "build:web": "vite build",
+    "build:docs": "vitepress build docs",
+    "docs:dev": "vitepress dev docs --port 5174",
+    "docs:check": "node scripts/documentation-check.ts",
     "build:executable": "npm run build && node scripts/build-executable.mjs",
     "metadata:generate": "node scripts/metadata-generate.ts",
     "start": "node --enable-source-maps dist/server/main.js",
@@ -54,6 +57,7 @@
     "esbuild": "0.28.2",
     "postject": "1.0.0-alpha.6",
     "typescript": "7.0.2",
-    "vite": "8.3.1"
+    "vite": "8.3.1",
+    "vitepress": "1.6.4"
   }
 }
