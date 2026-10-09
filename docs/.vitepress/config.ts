@@ -2,9 +2,10 @@
  * Настройка сайта документации. VitePress собирает файлы каталога `docs` в `dist/docs`,
  * откуда их отдаёт сервер приложения по адресу `/docs`.
  *
- * Меню сайта не ведётся вручную: порядок разделов берётся из оглавления в корневом
+ * Меню архитектуры не ведётся вручную: порядок разделов берётся из оглавления в корневом
  * ARCHITECTURE.md, а подразделы — из заголовков самих файлов. Поэтому новый раздел достаточно
  * добавить файлом и строкой оглавления, и меню не расходится с тем, что читатель видит на GitHub.
+ * Перед архитектурой в меню стоит раздел «Правила учёта».
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -33,25 +34,44 @@ function subsectionTitles(fileName: string): ReadonlyArray<string> {
     return titles;
 }
 
-/** Меню разделов в порядке оглавления ARCHITECTURE.md; подразделы свёрнуты под своим разделом. */
-function sidebar(): Array<DefaultTheme.SidebarItem> {
+/**
+ * Раздел бизнес-правил магазина. В оглавление ARCHITECTURE.md он не входит: архитектура описывает
+ * механизмы платформы, а не прикладные правила. Поэтому его место в меню задано здесь.
+ */
+const accountingRules = { title: 'Правила учёта', name: 'accounting-rules' };
+
+/** Пункты меню для подразделов файла раздела. */
+function subsectionItems(name: string): Array<DefaultTheme.SidebarItem> {
+    return subsectionTitles(`${name}.md`).map((subsection) => ({
+        text: subsection,
+        link: `/${name}#${githubAnchor(subsection)}`,
+    }));
+}
+
+/** Разделы архитектуры в порядке оглавления ARCHITECTURE.md; подразделы свёрнуты под своим разделом. */
+function architectureSections(): Array<DefaultTheme.SidebarItem> {
     const contents = readFileSync(path.resolve(documentationRoot, '../ARCHITECTURE.md'), 'utf8');
     return [...contents.matchAll(/^- \[(.+)\]\(docs\/(.+)\.md\)$/gm)].map((entry) => {
         const title = entry[1] ?? '';
         const name = entry[2] ?? '';
-        const subsections = subsectionTitles(`${name}.md`);
+        const subsections = subsectionItems(name);
         return {
             text: title,
             link: `/${name}`,
-            ...(subsections.length === 0 ? {} : {
-                collapsed: true,
-                items: subsections.map((subsection) => ({
-                    text: subsection,
-                    link: `/${name}#${githubAnchor(subsection)}`,
-                })),
-            }),
+            ...(subsections.length === 0 ? {} : { collapsed: true, items: subsections }),
         };
     });
+}
+
+/**
+ * Меню сайта из двух групп. Правила учёта стоят первыми и раскрыты: их читает не только
+ * разработчик, и искать их под разделами архитектуры было бы неудобно.
+ */
+function sidebar(): Array<DefaultTheme.SidebarItem> {
+    return [
+        { text: accountingRules.title, link: `/${accountingRules.name}`, items: subsectionItems(accountingRules.name) },
+        { text: 'Архитектура', link: '/', items: architectureSections() },
+    ];
 }
 
 export default defineConfig({
