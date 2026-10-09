@@ -9,7 +9,7 @@
 - [Структура проекта](docs/project-structure.md)
 - [Метаданные](docs/metadata.md)
 - [База данных](docs/database.md)
-- [Единый эндпоинт](docs/single-endpoint.md)
+- [API данных](docs/single-endpoint.md)
 - [Вход в приложение](docs/authentication.md)
 - [Права (RBAC)](docs/authorization.md)
 - [Политики записи](docs/write-policies.md)
