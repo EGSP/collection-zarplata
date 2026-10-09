@@ -1,3 +1,10 @@
+---
+covers:
+  - src/server/metadata/**
+  - scripts/metadata-generate.ts
+  - scripts/configuration-imports-check.ts
+---
+
 # Метаданные
 
 ## Виды объектов

@@ -1,3 +1,8 @@
+---
+covers:
+  - tsconfig.base.json
+---
+
 # Инструменты разработки
 
 - **Проверка кода.** После изменений код проверяется командой `effect-tsgo` из пакета `@effect/tsgo`. Она выполняет проверку типов TypeScript 7 и выдаёт диагностики Effect Language Service. Плагин `@effect/language-service` подключён в `tsconfig.json`.

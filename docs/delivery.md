@@ -1,3 +1,10 @@
+---
+covers:
+  - scripts/build-executable.mjs
+  - scripts/executable-entry.cjs
+  - src/server/client/**
+---
+
 # Поставка
 
 - Для сборки на Windows x64 нужен Node.js 24.8 или новее, npm и установленные зависимости (`npm ci`). Выполните `npm run build:executable`, скопируйте `dist/executable/collection-zarplata.exe` в каталог поставки, рядом создайте `collection-zarplata.settings.json` по образцу и запустите `.exe`. На целевой машине Node.js и `node_modules` не нужны.

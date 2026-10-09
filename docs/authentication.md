@@ -1,3 +1,9 @@
+---
+covers:
+  - src/server/authentication/**
+  - src/web/authentication/**
+---
+
 # Вход в приложение
 
 - `POST /api/authentication/login` принимает `{ "pin": "1234" }` и возвращает новую пару токенов в cookie. PIN содержит от 4 до 12 цифр и однозначно определяет пользователя.

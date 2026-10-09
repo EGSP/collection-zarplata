@@ -1,3 +1,9 @@
+---
+covers:
+  - src/server/authorization/**
+  - src/configuration/roles.ts
+---
+
 # Права (RBAC)
 
 ## Права

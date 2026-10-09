@@ -1,3 +1,11 @@
+---
+covers:
+  - src/server/database/**
+  - src/server/schema/**
+  - src/server/data/typed-select.ts
+  - src/server/data/storage-values.ts
+---
+
 # База данных
 
 Используется **Turso** — SQLite-совместимая встраиваемая база, переписанная на Rust. Проект находится в статусе бета: часть возможностей SQLite ещё не реализована.

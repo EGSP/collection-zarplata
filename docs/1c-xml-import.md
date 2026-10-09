@@ -1,3 +1,9 @@
+---
+covers:
+  - tools/1c-xml-import/**
+  - src/server/data/import.ts
+---
+
 # Импорт из универсальной XML-выгрузки 1С
 
 Стандартное действие `import` доступно справочникам и требует права записи. Тело `payload` содержит `externalSystem` и непустой список `items` (до 500 элементов). Каждый элемент содержит `sourceObject`, `externalIdentifier` и `fields`; ответ возвращает `externalIdentifier`, `guid` и `status` (`created` или `updated`) в исходном порядке.

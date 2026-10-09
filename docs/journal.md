@@ -1,3 +1,9 @@
+---
+covers:
+  - src/server/journal/**
+  - src/server/data/action-context.ts
+---
+
 # Журнал действий
 
 ## Контекст действия
