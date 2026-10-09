@@ -10,6 +10,7 @@ import { Effect } from 'effect';
 import type { FieldEntry, ObjectBuilder, ObjectState } from './builders.js';
 import type {
     ActionDescription,
+    DelegatedPresentation,
     FieldDescription,
     FormOverride,
     ObjectDescription,
@@ -253,6 +254,44 @@ function checkForm(
 }
 
 /**
+ * Проверяет поле, по которому строится представление записи. Поле должно быть обязательным:
+ * запись без ссылки осталась бы без представления. Цель должна быть задана в метаданных, иначе
+ * целевые записи нельзя прочитать одним пакетом. Цель с представлением по ссылке отклоняется:
+ * цепочка потребовала бы третьей записи, а кольцо из двух справочников не закончилось бы вовсе.
+ * Цель ищется по виду и имени среди билдеров конфигурации, поэтому порядок сборки объектов не важен.
+ */
+function describePresentation(
+    state: ObjectState,
+    fields: ReadonlyArray<FieldDescription>,
+    configuration: ReadonlyArray<ObjectBuilder>,
+    problems: Problems,
+): DelegatedPresentation | null {
+    if (state.presentation === null) return null;
+    const location = 'представление';
+    // Тип билдера даёт presentation(...) только справочнику, но состояние может прийти и без проверки типов.
+    if (state.kind !== 'catalog') {
+        problems.add(location, 'представление по ссылке задаётся только у справочника');
+        return null;
+    }
+    const field = fields.find((candidate) => candidate.name === state.presentation);
+    if (field === undefined) {
+        problems.add(location, `нет поля «${state.presentation}»`);
+        return null;
+    }
+    if (field.kind !== 'reference' || field.target === null) {
+        problems.add(location, `поле «${field.name}» должно быть ссылкой с заданной целью: field.reference(Объект)`);
+        return null;
+    }
+    if (!field.required) problems.add(location, `поле «${field.name}» должно быть обязательным: запись без ссылки осталась бы без представления`);
+    const { kind, name } = field.target;
+    const target = configuration.find((object) => object.kind === kind && object.name === name);
+    if (target !== undefined && target['~state'].presentation !== null) {
+        problems.add(location, `${kindTitles[kind]} «${name}» сам строит представление по ссылке: цепочки представлений не поддерживаются`);
+    }
+    return { field: field.name, target: field.target };
+}
+
+/**
  * Замораживает описание целиком, включая вложенные массивы и объекты. `Object.freeze` действует
  * только на один уровень, а описание читают многие модули платформы. Функции (обработчики
  * и политики) не замораживаются: `typeof` у них `function`, а не `object`.
@@ -345,6 +384,7 @@ function validateObject(
         actions,
         form: state.form === null ? null : { overrides: state.form },
         policies: state.policies,
+        presentation: describePresentation(state, fields, configuration, problems),
         posting: state.posting,
     };
     return { problems: problems.items, description };

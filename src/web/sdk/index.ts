@@ -53,7 +53,7 @@ export { useRecord, type RecordQuery } from './record';
 export { defaultPageSize, useRecordList, type RecordList, type RecordListOptions } from './record-list';
 
 // Представления записей и ссылки на них.
-export { recordPresentation, recordTitle, useReferencePresentation, type ReferencePresentation } from '../references/presentation';
+export { recordPresentation, recordTitle, useRecordPresentation, useReferencePresentation, type ReferencePresentation } from '../references/presentation';
 export { RecordLink, type RecordLinkProperties } from '../references/reference-display';
 
 // Область окна страницы, открытие формы записи, адреса страниц объектов и собственных страниц конфигурации.

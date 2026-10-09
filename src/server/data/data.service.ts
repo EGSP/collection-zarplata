@@ -295,6 +295,8 @@ export class DataService {
      * и разбиения на страницы. Строки регистра упорядочиваются по регистратору и номеру строки.
      * Отдельный поиск проверяет каждую видимую колонку по её отображаемому тексту; ссылки
      * читаются пакетами с проверкой прав, а представления страницы возвращаются клиенту.
+     * Отбор `presentation` ищет подстроку в представлении самой записи: по нему поле выбора
+     * находит запись под тем же текстом, которым она показана.
      */
     private list(description: ObjectDescription, payload: unknown): Effect.Effect<unknown, unknown, Database | ActionContext> {
         return Effect.gen(function* (this: DataService) {
@@ -304,6 +306,15 @@ export class DataService {
                 return yield* new DataValidationError({ message: 'Для поиска нужна строка', fields: ['payload.search'] });
             }
             const search = (options['search'] as string | undefined) ?? '';
+            if (options['presentation'] !== undefined && typeof options['presentation'] !== 'string') {
+                return yield* new DataValidationError({ message: 'Для поиска по представлению нужна строка', fields: ['payload.presentation'] });
+            }
+            const presentation = normalizeSearchText('string', (options['presentation'] as string | undefined) ?? '');
+            // Представление есть только у записей, на которые можно сослаться; строку регистра оно не называет.
+            const presented = description.kind === 'catalog' || description.kind === 'document' ? { ...description, kind: description.kind } : null;
+            if (presentation !== '' && presented === null) {
+                return yield* new DataValidationError({ message: 'Поиск по представлению доступен только для справочников и документов', fields: ['payload.presentation'] });
+            }
             const columns = buildList(description).columns;
             const context = yield* ActionContext;
             const rights = yield* this.rightsGuard.rightsOf(context.userGuid);
@@ -383,7 +394,7 @@ export class DataService {
             }
             const table = tableName(description);
             const database = this.database.effect;
-            if (predicates.length > 0 || search !== '') {
+            if (predicates.length > 0 || search !== '' || presentation !== '') {
                 const items: RecordValue[] = [];
                 let total = 0;
                 let scanned = 0;
@@ -395,7 +406,12 @@ export class DataService {
                     const records = candidates.filter((row) => predicates.every((predicate) => predicate(row)))
                         .map((row) => recordFromRow(row, description));
                     if (search !== '') yield* presentations.load(records);
+                    if (presented !== null && presentation !== '') yield* presentations.loadOwn(presented, records);
                     for (const record of records) {
+                        if (presented !== null && presentation !== '') {
+                            const own = presentations.ownText(presented, record);
+                            if (own === null || !normalizeSearchText('string', own).includes(presentation)) continue;
+                        }
                         if (search !== '' && !columns.some((column) => {
                             const displayed = ['reference', 'objectReference', 'recorder'].includes(column.kind)
                                 ? presentations.text(column, record)

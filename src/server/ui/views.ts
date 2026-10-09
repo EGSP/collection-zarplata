@@ -179,6 +179,7 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
         kind: object.kind,
         name: object.name,
         title: object.title,
+        presentation: object.presentation,
         form: object.kind === 'catalog' || object.kind === 'document' ? buildForm({ ...object, kind: object.kind }) : null,
         list: buildList(object),
     };
