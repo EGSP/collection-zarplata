@@ -5,14 +5,27 @@ covers:
 
 # Стек
 
-| Слой | Технологии |
+Справочник технологий основного приложения для разработчика. Точные версии npm-пакетов закреплены в [package.json](../package.json); числа в таблице обозначают основные версии соответствующих библиотек, а TypeScript 7 обозначает версию языка и компилятора.
+
+| Область | Технологии и назначение |
 |---|---|
-| База данных | Turso (встраиваемая, файл рядом с приложением) |
-| Язык | TypeScript 7 |
-| Бэкенд | NestJS 12 на Fastify, Effect 4 в бизнес-логике |
-| Валидация | Effect Schema на сервере |
-| Фронтенд | React 19, Refine (`@refinedev/core`, `@refinedev/react-router` с React Router 7), Ant Design 6, TanStack Query, TanStack Store, TanStack Hotkeys, axios, сборка Vite |
-| Документация | Markdown в каталоге `docs`, сайт собирает VitePress, схемы рисует Mermaid |
-| Проверка кода | `effect-tsgo` (`@effect/tsgo`): проверка типов TypeScript 7 и диагностики Effect Language Service |
-| Пакеты | npm, один `package.json` |
-| Поставка | один исполняемый файл |
+| Исполнение | Node.js запускает сервер и служебные скрипты |
+| Язык | TypeScript 7; общие строгие настройки находятся в [tsconfig.base.json](../tsconfig.base.json) |
+| База данных | Встраиваемая Turso (`@tursodatabase/database`); путь к файлу задаётся настройками, для ручной проверки используется база в памяти |
+| Сервер | NestJS 12 управляет маршрутизацией, контроллерами и внедрением зависимостей; HTTP-сервером служит Fastify 5 |
+| Бизнес-логика и валидация | Effect 4, сейчас `4.0.0-rc.118`; серверная проверка данных использует Effect Schema |
+| Интерфейс | React 19 и Ant Design 6; Refine (`@refinedev/core` 5) связывает ресурсы и операции с данными, `@refinedev/react-router` 2 подключает React Router 7 |
+| Данные и состояние клиента | TanStack Query управляет запросами и кешем, TanStack Store хранит состояние, axios отправляет HTTP-запросы; TanStack Hotkeys обрабатывает сочетания клавиш |
+| Сборка клиента | Vite 8 |
+| Документация | Markdown в каталоге `docs`, VitePress 1 собирает сайт, Mermaid 11 отображает схемы |
+| Проверка кода | `effect-tsgo` из `@effect/tsgo` проверяет типы и диагностики Effect Language Service; установка подготавливает команду `tsc` для этой проверки |
+| Пакеты | npm; зависимости приложения и команды сборки описаны в одном `package.json` |
+| Поставка | Сборка одного исполняемого файла для Windows x64 использует Node.js SEA, esbuild и postject; в файл встроены клиент, документация и нативный модуль Turso |
+
+Устройство хранения описано в разделе [«База данных»](database.md), клиентских компонентов в разделе [«Интерфейс»](interface.md), команды разработки и поставки в разделе [«Сборка и запуск»](build-and-launch.md). Упаковку исполняемого файла выполняет [скрипт сборки](https://github.com/EGSP/collection-zarplata/blob/main/scripts/build-executable.mjs).
+
+## Инструмент импорта XML из 1С
+
+Отдельная утилита [tools/1c-xml-import](https://github.com/EGSP/collection-zarplata/blob/main/tools/1c-xml-import/README.md) написана на Go и загружает выгрузку 1С через API приложения. Версия Go `1.27.0` и зависимости инструмента закреплены в [go.mod](https://github.com/EGSP/collection-zarplata/blob/main/tools/1c-xml-import/go.mod). Стандартная библиотека обрабатывает XML и HTTP, `golang.org/x/term` скрывает ввод PIN.
+
+Go нужен только для сборки этой утилиты. Основное приложение собирается без Go, а готовый инструмент запускается без установленного Go. Утилита имеет собственный модуль и собирается отдельно от npm-проекта; порядок сборки и использования приведён в её руководстве.

@@ -15,3 +15,5 @@ src/configuration/*.generated.ts
 # Собранный инструмент импорта из 1С
 /tools/1c-xml-import/collection-xml-import
 /tools/1c-xml-import/*.exe
+# Каталоги сборки инструментов, в том числе остатки прежней сборки на Rust
+/tools/**/target/
