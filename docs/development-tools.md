@@ -5,9 +5,46 @@ covers:
 
 # Инструменты разработки
 
-- **Проверка кода.** После изменений код проверяется командой `effect-tsgo` из пакета `@effect/tsgo`. Она выполняет проверку типов TypeScript 7 и выдаёт диагностики Effect Language Service. Плагин `@effect/language-service` подключён в `tsconfig.json`.
-- **Исходники Effect в репозитории.** Репозиторий Effect подключён через `git subtree` в `repos/effect` и служит справочником по API и примерам. Код из `repos/` не импортируется и не редактируется. Обновление:
+Страница предназначена разработчику: здесь описаны проверка типов и правил Effect, а также работа с исходниками внешних библиотек. Установка зависимостей, сборка и ручная проверка приложения описаны в разделе [«Сборка и запуск»](build-and-launch.md).
 
-  ```bash
-  git subtree pull --prefix=repos/effect https://github.com/Effect-TS/effect.git main --squash
-  ```
+## Как проверить код
+
+Выполняйте команды из корня рабочей копии проекта с установленными зависимостями.
+
+После каждого изменения кода запустите:
+
+```bash
+npm run typecheck
+```
+
+Команда обновляет реестр объектов конфигурации, проверяет границы импортов и связь документации с кодом, затем проверяет типы без сборки файлов. Проверка охватывает сервер и конфигурацию, служебные скрипты, настройку сайта документации и клиент. Исправьте найденные ошибки и предупреждения Effect, затем повторите проверку; подавлять их вместо исправления не следует.
+
+Для подробного отчёта Effect по серверному проекту запустите:
+
+```bash
+npm run diagnostics
+```
+
+Этот отчёт относится к корневому `tsconfig.json` и не заменяет проверку остальных проектов командой `typecheck`. После успешной проверки типов проверьте изменённое поведение приложения [вручную](build-and-launch.md). В проекте не создаются автотесты и не подключаются тестовые фреймворки.
+
+## Как подключена проверка Effect
+
+Проект использует TypeScript 7 и пакет `@effect/tsgo`. При установке зависимостей скрипт `prepare` выполняет `effect-tsgo patch --typescript --no-oxlint`: он подключает Effect Language Service к установленному TypeScript. Поэтому команды проекта вызывают `tsc`, а проверка выдаёт и диагностики TypeScript, и диагностики Effect. Состав команд определён в [`package.json`](https://github.com/EGSP/collection-zarplata/blob/main/package.json).
+
+Запись плагина `@effect/language-service` находится в [`tsconfig.base.json`](https://github.com/EGSP/collection-zarplata/blob/main/tsconfig.base.json). Её наследуют сервер, служебные скрипты и клиент. [Настройка сайта документации](https://github.com/EGSP/collection-zarplata/blob/main/docs/tsconfig.json) проверяется отдельно и не наследует базовую настройку.
+
+## Как читать исходники внешних библиотек
+
+Репозиторий Effect подключён через `git subtree` в `repos/effect` и служит справочником по API и примерам. Перед использованием API Effect сверяйтесь с [`packages/effect/src`](https://github.com/EGSP/collection-zarplata/tree/main/repos/effect/packages/effect/src), [`LLMS.md`](https://github.com/EGSP/collection-zarplata/blob/main/repos/effect/LLMS.md) и [`ai-docs`](https://github.com/EGSP/collection-zarplata/tree/main/repos/effect/ai-docs).
+
+При разработке приложения исходники в `repos/` используются только для чтения. Приложение импортирует библиотеки из установленных пакетов, а не из этого каталога; локальные правки внешних исходников требуют отдельного поручения.
+
+## Как обновить исходники Effect
+
+Обновление справочной копии Effect выполняется отдельной задачей в рабочей ветке. Команда создаёт коммиты, поэтому её запуск требует явного одобрения пользователя согласно [правилам работы агентов](https://github.com/EGSP/collection-zarplata/blob/main/AGENTS.md):
+
+```bash
+git subtree pull --prefix=repos/effect https://github.com/Effect-TS/effect.git main --squash
+```
+
+Команда получает изменения из внешнего репозитория и включает их в текущую ветку. Обновление `repos/effect` не меняет версию установленного пакета `effect`: зависимости приложения задаются отдельно в `package.json`.
