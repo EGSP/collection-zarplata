@@ -47,7 +47,7 @@ const standardPermissions = {
         post: ['post', 'unpost'],
     },
     register: {
-        read: ['list'],
+        read: ['list', 'totals'],
     },
 } as const satisfies { readonly [Kind in ObjectKind]: { readonly [permission: string]: ReadonlyArray<string> } };
 
@@ -75,9 +75,12 @@ function right(...segments: ReadonlyArray<string>): Right {
 /**
  * Права платформы, которые не относятся к объектам конфигурации. Журнал показывает изменения
  * всех объектов, поэтому его чтение — отдельное право, а не следствие права чтения объекта.
+ * Перепроведение заменяет движения документов всех видов и не вызывает политики проведения,
+ * поэтому право проведения отдельных документов его не разрешает.
  */
 export const platformRights = Object.freeze({
     journal: Object.freeze({ read: right('platform', 'journal', 'read') }),
+    documents: Object.freeze({ repost: right('platform', 'documents', 'repost') }),
 });
 
 /** Стандартные права объекта вида `Kind`. */

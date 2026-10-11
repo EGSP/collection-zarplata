@@ -6,7 +6,7 @@ import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
 import { newGuid } from '../common/guid.js';
 import { DatabaseService } from '../database/database.service.js';
 import { Database } from '../database/database.effect.js';
-import { insert, remove, select, sqlIdentifier, update, type SqlCondition, type SqlFilter, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
+import { insert, remove, select, sqlIdentifier, update, type SqlFilter, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { MetadataService } from '../metadata/metadata.service.js';
@@ -17,11 +17,13 @@ import { formatSearchValue, normalizeSearchText } from '../ui/value-format.js';
 import { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
-import { guidValue, loadRecord, objectValue, pageOptions, recordFromRow, sqlValue, stringValue, tableName, validated, type RecordValue } from './records.js';
+import { guidValue, loadRecord, objectValue, pageOptions, recordFromRow, sqlOperators, sqlValue, stringValue, tableName, validated, type RecordValue } from './records.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { enforcePolicies, type PolicyInvocation } from './policies.js';
 import { importCatalog } from './import.js';
 import { getInformation, mutateInformation } from './information-register.js';
+import { totalsAction } from './register-totals.js';
+import { documentsTarget, repostDocuments } from './reposting.js';
 import { buildList } from '../ui/views.js';
 import { ListPresentations } from './list-presentations.js';
 
@@ -42,19 +44,6 @@ type RowPredicate = (row: RecordValue) => boolean;
 
 /** Ширина номера документа: номера одной длины сортируются как строки в числовом порядке. */
 const numberWidth = 6;
-
-/**
- * Операторы SQL для способов сравнения из формата описаний. `contains` в SQL не переводится:
- * `LIKE` в Turso считает `%` и `_` шаблоном и не складывает регистр кириллицы.
- */
-const sqlOperators: { readonly [Operator in Exclude<FilterOperator, 'contains'>]: SqlCondition['operator'] } = {
-    equals: '=',
-    notEquals: '!=',
-    greater: '>',
-    greaterOrEqual: '>=',
-    less: '<',
-    lessOrEqual: '<=',
-};
 
 /** Проверяет оболочку операции, оставляя проверку payload схеме конкретного действия. */
 function parseOperation(value: unknown): Operation {
@@ -130,6 +119,17 @@ export class DataService {
                 yield* this.rightsGuard.require(user, platformRights.journal.read);
                 return yield* readJournal(operation.action, operation.payload);
             }
+            const context: ActionContext = {
+                userGuid: user,
+                traceGuid: parent._tag === 'Some' ? parent.value.traceGuid : newGuid(),
+                actionGuid: newGuid(),
+                parentActionGuid: parent._tag === 'Some' ? parent.value.actionGuid : null,
+            };
+            if (operation.target.kind === documentsTarget.kind && operation.target.name === documentsTarget.name) {
+                if (operation.action !== 'repost') return yield* new DataNotFoundError({ message: `Действие «${operation.action}» для документов не найдено` });
+                yield* this.rightsGuard.require(user, platformRights.documents.repost);
+                return yield* Effect.provideService(repostDocuments, ActionContext, context);
+            }
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
             if (description === undefined) {
                 return yield* new DataNotFoundError({ message: `Объект ${operation.target.kind}.${operation.target.name} не найден` });
@@ -137,12 +137,6 @@ export class DataService {
             // Действия, которого у объекта нет, право не защищает: диспетчер ответит, что оно не найдено.
             const right = requiredRight(description, operation.action);
             if (right !== undefined) yield* this.rightsGuard.require(user, right);
-            const context: ActionContext = {
-                userGuid: user,
-                traceGuid: parent._tag === 'Some' ? parent.value.traceGuid : newGuid(),
-                actionGuid: newGuid(),
-                parentActionGuid: parent._tag === 'Some' ? parent.value.actionGuid : null,
-            };
             return yield* Effect.provideService(this.dispatch(description, operation.action, operation.payload), ActionContext, context);
         }.bind(this));
     }
@@ -175,6 +169,7 @@ export class DataService {
         }
         if (description.kind === 'register') {
             if (action === 'list') return this.list(description, payload);
+            if (action === 'totals') return totalsAction(description, payload);
             // Движения должны соответствовать проведённым документам, поэтому записывает их только проведение.
             if (['get', 'save', 'markDeleted', 'unmarkDeleted', 'post', 'unpost'].includes(action)) {
                 return Effect.fail(new DataNotFoundError({

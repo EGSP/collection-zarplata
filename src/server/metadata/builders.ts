@@ -18,7 +18,7 @@
 import type { PresentationPart } from './descriptions.js';
 import type { Effect } from 'effect';
 import { commitObject } from './commit.js';
-import type { FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RecordOpeningMode, RegisterMovements } from './descriptions.js';
+import type { FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RecordOpeningMode, RegisterConstraintDescription, RegisterMovements } from './descriptions.js';
 import {
     fieldFactory,
     type AnyFieldBuilder,
@@ -61,6 +61,18 @@ export interface ActionEntry {
     readonly handler: ((input: never) => unknown) | null;
 }
 
+/**
+ * Объявленное ограничение итога регистра. `resource` и `minimum` равны `null`, пока не вызван
+ * `minimum(...)`: такое ограничение отклоняет `commit()`.
+ */
+export interface ConstraintEntry {
+    readonly name: string;
+    readonly by: ReadonlyArray<string>;
+    readonly resource: string | null;
+    readonly minimum: number | null;
+    readonly message: RegisterConstraintDescription['message'];
+}
+
 /** Всё, что накопила цепочка вызовов билдера объекта. Из этого состояния `commit()` собирает описание. */
 export interface ObjectState {
     readonly kind: ObjectKind;
@@ -77,6 +89,8 @@ export interface ObjectState {
     readonly listTableParts: ReadonlyArray<string>;
     /** Обработчик проведения; задаётся только у документа. */
     readonly posting: ((record: never) => unknown) | null;
+    /** Ограничения итога; задаются только у регистра оборотов. */
+    readonly constraints: ReadonlyArray<ConstraintEntry>;
     /** Вызван ли `withStandardFields()`: без стандартных полей `commit()` завершается ошибкой. */
     readonly standardFieldsAdded: boolean;
 }
@@ -474,26 +488,90 @@ export interface InformationRegisterBuilder<Name extends string, Fields extends 
     policy(policy: Policy<ObjectRecord<'informationRegister', Fields, {}>>): InformationRegisterBuilder<Name, Fields>;
 }
 
-/** Билдер регистра оборотов. Строки регистра записывают документы при проведении. */
-export interface RegisterBuilder<Name extends string, Fields extends FieldMap> extends ObjectBuilder<'register', Name> {
+/** Имена ресурсов регистра: поля, которые не объявлены измерениями. */
+export type ResourceNames<Fields extends FieldMap, Dimensions extends string> = Exclude<keyof Fields & string, Dimensions>;
+
+/** Суммы всех ресурсов регистра по именам. */
+export type ResourceTotals<Fields extends FieldMap, Dimensions extends string> = { readonly [Resource in ResourceNames<Fields, Dimensions>]: number };
+
+/**
+ * Данные для текста отказа: значения измерений нарушенного сочетания и суммы всех ресурсов
+ * регистра по нему после изменения движений.
+ */
+export interface ConstraintViolation<Fields extends FieldMap, Dimensions extends string, By extends Dimensions> {
+    readonly dimensions: Simplify<Pick<FieldsRecord<Fields>, By & keyof Fields>>;
+    readonly totals: Simplify<ResourceTotals<Fields, Dimensions>>;
+}
+
+/**
+ * Билдер ограничения итога регистра. `By` накапливает измерения из `by(...)`, поэтому функция
+ * текста отказа получает значения именно этих измерений; `by(...)` вызывается раньше `message(...)`.
+ * Без `by(...)` ограничение относится к итогу по всему регистру.
+ */
+export class RegisterConstraintBuilder<Fields extends FieldMap, Dimensions extends string, By extends Dimensions = never> {
+    readonly '~entry': ConstraintEntry;
+
+    constructor(entry: ConstraintEntry) {
+        this['~entry'] = entry;
+    }
+
+    /** Измерения, по сочетанию значений которых считается итог. Повторный вызов заменяет список. */
+    by<const Names extends ReadonlyArray<Dimensions>>(names: Names): RegisterConstraintBuilder<Fields, Dimensions, Names[number]> {
+        return new RegisterConstraintBuilder({ ...this['~entry'], by: names });
+    }
+
+    /** Ресурс и наименьшее допустимое значение его суммы; для денег значение задаётся в копейках. */
+    minimum(resource: ResourceNames<Fields, Dimensions>, value: number): RegisterConstraintBuilder<Fields, Dimensions, By> {
+        return new RegisterConstraintBuilder({ ...this['~entry'], resource, minimum: value });
+    }
+
+    /**
+     * Текст отказа. Функция возвращает Effect и может читать данные в транзакции действия,
+     * например представление документа из измерения; изменять базу она не может. Без этого
+     * вызова платформа называет в отказе регистр, ресурс, итог и допустимое значение.
+     */
+    message(message: (violation: ConstraintViolation<Fields, Dimensions, By>) => Effect.Effect<string, unknown, unknown>): RegisterConstraintBuilder<Fields, Dimensions, By> {
+        return new RegisterConstraintBuilder({ ...this['~entry'], message });
+    }
+}
+
+/**
+ * Билдер регистра оборотов. Строки регистра записывают документы при проведении. `Dimensions`
+ * хранит имена измерений отдельно от `Fields`: по типу поля измерение от ресурса не отличить,
+ * а итоги и ограничения принимают в одних местах только измерения, в других только ресурсы.
+ */
+export interface RegisterBuilder<Name extends string, Fields extends FieldMap, Dimensions extends string = never> extends ObjectBuilder<'register', Name> {
     readonly '~fields': Fields;
     readonly '~tableParts': {};
     /** У регистра нет собственных действий. */
     readonly '~actions': never;
+    /** Только для вывода типов: имена измерений. */
+    readonly '~dimensions': Dimensions;
 
-    title(title: string): RegisterBuilder<Name, Fields>;
+    title(title: string): RegisterBuilder<Name, Fields, Dimensions>;
 
     /** Измерение: разрез, по которому отбирают и группируют строки. */
     dimension<const FieldName extends string, Field extends AnyFieldBuilder>(
         name: AvailableFieldName<FieldName, 'register', Fields>,
         define: (field: FieldFactory) => Field,
-    ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }>;
+    ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }, Dimensions | FieldName>;
 
     /** Ресурс: число или деньги, которые суммируются. */
     resource<const FieldName extends string, Field extends ResourceFieldBuilder>(
         name: AvailableFieldName<FieldName, 'register', Fields>,
         define: (field: FieldFactory) => Field,
-    ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }>;
+    ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }, Dimensions>;
+
+    /**
+     * Ограничение итога: сумма ресурса по сочетанию значений измерений не может стать меньше
+     * заданного значения. Платформа проверяет его после каждого изменения движений документа
+     * и при нарушении отменяет транзакцию. Ограничений может быть несколько, их имена не повторяются.
+     * Объявляется после измерений и ресурсов, которые в нём названы.
+     */
+    constraint(
+        name: string,
+        define: (constraint: RegisterConstraintBuilder<Fields, Dimensions>) => RegisterConstraintBuilder<Fields, Dimensions, Dimensions>,
+    ): RegisterBuilder<Name, Fields, Dimensions>;
 }
 
 /**
@@ -507,8 +585,8 @@ export type MovementOf<Fields extends FieldMap> = Simplify<FieldsRecord<Fields> 
  * Связывает строки движений с регистром для обработчика проведения. Тип строки выводится из
  * билдера регистра, поэтому TypeScript отклоняет неизвестные измерения и ресурсы.
  */
-export function movements<Name extends string, Fields extends FieldMap>(
-    register: RegisterBuilder<Name, Fields>,
+export function movements<Name extends string, Fields extends FieldMap, Dimensions extends string>(
+    register: RegisterBuilder<Name, Fields, Dimensions>,
     rows: ReadonlyArray<MovementOf<Fields>>,
 ): RegisterMovements {
     return { register: register.name, rows };
@@ -593,6 +671,11 @@ class ObjectBuilderImplementation {
         return this.with({ posting: handler });
     }
 
+    constraint(name: string, define: (constraint: RegisterConstraintBuilder<FieldMap, string>) => RegisterConstraintBuilder<FieldMap, string, string>): this {
+        const constraint = define(new RegisterConstraintBuilder({ name, by: [], resource: null, minimum: null, message: null }));
+        return this.with({ constraints: [...this['~state'].constraints, constraint['~entry']] });
+    }
+
     withStandardFields(): this {
         if (this['~state'].standardFieldsAdded) return this;
         const standard: ReadonlyArray<FieldEntry> = Object.entries(standardFields[this.kind]).map(([name, builder]) => ({
@@ -624,7 +707,7 @@ export function isObjectBuilder(value: unknown): value is ObjectBuilder {
 }
 
 function emptyState(kind: ObjectKind, name: string): ObjectState {
-    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, standardFieldsAdded: false };
+    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, constraints: [], standardFieldsAdded: false };
 }
 
 // Функции ниже приводят реализацию к интерфейсу через unknown: точные типы полей существуют

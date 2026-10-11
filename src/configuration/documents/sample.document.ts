@@ -17,7 +17,6 @@ import { SampleLock } from '../form-elements/sample-lock.form-element.js';
 import { SampleTotal } from '../form-elements/sample-total.form-element.js';
 import { SampleRegister } from '../registers/sample.register.js';
 import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
-import { preventPostedDocumentDeletion } from '../policies/posted-document-deletion.js';
 
 /** Пробный документ с вычислениями, общими строками и составным представлением. */
 export const SampleDocument = document('sample')
@@ -38,7 +37,6 @@ export const SampleDocument = document('sample')
         .group('Строки и итог', ['lines', SampleTotal])
         .input('comment', SampleComment))
     .policy(closedPeriodByDocumentDate())
-    .policy(preventPostedDocumentDeletion())
     .posting((record) => Effect.succeed([
         movements(SampleRegister, record.lines.map((line) => ({ item: line.item, quantity: line.quantity, amount: line.amount }))),
     ]));

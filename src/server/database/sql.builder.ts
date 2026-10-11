@@ -116,6 +116,30 @@ export function select(table: string, options: SelectOptions = {}): SqlQuery {
     return { sql, parameters };
 }
 
+/** Настройки выборки сумм: колонки группировки, суммируемые колонки и отбор строк до группировки. */
+export interface SumOptions {
+    readonly groupBy: readonly string[];
+    readonly sums: readonly string[];
+    readonly where?: readonly SqlFilter[];
+}
+
+/**
+ * Строит выборку сумм колонок `sums` по сочетаниям значений колонок `groupBy`. Строка результата
+ * содержит колонки группировки и суммы под именами исходных колонок. Без группировки запрос
+ * возвращает ровно одну строку, а сумма по пустому набору строк равна нулю, а не NULL.
+ * Строки упорядочены по колонкам группировки, чтобы результат не зависел от плана запроса.
+ */
+export function selectSums(table: string, options: SumOptions): SqlQuery {
+    if (options.sums.length === 0) throw new Error('Нужно указать хотя бы одну суммируемую колонку');
+    const parameters: SqlValue[] = [];
+    const groups = options.groupBy.map(sqlIdentifier);
+    // SUM по пустому набору строк возвращает NULL; вызывающему коду нужен нулевой итог.
+    const sums = options.sums.map((column) => `COALESCE(SUM(${sqlIdentifier(column)}), 0) AS ${sqlIdentifier(column)}`);
+    let sql = `SELECT ${[...groups, ...sums].join(', ')} FROM ${sqlIdentifier(table)}${conditions(options.where, parameters)}`;
+    if (groups.length > 0) sql += ` GROUP BY ${groups.join(', ')} ORDER BY ${groups.join(', ')}`;
+    return { sql, parameters };
+}
+
 /** Строит вставку; порядок значений совпадает с порядком колонок в SQL. */
 export function insert(table: string, values: Readonly<Record<string, SqlValue>>): SqlQuery {
     const entries = Object.entries(values);
