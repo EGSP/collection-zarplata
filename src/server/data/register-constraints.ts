@@ -13,25 +13,24 @@
 import { Effect } from 'effect';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
-import { select, type SqlFilter, type SqlValue } from '../database/sql.builder.js';
+import { query, type QueryFilter } from '../database/sql.builder.js';
 import type { ObjectDescription, RegisterConstraintDescription } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { formatSearchValue } from '../ui/value-format.js';
 import type { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataPolicyError } from './data.errors.js';
-import { tableName, type RecordValue } from './records.js';
+import type { RecordValue } from './records.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { readTotals, registerResources } from './register-totals.js';
-import { fieldValueFromRow } from './storage-values.js';
 
 /** Сервисы, доступные функции текста отказа: те же, что у политики записи. */
 type ConstraintRequirements = Database | Metadata | ActionContext | ActionDispatcher;
 
-/** Хранимые значения измерений движений документа в одном регистре с ограничениями. */
+/** Логические значения измерений движений документа в одном регистре с ограничениями. */
 export interface RegisterMovementKeys {
     readonly register: ObjectDescription;
     /** Строки содержат только измерения, названные в ограничениях регистра. */
-    readonly rows: ReadonlyArray<Readonly<Record<string, SqlValue>>>;
+    readonly rows: ReadonlyArray<Readonly<Record<string, unknown>>>;
 }
 
 /**
@@ -47,11 +46,10 @@ export function documentMovementKeys(document: ObjectDescription, guid: string):
             if (register.kind !== 'register' || register.constraints.length === 0) continue;
             const columns = [...new Set(register.constraints.flatMap((constraint) => constraint.by))];
             // У ограничения итога по всему регистру измерений нет; номер строки нужен, чтобы узнать, есть ли движения.
-            const rows = yield* database.all<Record<string, SqlValue>>(select(tableName(register), {
+            const rows = yield* database.all<RecordValue>(query(register).select({
                 columns: columns.length > 0 ? columns : ['lineNumber'],
                 where: [
-                    { column: 'recorderDocument', operator: '=', value: document.name },
-                    { column: 'recorderGuid', operator: '=', value: guid },
+                    { column: 'recorder', operator: '=', value: { document: document.name, guid } },
                 ],
             }));
             if (rows.length > 0) result.push({ register, rows });
@@ -79,18 +77,15 @@ export function enforceConstraints(movements: ReadonlyArray<RegisterMovementKeys
         for (const register of new Set(movements.map((group) => group.register))) {
             const rows = movements.filter((group) => group.register === register).flatMap((group) => group.rows);
             for (const constraint of register.constraints) {
-                // Ключ различает сочетания по хранимым значениям; у итога по всему регистру сочетание одно.
+                // Ключ различает сочетания по логическим значениям; у итога по всему регистру сочетание одно.
                 const combinations = new Map(rows.map((row) => {
                     const values = constraint.by.map((name) => row[name] ?? null);
                     return [JSON.stringify(values), values] as const;
                 }));
                 for (const values of combinations.values()) {
-                    const where: SqlFilter[] = constraint.by.map((column, index) => ({ column, operator: '=', value: values[index] ?? null }));
+                    const where: QueryFilter[] = constraint.by.map((column, index) => ({ column, operator: '=', value: values[index] ?? null }));
                     const [row] = yield* readTotals(register, constraint.by, where);
-                    const dimensions: RecordValue = Object.fromEntries(constraint.by.map((name, index) => {
-                        const field = register.fields.find((candidate) => candidate.name === name);
-                        return [name, field === undefined ? values[index] : fieldValueFromRow(values[index], field.kind)];
-                    }));
+                    const dimensions: RecordValue = Object.fromEntries(constraint.by.map((name, index) => [name, values[index]]));
                     // Сочетание без движений в результате отсутствует: его итог равен нулю по всем ресурсам.
                     const totals: RecordValue = Object.fromEntries(registerResources(register).map((field) => [field.name, row?.[field.name] ?? 0]));
                     const total = totals[constraint.resource] as number;

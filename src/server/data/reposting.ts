@@ -13,7 +13,7 @@
 import { Effect } from 'effect';
 import type { CurrentUserRights } from '../authorization/current-user-rights.js';
 import { Database } from '../database/database.effect.js';
-import { select } from '../database/sql.builder.js';
+import { query } from '../database/sql.builder.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { writeJournal } from '../journal/journal.js';
@@ -21,7 +21,6 @@ import { formatDateTime } from '../ui/value-format.js';
 import type { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataPolicyError, DataValidationError } from './data.errors.js';
 import { post } from './posting.js';
-import { tableName } from './records.js';
 
 /** Цель операции в запросе и в журнале. Вид `platform` не совпадает ни с одним видом объектов конфигурации. */
 export const documentsTarget = { kind: 'platform', name: 'documents' } as const;
@@ -47,9 +46,9 @@ export const repostDocuments: Effect.Effect<{ readonly documents: number }, unkn
     const queue: PostedDocument[] = [];
     for (const description of metadata.objects) {
         if (description.kind !== 'document') continue;
-        const rows = yield* database.all<{ guid: string; number: string; date: string }>(select(tableName(description), {
+        const rows = yield* database.all<{ guid: string; number: string; date: string }>(query(description).select({
             columns: ['guid', 'number', 'date'],
-            where: [{ column: 'posted', operator: '=', value: 1 }],
+            where: [{ column: 'posted', operator: '=', value: true }],
         }));
         queue.push(...rows.map((row) => ({ description, ...row })));
     }

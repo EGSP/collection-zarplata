@@ -13,7 +13,7 @@
 import { Effect } from 'effect';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
-import { selectSums, type SqlFilter } from '../database/sql.builder.js';
+import { query, type QueryFilter } from '../database/sql.builder.js';
 import type { RegisterBuilder, ResourceTotals } from '../metadata/builders.js';
 import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
 import type { FieldMap, FieldsRecord } from '../metadata/fields.js';
@@ -21,8 +21,7 @@ import { Metadata } from '../metadata/metadata.effect.js';
 import { fieldSchema } from '../metadata/schema.js';
 import { filterOperators, type FilterOperator } from '../ui/descriptions.js';
 import { DataValidationError } from './data.errors.js';
-import { objectValue, sqlOperators, sqlValue, stringValue, tableName, validated, type RecordValue } from './records.js';
-import { fieldValueFromRow } from './storage-values.js';
+import { objectValue, sqlOperators, stringValue, validated, type RecordValue } from './records.js';
 
 /** Число знаков после запятой, до которого округляется сумма дробного ресурса. */
 const fractionDigits = 9;
@@ -55,17 +54,17 @@ export function registerResources(register: ObjectDescription): ReadonlyArray<Fi
  * ресурсов. Сочетание без движений в результат не попадает; без группировки возвращается ровно
  * одна строка, при отсутствии движений с нулевыми суммами.
  *
- * Имена `by` и колонки `where` вызывающий код берёт из описания регистра: функция их не проверяет.
+ * Имена `by` и поля `where` проверяет общий билдер по описанию регистра.
  */
 export function readTotals(
     register: ObjectDescription,
     by: ReadonlyArray<string>,
-    where: ReadonlyArray<SqlFilter> = [],
+    where: ReadonlyArray<QueryFilter> = [],
 ): Effect.Effect<ReadonlyArray<RecordValue>, DatabaseError, Database> {
     return Effect.gen(function* () {
         const database = yield* Database;
         const resources = registerResources(register);
-        const rows = yield* database.all<RecordValue>(selectSums(tableName(register), {
+        const rows = yield* database.all<RecordValue>(query(register).sums({
             groupBy: by,
             sums: resources.map((field) => field.name),
             where,
@@ -73,8 +72,7 @@ export function readTotals(
         return rows.map((row) => {
             const result: RecordValue = {};
             for (const name of by) {
-                const field = register.fields.find((candidate) => candidate.name === name);
-                result[name] = field === undefined ? row[name] : fieldValueFromRow(row[name], field.kind);
+                result[name] = row[name];
             }
             for (const field of resources) result[field.name] = roundedSum(field, row[field.name]);
             return result;
@@ -120,7 +118,7 @@ export function totals<Name extends string, Fields extends FieldMap, Dimensions 
         for (const name of [...options.by, ...equalities.map(([name]) => name)]) {
             if (!dimensions.has(name)) return yield* Effect.die(new Error(`У регистра «${register.name}» нет измерения «${name}»`));
         }
-        const where: SqlFilter[] = equalities.map(([column, value]) => ({ column, operator: '=', value: sqlValue(value) }));
+        const where: QueryFilter[] = equalities.map(([column, value]) => ({ column, operator: '=', value }));
         if (options.period?.from !== undefined) where.push({ column: 'period', operator: '>=', value: options.period.from });
         if (options.period?.before !== undefined) where.push({ column: 'period', operator: '<', value: options.period.before });
         const rows = yield* readTotals(description, options.by, where);
@@ -153,7 +151,7 @@ export function totalsAction(register: ObjectDescription, payload: unknown): Eff
             if (names.includes(name)) return yield* new DataValidationError({ message: `Измерение «${name}» указано дважды`, fields: [`payload.by.${name}`] });
             names.push(name);
         }
-        const where: SqlFilter[] = [];
+        const where: QueryFilter[] = [];
         for (const raw of conditions) {
             const condition = objectValue(raw, 'payload.where');
             const name = stringValue(condition['field'], 'payload.where.field');
@@ -170,7 +168,7 @@ export function totalsAction(register: ObjectDescription, payload: unknown): Eff
                 return yield* new DataValidationError({ message: `Неверное значение отбора «${name}»`, fields: [location] });
             }
             if (value !== null) yield* validated(fieldSchema(field), value, location);
-            where.push({ column: name, operator: sqlOperators[operator], value: sqlValue(value) });
+            where.push({ column: name, operator: sqlOperators[operator], value });
         }
         return { items: yield* readTotals(register, names, where) };
     });

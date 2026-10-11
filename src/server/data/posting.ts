@@ -21,13 +21,13 @@
 import { Effect, flow, pipe, Schema } from 'effect';
 import type { CurrentUserRights } from '../authorization/current-user-rights.js';
 import { Database } from '../database/database.effect.js';
-import { insert, remove, update, type SqlValue } from '../database/sql.builder.js';
+import { query } from '../database/sql.builder.js';
 import type { ObjectDescription, RegisterMovements } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { fieldsSchema } from '../metadata/schema.js';
 import type { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataValidationError } from './data.errors.js';
-import { loadRecord, sqlValue, tableName, validated, type RecordValue } from './records.js';
+import { loadRecord, validated, type RecordValue } from './records.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { documentMovementKeys, enforceConstraints } from './register-constraints.js';
 
@@ -56,10 +56,10 @@ function when(predicate: (state: DocumentState) => boolean, step: Step): Step {
 }
 
 /** Меняет колонки записи в базе и в состоянии одинаково, чтобы состояние оставалось актуальным без чтения. */
-function setValues(state: DocumentState, values: Readonly<Record<string, SqlValue>>, record: RecordValue): Effect.Effect<DocumentState, unknown, Database> {
+function setValues(state: DocumentState, values: Readonly<Record<string, unknown>>, record: RecordValue): Effect.Effect<DocumentState, unknown, Database> {
     return Effect.gen(function* () {
         const database = yield* Database;
-        yield* database.run(update(tableName(state.description), values, [{ column: 'guid', operator: '=', value: state.record['guid'] as string }]));
+        yield* database.run(query(state.description).update(values, [{ column: 'guid', operator: '=', value: state.record['guid'] as string }]));
         return { description: state.description, record: { ...state.record, ...record } };
     });
 }
@@ -72,7 +72,7 @@ const ensureNotDeleted: Step = (state) => state.record['deletedAt'] === null
     : Effect.fail(new DataValidationError({ message: 'Документ помечен на удаление, провести его нельзя', fields: ['payload.guid'] }));
 
 /** Устанавливает или снимает признак проведения. */
-const setPosted = (posted: boolean): Step => (state) => setValues(state, { posted: posted ? 1 : 0 }, { posted });
+const setPosted = (posted: boolean): Step => (state) => setValues(state, { posted }, { posted });
 
 /** Устанавливает пометку удаления текущим временем или снимает её. */
 const setDeletedAt = (marked: boolean): Step => (state) => {
@@ -89,10 +89,7 @@ const removeMovements: Step = (state) => Effect.gen(function* () {
     const database = yield* Database;
     const metadata = yield* Metadata;
     for (const register of metadata.objects.filter((object) => object.kind === 'register')) {
-        yield* database.run(remove(tableName(register), [
-            { column: 'recorderDocument', operator: '=', value: state.description.name },
-            { column: 'recorderGuid', operator: '=', value: guidOf(state) },
-        ]));
+        yield* database.run(query(register).remove([{ column: 'recorder', operator: '=', value: { document: state.description.name, guid: guidOf(state) } }]));
     }
     return state;
 });
@@ -124,9 +121,9 @@ const writeMovements: Step = (state) => Effect.gen(function* () {
         for (const row of checked) {
             const lineNumber = (lineNumbers.get(register.name) ?? 0) + 1;
             lineNumbers.set(register.name, lineNumber);
-            const values: Record<string, SqlValue> = { recorderDocument: description.name, recorderGuid: guidOf(state), lineNumber };
-            for (const field of fields) values[field.name] = sqlValue(row[field.name]);
-            yield* database.run(insert(tableName(register), values));
+            const values: RecordValue = { recorder: { document: description.name, guid: guidOf(state) }, lineNumber };
+            for (const field of fields) values[field.name] = row[field.name] ?? null;
+            yield* database.run(query(register).insert(values));
         }
     }
     return state;

@@ -1,21 +1,18 @@
 /**
- * Чтение записей и преобразование значений между базой, входными данными и ответом.
+ * Чтение полных записей и проверка входных данных по метаданным.
  *
- * Модуль общий для диспетчера и шагов проведения: оба читают записи и пишут значения полей
- * по одним правилам. Функции получают базу из окружения Effect, поэтому не зависят от
+ * Модуль общий для диспетчера и шагов проведения: оба читают записи и проверяют входные данные
+ * по одним правилам. Запросы строит общий билдер, а функции получают базу из окружения Effect и не зависят от
  * Nest-сервисов и работают внутри транзакции, которую открыл диспетчер.
  */
 import { Effect, Schema } from 'effect';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
-import { select, type SqlCondition } from '../database/sql.builder.js';
+import { query, type SqlCondition } from '../database/sql.builder.js';
 import { guidPattern } from '../common/guid.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
 import type { FilterOperator } from '../ui/descriptions.js';
-import { fieldValueFromRow } from './storage-values.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
-
-export { sqlValue } from './storage-values.js';
 
 /** Представление строки после чтения из базы или проверки входных данных. */
 export type RecordValue = Record<string, unknown>;
@@ -86,11 +83,6 @@ export function pageOptions(options: RecordValue): PageOptions {
     return { page, pageSize, offset };
 }
 
-/** Имя таблицы выводится только из проверенных метаданных, а не из произвольной строки запроса. */
-export function tableName(description: ObjectDescription): string {
-    return `${description.kind}_${description.name}`;
-}
-
 /**
  * Собирает все ошибки Effect Schema за один проход и возвращает их вместе с путями полей.
  * Схема передаётся из метаданных; её ошибка становится ответом 400, а `location` задаёт
@@ -112,43 +104,23 @@ export function validated<S extends Schema.Top>(schema: S, value: unknown, locat
 }
 
 /**
- * Восстанавливает логические поля после чтения из SQLite и собирает регистратор движения из двух
- * колонок, в которых он хранится. JSON полных ссылок возвращается объектом значения.
- */
-export function recordFromRow(row: RecordValue, description: ObjectDescription): RecordValue {
-    const { recorderDocument, recorderGuid, ...movement } = row;
-    const record = description.kind === 'register' ? movement : { ...row };
-    for (const field of description.fields) {
-        if (Object.hasOwn(record, field.name)) record[field.name] = fieldValueFromRow(record[field.name], field.kind);
-        if (field.kind === 'recorder') record[field.name] = { document: recorderDocument, guid: recorderGuid };
-    }
-    return record;
-}
-
-/**
  * Читает запись справочника или документа вместе со всеми табличными частями, сохраняя порядок
  * строк по `lineNumber`. Отсутствующая запись завершается `DataNotFoundError`.
  */
 export function loadRecord(description: ObjectDescription, guid: string): Effect.Effect<RecordValue, DataNotFoundError | DatabaseError, Database> {
     return Effect.gen(function* () {
         const database = yield* Database;
-        const table = tableName(description);
-        const row = yield* database.get<RecordValue>(select(table, { where: [{ column: 'guid', operator: '=', value: guid }] }));
+        const builder = query(description);
+        const row = yield* database.get<RecordValue>(builder.select({ where: [{ column: 'guid', operator: '=', value: guid }] }));
         if (row === undefined) return yield* new DataNotFoundError({ message: `Запись ${description.name} с guid ${guid} не найдена` });
-        const record = recordFromRow(row, description);
+        const record = { ...row };
         for (const part of description.tableParts) {
-            const rows = yield* database.all<RecordValue>(select(`${table}_${part.name}`, {
+            const rows = yield* database.all<RecordValue>(builder.tablePart(part.name).select({
                 where: [{ column: 'ownerGuid', operator: '=', value: guid }],
                 orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
             }));
             // Служебные ключи связывают строку с владельцем, но не входят в значение табличной части.
-            record[part.name] = rows.map(({ ownerGuid: _ownerGuid, lineNumber: _lineNumber, ...fields }) => {
-                const result = { ...fields };
-                for (const field of part.fields) {
-                    result[field.name] = fieldValueFromRow(result[field.name], field.kind);
-                }
-                return result;
-            });
+            record[part.name] = rows.map(({ ownerGuid: _ownerGuid, lineNumber: _lineNumber, ...fields }) => fields);
         }
         return record;
     });

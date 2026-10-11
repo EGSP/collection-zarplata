@@ -11,7 +11,7 @@
  */
 import { Effect } from 'effect';
 import { DataPolicyError } from '../../server/data/data.errors.js';
-import { selectTyped } from '../../server/data/typed-select.js';
+import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
 import { document, movements } from '../../server/metadata/index.js';
 import { Goods } from '../goods.js';
@@ -48,7 +48,7 @@ export const Refund = document('refund')
         const database = yield* Database;
         const rows = [];
         for (const [saleGuid, total] of returned) {
-            const sale = yield* database.get(selectTyped(Sale, {
+            const sale = yield* database.get(query(Sale).select({
                 columns: ['shift'],
                 where: [{ column: 'guid', operator: '=', value: saleGuid }],
                 limit: 1,

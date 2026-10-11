@@ -12,13 +12,12 @@ import { readRight } from '../authorization/rights.js';
 import type { UserRights } from '../authorization/rights-guard.platform.js';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
-import { select } from '../database/sql.builder.js';
+import { query } from '../database/sql.builder.js';
 import type { ObjectDescription, ObjectReferenceValue } from '../metadata/descriptions.js';
 import type { ListColumn } from '../ui/descriptions.js';
 import { columnReference, presentationSource, recordPresentation, referenceKey, type ReferencePresentations } from '../ui/reference-presentation.js';
 import { formatSearchValue, formatDate, formatDateTime } from '../ui/value-format.js';
-import { fieldValueFromRow } from './storage-values.js';
-import { tableName, type RecordValue } from './records.js';
+import type { RecordValue } from './records.js';
 
 /** Кеш и пакетное чтение ссылок списка в транзакции вызывающего действия. */
 export class ListPresentations {
@@ -71,11 +70,14 @@ export class ListPresentations {
                 for (const record of loaded) record[name] = [];
                 for (let start = 0; start < guids.length; start += 500) {
                     const identifiers = guids.slice(start, start + 500);
-                    const query = select(tableName(object) + '_' + name, { columns: ['ownerGuid', 'lineNumber', ...usedFields.map((field) => field.name)] });
-                    const rows = yield* database.all<RecordValue>({ sql: query.sql + ' WHERE "ownerGuid" IN (' + identifiers.map(() => '?').join(', ') + ') ORDER BY "lineNumber"', parameters: identifiers });
+                    const rows = yield* database.all<RecordValue>(query(object).tablePart(name).select({
+                        columns: ['ownerGuid', 'lineNumber', ...usedFields.map((field) => field.name)],
+                        where: [{ column: 'ownerGuid', operator: 'IN', value: identifiers }],
+                        orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
+                    }));
                     for (const row of rows) {
                         const owner = owners.get(row['ownerGuid']);
-                        if (owner !== undefined) (owner[name] as RecordValue[]).push(Object.fromEntries(usedFields.map((field) => [field.name, fieldValueFromRow(row[field.name], field.kind)])));
+                        if (owner !== undefined) (owner[name] as RecordValue[]).push(Object.fromEntries(usedFields.map((field) => [field.name, row[field.name]])));
                     }
                 }
             }
@@ -140,13 +142,10 @@ export class ListPresentations {
             for (const [object, group] of groups) {
                 const guids = [...group.keys()];
                 for (let start = 0; start < guids.length; start += 500) {
-                    const selection = select(tableName(object), {});
                     const identifiers = guids.slice(start, start + 500);
-                    const rows = yield* database.all<RecordValue>({
-                        sql: selection.sql + ' WHERE "guid" IN (' + identifiers.map(() => '?').join(', ') + ')',
-                        parameters: identifiers,
-                    });
-                    for (const row of rows) for (const field of object.fields) row[field.name] = fieldValueFromRow(row[field.name], field.kind);
+                    const rows = yield* database.all<RecordValue>(query(object).select({
+                        where: [{ column: 'guid', operator: 'IN', value: identifiers }],
+                    }));
                     yield* this.loadOwn(object, rows);
                 }
             }

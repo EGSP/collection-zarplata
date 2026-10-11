@@ -1,3 +1,14 @@
+/**
+ * Билдер запросов платформы: метаданные задают имена и типы логических полей, отображение
+ * хранения задаёт столбцы, а этот модуль формирует SQL и параметры для Database.
+ * Функции с именем таблицы обслуживают служебные таблицы, не описанные объектами конфигурации.
+ */
+import type { FieldEntry, ListRecordOf, ObjectBuilder } from '../metadata/builders.js';
+import type { FieldsRecord } from '../metadata/fields.js';
+import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
+import { fieldStorage, tablePartStorageFields, type FieldStorage } from './field-storage.js';
+import type { TypedSqlQuery } from './typed-query.js';
+
 /** Значение запроса передаётся драйверу отдельно от текста SQL. */
 export type SqlValue = string | number | bigint | boolean | null | Uint8Array;
 
@@ -116,30 +127,6 @@ export function select(table: string, options: SelectOptions = {}): SqlQuery {
     return { sql, parameters };
 }
 
-/** Настройки выборки сумм: колонки группировки, суммируемые колонки и отбор строк до группировки. */
-export interface SumOptions {
-    readonly groupBy: readonly string[];
-    readonly sums: readonly string[];
-    readonly where?: readonly SqlFilter[];
-}
-
-/**
- * Строит выборку сумм колонок `sums` по сочетаниям значений колонок `groupBy`. Строка результата
- * содержит колонки группировки и суммы под именами исходных колонок. Без группировки запрос
- * возвращает ровно одну строку, а сумма по пустому набору строк равна нулю, а не NULL.
- * Строки упорядочены по колонкам группировки, чтобы результат не зависел от плана запроса.
- */
-export function selectSums(table: string, options: SumOptions): SqlQuery {
-    if (options.sums.length === 0) throw new Error('Нужно указать хотя бы одну суммируемую колонку');
-    const parameters: SqlValue[] = [];
-    const groups = options.groupBy.map(sqlIdentifier);
-    // SUM по пустому набору строк возвращает NULL; вызывающему коду нужен нулевой итог.
-    const sums = options.sums.map((column) => `COALESCE(SUM(${sqlIdentifier(column)}), 0) AS ${sqlIdentifier(column)}`);
-    let sql = `SELECT ${[...groups, ...sums].join(', ')} FROM ${sqlIdentifier(table)}${conditions(options.where, parameters)}`;
-    if (groups.length > 0) sql += ` GROUP BY ${groups.join(', ')} ORDER BY ${groups.join(', ')}`;
-    return { sql, parameters };
-}
-
 /** Строит вставку; порядок значений совпадает с порядком колонок в SQL. */
 export function insert(table: string, values: Readonly<Record<string, SqlValue>>): SqlQuery {
     const entries = Object.entries(values);
@@ -171,4 +158,279 @@ export function remove(table: string, where: readonly SqlFilter[]): SqlQuery {
     if (where.length === 0) throw new Error('Для DELETE нужно указать условия отбора');
     const parameters: SqlValue[] = [];
     return { sql: `DELETE FROM ${sqlIdentifier(table)}${conditions(where, parameters)}`, parameters };
+}
+
+/** Операторы для значения поля: составные и логические поля сравниваются только на равенство. */
+type FieldOperator<Value> = unknown extends Value ? SqlCondition['operator'] : Exclude<Value, null> extends boolean | object ? '=' | '!='
+    : Exclude<Value, null> extends string ? SqlCondition['operator'] : Exclude<SqlCondition['operator'], 'LIKE'>;
+
+/** Условие связывает имя поля, способ сравнения и тип значения; IN принимает значения того же поля. */
+export type QueryCondition<Row extends Record<string, unknown>> = {
+    [Name in keyof Row & string]:
+        | { readonly column: Name; readonly operator: FieldOperator<Row[Name]>; readonly value: Row[Name] | null }
+        | { readonly column: Name; readonly operator: 'IN'; readonly value: readonly Row[Name][] }
+}[keyof Row & string];
+
+/** Вложенные группы all/any соединяются через AND/OR; верхний список означает AND. */
+export type QueryFilter<Row extends Record<string, unknown> = Record<string, unknown>> = QueryCondition<Row>
+    | { readonly any: readonly QueryFilter<Row>[] }
+    | { readonly all: readonly QueryFilter<Row>[] };
+
+/** Настройки чтения в именах логических полей; без columns возвращаются все поля строки. */
+export interface QuerySelectOptions<Row extends Record<string, unknown>, Columns extends readonly (keyof Row & string)[]> {
+    readonly columns?: Columns;
+    readonly where?: readonly QueryFilter<Row>[];
+    readonly orderBy?: readonly { readonly column: keyof Row & string; readonly direction: 'ASC' | 'DESC' }[];
+    readonly limit?: number;
+    readonly offset?: number;
+}
+
+/** Имена числовых полей, допустимых в SUM. */
+export type NumericQueryColumn<Row> = { [Name in keyof Row]: unknown extends Row[Name] ? Name : Exclude<Row[Name], null> extends number ? Name : never }[keyof Row] & string;
+
+/** Вставка требует обязательные поля; поля с допустимым null можно пропустить. */
+export type QueryInsertValues<Row> = Pick<Row, {
+    [Name in keyof Row]: null extends Row[Name] ? never : Name
+}[keyof Row]> & Partial<Row>;
+
+/** Настройки группировки и сумм; отбор применяется до группировки, страница после неё. */
+export interface QuerySumOptions<Row extends Record<string, unknown>, Groups extends readonly (keyof Row & string)[], Sums extends readonly NumericQueryColumn<Row>[]> {
+    readonly groupBy: Groups;
+    readonly sums: Sums;
+    readonly where?: readonly QueryFilter<Row>[];
+    readonly orderBy?: readonly { readonly column: Groups[number] | Sums[number]; readonly direction: 'ASC' | 'DESC' }[];
+    readonly limit?: number;
+    readonly offset?: number;
+}
+
+/** Типы строк табличных частей по исходному билдеру объекта. */
+type QueryParts<Builder extends ObjectBuilder> = {
+    [Name in keyof Builder['~tableParts']]: FieldsRecord<Builder['~tableParts'][Name]>
+};
+
+/** Поля строки части вместе с ключами, которые заполняет платформа. */
+type TablePartRow<Row> = Row & { readonly ownerGuid: string; readonly lineNumber: number };
+
+/** Описание поля билдера для кодека; цель ссылки не требуется для проверки и хранения GUID. */
+function queryField(entry: FieldEntry): FieldDescription {
+    return { ...entry.builder['~state'], name: entry.name, role: entry.role, managed: entry.managed,
+        title: entry.builder['~state'].title ?? entry.name, target: null, suggestions: null };
+}
+
+/** Неизвестная настройка не должна молча расширять выборку из-за опечатки в вызове JavaScript. */
+function checkQueryProperties(value: unknown, allowed: readonly string[]): void {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Ожидается объект настроек запроса');
+    for (const name of Object.keys(value)) {
+        if (!allowed.includes(name)) throw new Error(`Неизвестная настройка запроса «${name}»`);
+    }
+}
+
+/**
+ * Запросы одной таблицы в логических полях. Билдер не выполняет запрос и не открывает транзакцию:
+ * права, политики и атомарность остаются у действующего контура действий.
+ * Все методы отклоняют неверные имена, значения и варианты операторов до обращения к Database.
+ */
+export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Record<string, Record<string, unknown>> = {}> {
+    private readonly fields = new Map<string, { readonly description: FieldDescription; readonly storage: FieldStorage }>();
+
+    constructor(
+        private readonly table: string,
+        descriptions: readonly FieldDescription[],
+        private readonly parts: ReadonlyMap<string, readonly FieldDescription[]> = new Map(),
+    ) {
+        sqlIdentifier(table);
+        const columns = new Set<string>();
+        for (const description of descriptions) {
+            if (this.fields.has(description.name)) throw new Error(`Повторяется поле «${description.name}»`);
+            const storage = fieldStorage(description);
+            for (const column of storage.columns) {
+                sqlIdentifier(column.name);
+                if (columns.has(column.name)) throw new Error(`Повторяется столбец «${column.name}»`);
+                columns.add(column.name);
+            }
+            this.fields.set(description.name, { description, storage });
+        }
+    }
+
+    /** Возвращает билдер строк объявленной табличной части с ownerGuid и lineNumber. */
+    tablePart<Name extends keyof Parts & string>(name: Name): PlatformQuery<TablePartRow<Parts[Name]>> {
+        const fields = this.parts.get(name);
+        if (fields === undefined) throw new Error(`Табличная часть «${name}» не найдена`);
+        return new PlatformQuery(`${this.table}_${name}`, [...tablePartStorageFields, ...fields]);
+    }
+
+    private field(name: string) {
+        const field = this.fields.get(name);
+        if (field === undefined) throw new Error(`Поле «${name}» отсутствует в таблице «${this.table}»`);
+        return field;
+    }
+
+    private columnNames(names: readonly string[]): string[] {
+        if (!Array.isArray(names) || names.some((name) => typeof name !== 'string')) throw new Error('Поля должны быть списком имён');
+        if (names.length === 0) throw new Error('Нужно указать хотя бы одно поле');
+        if (new Set(names).size !== names.length) throw new Error('Поле указано дважды');
+        return names.flatMap((name) => this.field(name).storage.columns.map((column) => sqlIdentifier(column.name)));
+    }
+
+    private filter(filter: QueryFilter<Row>, parameters: SqlValue[]): string {
+        if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) throw new Error('Ожидается условие отбора');
+        if ('any' in filter || 'all' in filter) {
+            checkQueryProperties(filter, ['any' in filter ? 'any' : 'all']);
+            const group = 'any' in filter ? filter.any : filter.all;
+            if (!Array.isArray(group) || group.length === 0) throw new Error('Группа условий не может быть пустой');
+            return `(${group.map((member: QueryFilter<Row>) => this.filter(member, parameters)).join('any' in filter ? ' OR ' : ' AND ')})`;
+        }
+        checkQueryProperties(filter, ['column', 'operator', 'value']);
+        const { description, storage } = this.field(filter.column);
+        const names = storage.columns.map((column) => sqlIdentifier(column.name));
+        const compare = (value: unknown, operator: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'LIKE'): string => {
+            if (!operators.has(operator)) throw new Error('Недопустимый оператор отбора');
+            if ((names.length > 1 || description.kind === 'boolean' || description.kind === 'objectReference') && operator !== '=' && operator !== '!=') {
+                throw new Error(`Для поля «${description.name}» допустимы только =, != и IN`);
+            }
+            if (value === null) {
+                if (operator !== '=' && operator !== '!=') throw new Error('С NULL допустимы только = и !=');
+                return `(${names.map((name) => `${name} IS ${operator === '=' ? '' : 'NOT '}NULL`).join(operator === '=' ? ' AND ' : ' OR ')})`;
+            }
+            let values: readonly SqlValue[];
+            if (operator === 'LIKE') {
+                if (!['string', 'date', 'dateTime'].includes(description.kind) || typeof value !== 'string') throw new Error('LIKE требует строковое поле и строковый шаблон');
+                values = [value];
+            } else values = storage.encode(value, true);
+            parameters.push(...values);
+            // Неравенство составного значения истинно, если отличается хотя бы одна его часть.
+            return `(${names.map((name) => `${name} ${operator} ?`).join(operator === '!=' ? ' OR ' : ' AND ')})`;
+        };
+        if (filter.operator === 'IN') {
+            if (!Array.isArray(filter.value) || filter.value.length === 0) throw new Error('IN требует непустой список значений');
+            return `(${filter.value.map((value: unknown) => compare(value, '=')).join(' OR ')})`;
+        }
+        return compare(filter.value, filter.operator);
+    }
+
+    private where(filters: readonly QueryFilter<Row>[] | undefined, parameters: SqlValue[]): string {
+        if (filters === undefined) return '';
+        if (!Array.isArray(filters)) throw new Error('Отбор должен быть списком условий');
+        return filters.length === 0 ? '' : ` WHERE ${filters.map((filter) => this.filter(filter, parameters)).join(' AND ')}`;
+    }
+
+    private tail(options: QuerySelectOptions<Row, readonly (keyof Row & string)[]>, parameters: SqlValue[]): string {
+        let sql = '';
+        if (options.orderBy !== undefined) {
+            if (!Array.isArray(options.orderBy)) throw new Error('Сортировка должна быть списком');
+            if (options.orderBy.length > 0) sql += ` ORDER BY ${options.orderBy.flatMap((order) => {
+                checkQueryProperties(order, ['column', 'direction']);
+                if (order.direction !== 'ASC' && order.direction !== 'DESC') throw new Error('Недопустимое направление сортировки');
+                return this.columnNames([order.column]).map((name) => `${name} ${order.direction}`);
+            }).join(', ')}`;
+        }
+        if (options.limit !== undefined || options.offset !== undefined) {
+            sql += ' LIMIT ?';
+            parameters.push(options.limit === undefined ? -1 : nonnegativeInteger(options.limit, 'Размер страницы'));
+        }
+        if (options.offset !== undefined) {
+            sql += ' OFFSET ?';
+            parameters.push(nonnegativeInteger(options.offset, 'Смещение страницы'));
+        }
+        return sql;
+    }
+
+    private decoder<Selected extends Record<string, unknown>>(names: readonly string[]): (row: Record<string, unknown>) => Selected {
+        return (row) => Object.fromEntries(names.map((name) => [name, this.field(name).storage.decode(row)])) as Selected;
+    }
+
+    /** Строит выборку; тип результата содержит ровно выбранные логические поля. */
+    select<const Columns extends readonly (keyof Row & string)[] = readonly (keyof Row & string)[]>(
+        options: QuerySelectOptions<Row, Columns> = {},
+    ): TypedSqlQuery<Pick<Row, Columns[number]>> {
+        checkQueryProperties(options, ['columns', 'where', 'orderBy', 'limit', 'offset']);
+        const names = options.columns ?? [...this.fields.keys()];
+        const columns = this.columnNames(names);
+        const parameters: SqlValue[] = [];
+        return { sql: `SELECT ${columns.join(', ')} FROM ${sqlIdentifier(this.table)}${this.where(options.where, parameters)}${this.tail(options, parameters)}`,
+            parameters, decodeRow: this.decoder(names) };
+    }
+
+    /** Подсчитывает строки по тому же отбору, что select, без сортировки и страницы. */
+    count(options: { readonly where?: readonly QueryFilter<Row>[] } = {}): TypedSqlQuery<{ total: number }> {
+        checkQueryProperties(options, ['where']);
+        const parameters: SqlValue[] = [];
+        return { sql: `SELECT COUNT(*) AS total FROM ${sqlIdentifier(this.table)}${this.where(options.where, parameters)}`,
+            parameters, decodeRow: (row) => ({ total: Number(row['total']) }) };
+    }
+
+    /** Суммирует числовые поля; без группировки пустой набор даёт одну строку с нулями. */
+    sums<const Groups extends readonly (keyof Row & string)[], const Sums extends readonly NumericQueryColumn<Row>[]>(
+        options: QuerySumOptions<Row, Groups, Sums>,
+    ): TypedSqlQuery<Pick<Row, Groups[number]> & { [Name in Sums[number]]: number }> {
+        checkQueryProperties(options, ['groupBy', 'sums', 'where', 'orderBy', 'limit', 'offset']);
+        if (!Array.isArray(options.groupBy) || !Array.isArray(options.sums)) throw new Error('Группировка и суммы должны быть списками полей');
+        const groups = options.groupBy.length === 0 ? [] : this.columnNames(options.groupBy);
+        if (options.sums.length === 0) throw new Error('Нужно указать хотя бы одно суммируемое поле');
+        if (new Set(options.sums).size !== options.sums.length || options.sums.some((name) => options.groupBy.includes(name))) throw new Error('Поля группировки и сумм не должны повторяться');
+        const sums = options.sums.map((name) => {
+            const field = this.field(name);
+            if (field.description.kind !== 'number' && field.description.kind !== 'money') throw new Error(`Поле «${name}» не является числовым`);
+            return `COALESCE(SUM(${this.columnNames([name])[0]}), 0) AS ${sqlIdentifier(name)}`;
+        });
+        for (const order of options.orderBy ?? []) {
+            if (![...options.groupBy, ...options.sums].includes(order.column)) throw new Error('Сортировка итога требует поле группировки или суммы');
+        }
+        const parameters: SqlValue[] = [];
+        const decodeGroups = this.decoder<Pick<Row, Groups[number]>>(options.groupBy);
+        return { sql: `SELECT ${[...groups, ...sums].join(', ')} FROM ${sqlIdentifier(this.table)}${this.where(options.where, parameters)}`
+            + (groups.length === 0 ? '' : ` GROUP BY ${groups.join(', ')}`)
+            + this.tail({ ...options, orderBy: options.orderBy ?? options.groupBy.map((column) => ({ column, direction: 'ASC' as const })) }, parameters),
+            parameters, decodeRow: (row) => ({ ...decodeGroups(row), ...Object.fromEntries(options.sums.map((name) => [name, Number(row[name])])) }) as Pick<Row, Groups[number]> & { [Name in Sums[number]]: number } };
+    }
+
+    /** Наибольший номер документа как число; CAST сохраняет порядок после переполнения ширины номера. */
+    maximumNumber(column: keyof Row & string): TypedSqlQuery<{ maximum: number | null }> {
+        const field = this.field(column);
+        if (!['string', 'number', 'money'].includes(field.description.kind)) throw new Error('Числовой максимум требует строку или число');
+        return { sql: `SELECT MAX(CAST(${this.columnNames([column])[0]} AS INTEGER)) AS maximum FROM ${sqlIdentifier(this.table)}`,
+            parameters: [], decodeRow: (row) => ({ maximum: row['maximum'] === null ? null : Number(row['maximum']) }) };
+    }
+
+    private values(values: Partial<Row>, creating: boolean): Record<string, SqlValue> {
+        if (values === null || typeof values !== 'object' || Array.isArray(values)) throw new Error('Значения записи должны быть объектом');
+        for (const name of Object.keys(values)) this.field(name);
+        const entries = creating ? [...this.fields.keys()].map((name) => [name, Object.hasOwn(values, name) ? values[name] : null] as const) : Object.entries(values);
+        return Object.fromEntries(entries.flatMap(([name, value]) => {
+            const storage = this.field(name).storage;
+            const encoded = storage.encode(value);
+            return storage.columns.map((column, index) => [column.name, encoded[index]!]);
+        }));
+    }
+
+    /** Вставляет полную строку; отсутствующие необязательные поля записываются как NULL. */
+    insert(values: QueryInsertValues<Row>): SqlQuery { return insert(this.table, this.values(values, true)); }
+
+    /** Обновляет переданные поля; пустой отбор отклоняется, чтобы ошибка не изменила всю таблицу. */
+    update(values: Partial<Row>, where: readonly QueryFilter<Row>[]): SqlQuery {
+        if (!Array.isArray(where) || where.length === 0) throw new Error('Для UPDATE нужно указать условия отбора');
+        const entries = Object.entries(this.values(values, false));
+        if (entries.length === 0) throw new Error('Для UPDATE нужно указать хотя бы одно поле');
+        const parameters = entries.map(([, value]) => value);
+        return { sql: `UPDATE ${sqlIdentifier(this.table)} SET ${entries.map(([name]) => `${sqlIdentifier(name)} = ?`).join(', ')}${this.where(where, parameters)}`, parameters };
+    }
+
+    /** Удаляет строки по обязательному отбору; политики и транзакцию обеспечивает вызывающее действие. */
+    remove(where: readonly QueryFilter<Row>[]): SqlQuery {
+        if (!Array.isArray(where) || where.length === 0) throw new Error('Для DELETE нужно указать условия отбора');
+        const parameters: SqlValue[] = [];
+        return { sql: `DELETE FROM ${sqlIdentifier(this.table)}${this.where(where, parameters)}`, parameters };
+    }
+}
+
+/** Билдер конфигурации сохраняет связь имён и значений полей с типом результата. */
+export function query<Builder extends ObjectBuilder>(source: Builder): PlatformQuery<ListRecordOf<Builder>, QueryParts<Builder>>;
+/** Описание метаданных используется сервисами с динамическими объектами; проверки выполняются во время построения. */
+export function query(source: ObjectDescription): PlatformQuery<Record<string, unknown>, Record<string, Record<string, unknown>>>;
+export function query(source: ObjectBuilder | ObjectDescription): PlatformQuery<Record<string, unknown>, Record<string, Record<string, unknown>>> {
+    const builder = 'withStandardFields' in source ? source.withStandardFields()['~state'] : undefined;
+    const fields = builder === undefined ? (source as ObjectDescription).fields : builder.fields.map(queryField);
+    const parts = builder === undefined ? (source as ObjectDescription).tableParts
+        : builder.tableParts.map((part) => ({ ...part, fields: part.fields.map(queryField) }));
+    return new PlatformQuery(`${source.kind}_${source.name}`, fields, new Map(parts.map((part) => [part.name, part.fields])));
 }

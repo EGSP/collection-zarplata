@@ -10,7 +10,7 @@
 import { Effect } from 'effect';
 import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
-import { selectTyped } from '../../server/data/typed-select.js';
+import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
 import { document, formula, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
@@ -71,7 +71,7 @@ const weighingRules: Policy<WeighingRecord> = {
             if (saleGuid === null) {
                 return yield* rejected(`${place}: состояние «${sold}» ставит действие «Продажа», выбрать его вручную нельзя`);
             }
-            const sale = yield* database.get(selectTyped(Sale, {
+            const sale = yield* database.get(query(Sale).select({
                 columns: ['basis'],
                 where: [{ column: 'guid', operator: '=', value: saleGuid }],
                 limit: 1,

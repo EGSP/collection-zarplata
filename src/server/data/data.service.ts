@@ -7,7 +7,7 @@ import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
 import { newGuid } from '../common/guid.js';
 import { DatabaseService } from '../database/database.service.js';
 import { Database } from '../database/database.effect.js';
-import { insert, remove, select, sqlIdentifier, update, type SqlFilter, type SqlOrder, type SqlValue } from '../database/sql.builder.js';
+import { query, type QueryFilter, type SqlOrder } from '../database/sql.builder.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { MetadataService } from '../metadata/metadata.service.js';
@@ -18,7 +18,7 @@ import { formatSearchValue, normalizeSearchText } from '../ui/value-format.js';
 import { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
-import { guidValue, loadRecord, objectValue, pageOptions, recordFromRow, sqlOperators, sqlValue, stringValue, tableName, validated, type RecordValue } from './records.js';
+import { guidValue, loadRecord, objectValue, pageOptions, sqlOperators, stringValue, validated, type RecordValue } from './records.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { enforcePolicies, type PolicyInvocation } from './policies.js';
 import { importCatalog } from './import.js';
@@ -339,7 +339,7 @@ export class DataService {
             const filters = options['filter'] ?? [];
             const sorting = options['sort'] ?? [];
             if (!Array.isArray(filters) || !Array.isArray(sorting)) return yield* new DataValidationError({ message: 'Отбор и сортировка должны быть списками', fields: ['payload.filter', 'payload.sort'] });
-            const where: SqlFilter[] = [];
+            const where: QueryFilter[] = [];
             const predicates: RowPredicate[] = [];
             for (const raw of filters) {
                 const filter = objectValue(raw, 'payload.filter');
@@ -367,28 +367,7 @@ export class DataService {
                     return yield* new DataValidationError({ message: `Неверное значение отбора «${name}»`, fields: [`payload.filter.${name}`] });
                 }
                 if (value !== null) yield* validated(fieldSchema(field), value, `payload.filter.${name}`);
-                if (field.kind === 'recorder') {
-                    // Регистратор всегда заполнен: равенство null не находит строк, неравенство null — все строки.
-                    if (value === null) {
-                        if (operator === 'equals') predicates.push(() => false);
-                        continue;
-                    }
-                    const recorder = value as { readonly document: string; readonly guid: string };
-                    if (operator === 'equals') {
-                        where.push({ column: 'recorderDocument', operator: '=', value: recorder.document });
-                        where.push({ column: 'recorderGuid', operator: '=', value: recorder.guid });
-                    } else {
-                        // Turso 0.8 умеет сравнивать пары `(a, b) != (?, ?)`, но группа OR выражает то же
-                        // средствами конструктора запросов. Колонки регистратора NOT NULL, поэтому
-                        // неравенство не встретит NULL и оба способа дают одинаковый результат.
-                        where.push({ any: [
-                            { column: 'recorderDocument', operator: '!=', value: recorder.document },
-                            { column: 'recorderGuid', operator: '!=', value: recorder.guid },
-                        ] });
-                    }
-                    continue;
-                }
-                where.push({ column: name, operator: sqlOperators[operator], value: sqlValue(value) });
+                where.push({ column: name, operator: sqlOperators[operator], value });
             }
             const orderBy: SqlOrder[] = [];
             for (const raw of sorting) {
@@ -404,12 +383,12 @@ export class DataService {
             }
             // При одинаковых значениях сортировки ключ таблицы задаёт однозначный порядок строк.
             // У строки регистра нет guid: её определяют регистратор и номер строки.
-            const key = description.kind === 'register' ? ['recorderDocument', 'recorderGuid', 'lineNumber']
+            const key = description.kind === 'register' ? ['recorder', 'lineNumber']
                 : description.kind === 'informationRegister' ? description.fields.filter((field) => field.role === 'dimension').map((field) => field.name) : ['guid'];
             for (const column of key) {
                 if (!orderBy.some((order) => order.column === column)) orderBy.push({ column, direction: 'ASC' });
             }
-            const table = tableName(description);
+            const builder = query(description);
             const database = this.database.effect;
             if (predicates.length > 0 || search !== '' || presentation !== '') {
                 const items: RecordValue[] = [];
@@ -419,9 +398,8 @@ export class DataService {
                 while (true) {
                     // Turso LIKE обрабатывает % и _ как шаблон и не складывает регистр кириллицы.
                     // Читаем кандидатов порциями, применяя такие условия до выбора страницы.
-                    const candidates = yield* database.all<RecordValue>(select(table, { where, orderBy, limit: chunkSize, offset: scanned }));
-                    const records = candidates.filter((row) => predicates.every((predicate) => predicate(row)))
-                        .map((row) => recordFromRow(row, description));
+                    const candidates = yield* database.all<RecordValue>(builder.select({ where, orderBy, limit: chunkSize, offset: scanned }));
+                    const records = candidates.filter((row) => predicates.every((predicate) => predicate(row)));
                     if (search !== '') yield* presentations.load(records);
                     if (presented !== null && presentation !== '') yield* presentations.loadOwn(presented, records);
                     for (const record of records) {
@@ -446,14 +424,8 @@ export class DataService {
                 if (presented !== null) yield* presentations.loadOwn(presented, items);
                 return { items, total, page, pageSize, presentations: presentations.forPage(items) };
             }
-            // Подзапрос повторяет тот же отбор, чтобы total не зависел от размера текущей страницы.
-            const filtered = select(table, { where });
-            const count = yield* database.get<{ total: number }>({
-                sql: `SELECT COUNT(*) AS total FROM (${filtered.sql})`,
-                parameters: filtered.parameters,
-            });
-            const rows = yield* database.all<RecordValue>(select(table, { where, orderBy, limit: pageSize, offset }));
-            const items = rows.map((row) => recordFromRow(row, description));
+            const count = yield* database.get(builder.count({ where }));
+            const items = yield* database.all<RecordValue>(builder.select({ where, orderBy, limit: pageSize, offset }));
             yield* presentations.load(items);
             if (presented !== null) yield* presentations.loadOwn(presented, items);
             return { items, total: count?.total ?? 0, page, pageSize, presentations: presentations.forPage(items) };
@@ -471,14 +443,14 @@ export class DataService {
             if (request['guid'] !== undefined) yield* validated(fieldSchema(description.fields.find((field) => field.name === 'guid')!), guid, 'payload.guid');
             const computed = yield* calculatedInput(description.fields, description.tableParts, request['fields'], 'payload.fields');
             const input = yield* validated(inputSchema(description), computed, 'payload.fields') as Effect.Effect<RecordValue, DataValidationError>;
-            const values: Record<string, SqlValue> = { guid, deletedAt: null };
+            const values: RecordValue = { guid, deletedAt: null };
             for (const field of description.fields) {
-                if (!field.managed) values[field.name] = sqlValue(input[field.name]);
+                if (!field.managed) values[field.name] = input[field.name] ?? null;
             }
             const creating = request['guid'] === undefined;
             if (creating && description.kind === 'document') {
                 values['number'] = yield* this.nextNumber(description);
-                values['posted'] = 0;
+                values['posted'] = false;
             }
             const proposedRecord: RecordValue = {
                 ...existingRecord,
@@ -502,28 +474,28 @@ export class DataService {
         description: ObjectDescription,
         guid: string,
         input: RecordValue,
-        values: Record<string, SqlValue>,
+        values: RecordValue,
         creating: boolean,
     ): Effect.Effect<RecordValue, unknown, ActionRequirements> {
         return Effect.gen(function* (this: DataService) {
             const database = this.database.effect;
             if (creating) {
-                yield* database.run(insert(tableName(description), values));
+                yield* database.run(query(description).insert(values));
             } else {
                 // Обновление не снимает ранее установленную пометку удаления.
                 const { guid: _guid, deletedAt: _deletedAt, ...changed } = values;
-                const result = yield* database.run(update(tableName(description), changed, [{ column: 'guid', operator: '=', value: guid }]));
+                const result = yield* database.run(query(description).update(changed, [{ column: 'guid', operator: '=', value: guid }]));
                 if (result.changes === 0) return yield* new DataNotFoundError({ message: `Запись ${description.name} с guid ${guid} не найдена` });
             }
             for (const part of description.tableParts) {
-                const table = `${tableName(description)}_${part.name}`;
+                const partQuery = query(description).tablePart(part.name);
                 // Табличная часть передана целиком; удаление старых строк и вставка новых атомарны.
-                yield* database.run(remove(table, [{ column: 'ownerGuid', operator: '=', value: guid }]));
+                yield* database.run(partQuery.remove([{ column: 'ownerGuid', operator: '=', value: guid }]));
                 const rows = input[part.name] as RecordValue[];
                 for (const [index, row] of rows.entries()) {
-                    const fields: Record<string, SqlValue> = { ownerGuid: guid, lineNumber: index + 1 };
-                    for (const field of part.fields) fields[field.name] = sqlValue(row[field.name]);
-                    yield* database.run(insert(table, fields));
+                    const fields: RecordValue & { ownerGuid: string; lineNumber: number } = { ownerGuid: guid, lineNumber: index + 1 };
+                    for (const field of part.fields) fields[field.name] = row[field.name] ?? null;
+                    yield* database.run(partQuery.insert(fields));
                 }
             }
             return yield* afterSave(description, guid);
@@ -537,12 +509,8 @@ export class DataService {
      */
     private nextNumber(description: ObjectDescription): Effect.Effect<string, unknown> {
         return Effect.gen(function* (this: DataService) {
-            // CAST сравнивает номера как числа: после 999999 строковое сравнение нарушило бы порядок.
-            const row = yield* this.database.effect.get<{ last: number | null }>({
-                sql: `SELECT MAX(CAST(${sqlIdentifier('number')} AS INTEGER)) AS last FROM ${sqlIdentifier(tableName(description))}`,
-                parameters: [],
-            });
-            return String((row?.last ?? 0) + 1).padStart(numberWidth, '0');
+            const row = yield* this.database.effect.get(query(description).maximumNumber('number'));
+            return String((row?.maximum ?? 0) + 1).padStart(numberWidth, '0');
         }.bind(this));
     }
 }

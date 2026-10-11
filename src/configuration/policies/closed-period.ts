@@ -1,7 +1,7 @@
 /** Прикладное правило закрытия: границу задают проведённые документы конфигурации. */
 import { Effect } from 'effect';
 import { Database } from '../../server/database/database.effect.js';
-import { selectTyped } from '../../server/data/typed-select.js';
+import { query } from '../../server/database/sql.builder.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import type { Policy } from '../../server/metadata/index.js';
 import { PeriodClosing } from '../documents/period-closing.document.js';
@@ -15,7 +15,7 @@ export function closedPeriodPolicy<Record>(affectedDates: (record: Record) => re
     const checkDates = (dates: readonly string[]) => Effect.gen(function* () {
         if (dates.length === 0) return;
         const database = yield* Database;
-        const closing = yield* database.get(selectTyped(PeriodClosing, {
+        const closing = yield* database.get(query(PeriodClosing).select({
             columns: ['closedThrough'],
             where: [
                 { column: 'posted', operator: '=', value: true },

@@ -8,7 +8,7 @@
  * уменьшать результат тех, кто продал, а не тех, кто принял товар обратно.
  */
 import { Effect } from 'effect';
-import { selectTyped } from '../../server/data/typed-select.js';
+import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
 import { register, type ObjectTarget } from '../../server/metadata/index.js';
 import { Sale } from '../documents/sale.document.js';
@@ -33,7 +33,7 @@ export const Sales = register('sales')
         .minimum('amount', 0)
         .message(({ dimensions, totals }) => Effect.gen(function* () {
             const database = yield* Database;
-            const sale = yield* database.get(selectTyped(Sale, {
+            const sale = yield* database.get(query(Sale).select({
                 columns: ['number', 'date'],
                 where: [{ column: 'guid', operator: '=', value: dimensions.sale }],
                 limit: 1,

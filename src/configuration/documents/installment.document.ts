@@ -10,7 +10,7 @@
 import { Effect } from 'effect';
 import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
-import { selectTyped } from '../../server/data/typed-select.js';
+import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
 import { document, formula, movements, objectReference, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
@@ -136,7 +136,7 @@ export const Installment = installment
             // Без открытой смены взнос принимается с пустой сменой: работа не должна зависеть от того,
             // успели ли открыть смену.
             const database = yield* Database;
-            const shift = yield* database.get(selectTyped(Shift, {
+            const shift = yield* database.get(query(Shift).select({
                 columns: ['guid'],
                 where: [{ column: 'closedAt', operator: '=', value: null }],
                 limit: 1,

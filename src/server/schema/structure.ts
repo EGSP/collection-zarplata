@@ -1,5 +1,6 @@
-import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
+import type { ObjectDescription } from '../metadata/descriptions.js';
 import { sqlIdentifier } from '../database/sql.builder.js';
+import { fieldStorage, tablePartStorageFields } from '../database/field-storage.js';
 
 /** Физический тип колонки SQLite в таблице STRICT. */
 export type ColumnType = 'TEXT' | 'INTEGER' | 'REAL';
@@ -36,21 +37,12 @@ const index = (table: string, name: string, columns: readonly string[], unique =
     name: `idx_${table}_${name}`, columns, unique,
 });
 
-function fieldColumns(field: FieldDescription): readonly ColumnStructure[] {
-    if (field.kind === 'recorder') {
-        return [column('recorderDocument', 'TEXT', true), column('recorderGuid', 'TEXT', true)];
-    }
-    const type: ColumnType = field.kind === 'number'
-        ? (field.integer ? 'INTEGER' : 'REAL')
-        : field.kind === 'money' || field.kind === 'boolean' ? 'INTEGER' : 'TEXT';
-    return [column(field.name, type, field.required)];
-}
-
 function objectTable(object: ObjectDescription): TableStructure {
     const name = `${object.kind}_${object.name}`;
-    const columns = object.fields.flatMap(fieldColumns);
-    const primaryKey = object.kind === 'register' ? ['recorderDocument', 'recorderGuid', 'lineNumber']
+    const columns = object.fields.flatMap((field) => fieldStorage(field).columns);
+    const keyFields = object.kind === 'register' ? ['recorder', 'lineNumber']
         : object.kind === 'informationRegister' ? object.fields.filter((field) => field.role === 'dimension').map((field) => field.name) : ['guid'];
+    const primaryKey = keyFields.flatMap((name) => fieldStorage(object.fields.find((field) => field.name === name)!).columns.map((column) => column.name));
     const indexes: IndexStructure[] = [];
     if (object.kind === 'catalog' || object.kind === 'document') {
         indexes.push(index(name, 'deletedAt', ['deletedAt']));
@@ -59,8 +51,8 @@ function objectTable(object: ObjectDescription): TableStructure {
         indexes.push(index(name, 'period', ['period']));
     }
     for (const field of object.fields) {
-        if (field.kind === 'reference' || field.kind === 'objectReference') indexes.push(index(name, field.name, [field.name]));
-        if (field.role === 'dimension' && field.kind !== 'reference' && field.kind !== 'objectReference') indexes.push(index(name, field.name, [field.name]));
+        if (field.kind === 'reference' || field.kind === 'objectReference') indexes.push(index(name, field.name, fieldStorage(field).columns.map((column) => column.name)));
+        if (field.role === 'dimension' && field.kind !== 'reference' && field.kind !== 'objectReference') indexes.push(index(name, field.name, fieldStorage(field).columns.map((column) => column.name)));
     }
     return { name, columns, primaryKey, indexes };
 }
@@ -70,9 +62,9 @@ function tableParts(object: ObjectDescription): readonly TableStructure[] {
         const name = `${object.kind}_${object.name}_${part.name}`;
         return {
             name,
-            columns: [column('ownerGuid', 'TEXT', true), column('lineNumber', 'INTEGER', true), ...part.fields.flatMap(fieldColumns)],
+            columns: [...tablePartStorageFields, ...part.fields].flatMap((field) => fieldStorage(field).columns),
             primaryKey: ['ownerGuid', 'lineNumber'],
-            indexes: part.fields.filter((field) => field.kind === 'reference' || field.kind === 'objectReference').map((field) => index(name, field.name, [field.name])),
+            indexes: part.fields.filter((field) => field.kind === 'reference' || field.kind === 'objectReference').map((field) => index(name, field.name, fieldStorage(field).columns.map((column) => column.name))),
         };
     });
 }
