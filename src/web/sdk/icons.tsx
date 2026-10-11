@@ -30,6 +30,7 @@ import {
     PlusOutlined,
     ProfileOutlined,
     ReadOutlined,
+    SaveOutlined,
 } from '@ant-design/icons';
 
 /** Иконки приложения по смыслу. Правила пользования описаны во вводном комментарии модуля. */
@@ -52,6 +53,10 @@ export const Icons = {
     documentation: ReadOutlined,
     /** Выход из приложения. */
     signOut: LogoutOutlined,
+    /** Запись изменений формы. */
+    save: SaveOutlined,
+    /** Проведение документа. */
+    post: CheckCircleOutlined,
 
     /** Состояние записи: помечена на удаление. */
     markedDeleted: DeleteOutlined,

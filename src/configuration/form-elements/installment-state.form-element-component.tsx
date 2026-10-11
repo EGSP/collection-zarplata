@@ -9,6 +9,7 @@ import { Objects } from '../objects.generated';
  * Элемент управляет формой. Взносы недоступны для изменения: взнос добавляет действие «Внести».
  * Закрытую рассрочку нельзя изменить, пометить на удаление, пополнить и закрыть повторно:
  * политика рассрочки это отклоняет, и кнопки вели бы к отказу сервера.
+ * Проведение и его отмена на закрытой форме также скрыты: она служит только для просмотра.
  *
  * Стандартные кнопки обоих действий скрыты, а элемент выводит свои. Действия принимают рассрочку
  * во входных данных, и стандартное окно потребовало бы выбрать её вручную; элемент передаёт `guid`
@@ -26,7 +27,7 @@ export default function InstallmentState() {
     const saved = form.saved;
     const closed = (saved?.closedAt ?? null) !== null;
     useFormRestrictions(installments, closed
-        ? { readOnly: true, hiddenActions: ['pay', 'close', 'markDeleted'] }
+        ? { readOnly: true, hiddenActions: ['pay', 'close', 'post', 'unpost', 'markDeleted'] }
         : { readOnlyFields: ['payments'], hiddenActions: ['pay', 'close'] });
     // У новой рассрочки состояния ещё нет, а действиям нужен `guid` записанной.
     if (saved === null) return null;

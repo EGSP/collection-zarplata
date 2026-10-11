@@ -1,4 +1,4 @@
-import { Button, type ButtonProps } from 'antd';
+import { Button, Tooltip, type ButtonProps } from 'antd';
 import { useRef, useState, type ReactNode } from 'react';
 import type { FormAction } from '../../server/ui/descriptions';
 import { useAction } from '../data-provider/actions';
@@ -71,7 +71,13 @@ export interface ActionButtonProperties<Action extends string = string> {
     readonly loading?: boolean | undefined;
     readonly disabled?: boolean | undefined;
     readonly type?: ButtonProps['type'];
-    /** Подпись кнопки. По умолчанию название действия из описания формы. */
+    /** Значок действия из реестра `Icons`. */
+    readonly icon?: ReactNode;
+    /** Название для чтения с экрана; обязательно для кнопки без подписи. */
+    readonly 'aria-label'?: string | undefined;
+    /** Подсказка с названием действия и сочетанием клавиш, если оно есть. */
+    readonly tooltip?: string | undefined;
+    /** Подпись кнопки. По умолчанию название действия из описания формы; пустая строка оставляет только иконку. */
     readonly children?: ReactNode;
 }
 
@@ -100,6 +106,9 @@ export function ActionButton<Action extends string = string>({
     loading = false,
     disabled = false,
     type,
+    icon,
+    'aria-label': accessibleName,
+    tooltip,
     children,
 }: ActionButtonProperties<Action>) {
     const action = useObjectView(object)?.form?.actions.find((candidate) => candidate.name === name);
@@ -132,18 +141,22 @@ export function ActionButton<Action extends string = string>({
 
     return (
         <>
-            <Button
-                {...(type === undefined ? {} : { type })}
-                loading={running || loading}
-                disabled={disabled || running}
-                onClick={() => {
-                    if ((action.input.length > 0 || (action.tableParts?.length ?? 0) > 0) && input === undefined) setDialogOpen(true);
-                    // Об отказе уже сообщило уведомление либо сам экран, поэтому ошибка здесь не обрабатывается.
-                    else run(input ?? null).catch(() => undefined);
-                }}
-            >
-                {children ?? action.title}
-            </Button>
+            <Tooltip title={tooltip}>
+                <Button
+                    {...(type === undefined ? {} : { type })}
+                    icon={icon}
+                    aria-label={accessibleName}
+                    loading={running || loading}
+                    disabled={disabled || running}
+                    onClick={() => {
+                        if ((action.input.length > 0 || (action.tableParts?.length ?? 0) > 0) && input === undefined) setDialogOpen(true);
+                        // Об отказе уже сообщило уведомление либо сам экран, поэтому ошибка здесь не обрабатывается.
+                        else run(input ?? null).catch(() => undefined);
+                    }}
+                >
+                    {children ?? action.title}
+                </Button>
+            </Tooltip>
             {dialogOpen && <ActionDialog action={action} onExecute={run} onClose={() => setDialogOpen(false)} />}
         </>
     );

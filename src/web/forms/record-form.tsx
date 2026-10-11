@@ -11,6 +11,7 @@ import {
     formFieldPaths,
     hasOpenDialog,
     hasOpenPicker,
+    Icons,
     newRecordValues,
     Page,
     recordGuid,
@@ -264,6 +265,14 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
 
     // Представление читается по записанному состоянию: несохранённый выбор ссылки запись ещё не называет.
     const presentation = useRecordPresentation(object, saved);
+    const visibleActions = view.actions.filter(isVisible);
+    const postAction = visibleActions.find((action) => action.standard && action.name === 'post');
+    // Главная кнопка и сочетание Ctrl+Enter используют одну проверку доступности проведения.
+    const orderedActions = postAction === undefined ? visibleActions : [
+        postAction,
+        ...visibleActions.filter((action) => action.standard && action.name === 'save'),
+        ...visibleActions.filter((action) => action !== postAction && !(action.standard && action.name === 'save')),
+    ];
 
     return (
         <Page
@@ -277,19 +286,40 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
             }
             actions={
                 <>
-                    {view.actions.filter(isVisible).map((action) => (
+                    {postAction !== undefined && (
+                        <ActionButton
+                            object={object}
+                            record={saved}
+                            action={postAction.name}
+                            type="primary"
+                            tooltip="Провести и закрыть (Ctrl+Enter)"
+                            loading={running === postAction.name}
+                            disabled={running !== null}
+                            execute={async (input) => {
+                                await run(postAction, input, true);
+                            }}
+                        >
+                            Провести и закрыть
+                        </ActionButton>
+                    )}
+                    {orderedActions.map((action) => (
                         <ActionButton
                             key={action.name}
                             object={object}
                             record={saved}
                             action={action.name}
-                            type={action.standard && action.name === 'save' ? 'primary' : 'default'}
+                            type={postAction === undefined && action.standard && action.name === 'save' ? 'primary' : 'default'}
+                            icon={postAction !== undefined && action.standard ? (action.name === 'post' ? <Icons.post /> : action.name === 'save' ? <Icons.save /> : undefined) : undefined}
+                            aria-label={postAction !== undefined && action.standard && (action.name === 'post' || action.name === 'save') ? action.title : undefined}
+                            tooltip={action.standard ? (action.name === 'save' ? `${action.title} (Ctrl+S)` : action.name === 'post' ? action.title : undefined) : undefined}
                             loading={running === action.name}
                             disabled={running !== null}
                             execute={async (input) => {
                                 await run(action, input);
                             }}
-                        />
+                        >
+                            {postAction !== undefined && action.standard && (action.name === 'post' || action.name === 'save') ? '' : action.title}
+                        </ActionButton>
                     ))}
                     <Button onClick={scope.close}>Закрыть</Button>
                 </>
