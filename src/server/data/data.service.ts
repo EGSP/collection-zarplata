@@ -2,6 +2,7 @@ import { calculatedInput } from './computed-values.js';
 import { Injectable } from '@nestjs/common';
 import { Effect } from 'effect';
 import { platformRights, requiredRight } from '../authorization/rights.js';
+import { CurrentUserRights } from '../authorization/current-user-rights.js';
 import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
 import { newGuid } from '../common/guid.js';
 import { DatabaseService } from '../database/database.service.js';
@@ -28,7 +29,7 @@ import { buildList } from '../ui/views.js';
 import { ListPresentations } from './list-presentations.js';
 
 /** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
-type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher;
+type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher | CurrentUserRights;
 /** Команда изменения: данные для всех применимых политик и эффект, исполняемый после их проверки. */
 type MutationOperation = {
     readonly policyArguments: PolicyInvocation;
@@ -63,8 +64,9 @@ const journalTarget = { kind: 'platform', name: 'journal' } as const;
  * Диспетчер выполняет операции в одной транзакции и предоставляет собственным обработчикам
  * контекст и повторный вход через Effect. Перед каждой операцией, в том числе вложенной,
  * бизнес-гвард проверяет право пользователя на неё: цель операции известна только из тела
- * запроса, поэтому проверить право на маршруте нельзя. Каждое изменяющее действие, в том числе
- * вложенное, записывает строку журнала в той же транзакции.
+ * запроса, поэтому проверить право на маршруте нельзя. Тому же гварду диспетчер передаёт вопросы
+ * конфигурации о правах пользователя: сервис `CurrentUserRights` в окружении действий.
+ * Каждое изменяющее действие, в том числе вложенное, записывает строку журнала в той же транзакции.
  */
 @Injectable()
 export class DataService {
@@ -84,12 +86,21 @@ export class DataService {
             return Promise.reject(new DataValidationError({ message: 'Пакет операций пуст', fields: ['операции'] }));
         }
         const operations = Array.isArray(body) ? body : [body];
+        // Пользователь цепочки не меняется во вложенных действиях, поэтому сервис прав один на запрос.
+        // Гвард получает полный сервис базы: внутри транзакции он читает роли через её дескриптор.
+        const rights: CurrentUserRights = {
+            has: (right) => this.provideServices(this.rightsGuard.rightsOf(userGuid)).pipe(Effect.map((granted) => granted.allows(right))),
+            require: (...required) => this.provideServices(this.rightsGuard.require(userGuid, ...required)),
+        };
         // Тот же диспетчер доступен обработчикам: вложенный вызов не обходит проверку и транзакцию.
         // Контракт диспетчера не требует от обработчика базы и метаданных, поэтому они передаются здесь.
-        const dispatcher: ActionDispatcher = { execute: (operation) => this.provideServices(this.execute(operation)) };
+        const dispatcher: ActionDispatcher = {
+            execute: (operation) => this.provideServices(this.execute(operation)).pipe(Effect.provideService(CurrentUserRights, rights)),
+        };
         const program = Effect.forEach(operations, (operation) => this.execute(operation, userGuid)).pipe(
             (work) => this.database.effect.transaction(work),
             Effect.provideService(ActionDispatcher, dispatcher),
+            Effect.provideService(CurrentUserRights, rights),
             (work) => this.provideServices(work),
             Effect.map((results) => Array.isArray(body) ? results : results[0]),
         );

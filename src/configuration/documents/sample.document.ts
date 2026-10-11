@@ -4,8 +4,9 @@
  * справочник с представлением по ссылке, при проведении записывает
  * строки табличной части в пробный регистр. На его форме стоят пробные собственные элементы:
  * блок «Итого» под табличной частью, поле ввода комментария с кнопкой и элемент, который делает
- * форму документа с комментарием недоступной для изменения. Удаляется, когда появятся настоящие
- * документы.
+ * форму документа с комментарием недоступной для изменения. Политика `sampleCommentRight` проверяет
+ * право пользователя: без права на действие «Принять строки» комментарий записанного документа
+ * не меняется. Удаляется, когда появятся настоящие документы.
  */
 import { SampleLines } from '../sample-lines.js';
 import { Effect } from 'effect';
@@ -14,6 +15,7 @@ import { SampleDelegate } from '../catalogs/sample-delegate.catalog.js';
 import { Sample } from '../catalogs/sample.catalog.js';
 import { SampleRegister } from '../registers/sample.register.js';
 import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
+import { sampleCommentRight } from '../policies/sample-comment-right.js';
 
 /** Пробный документ с вычислениями, общими строками и составным представлением. */
 export const SampleDocument = document('sample')
@@ -39,6 +41,7 @@ export const SampleDocument = document('sample')
         .group('Строки и итог', ['lines'])
         .group('Оплата', ['discount', 'payments', 'paymentComment', 'paymentTotal']))
     .policy(closedPeriodByDocumentDate())
+    .policy(sampleCommentRight)
     .posting((record) => Effect.succeed([
         movements(SampleRegister, record.lines.map((line) => ({ item: line.item, quantity: line.quantity, amount: line.amount }))),
     ]));

@@ -1,5 +1,6 @@
 /** Вызывает соответствующие обработчики политик перед стандартным изменяющим действием. */
 import { Effect } from 'effect';
+import type { CurrentUserRights } from '../authorization/current-user-rights.js';
 import type { Database } from '../database/database.effect.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
 import type { Metadata } from '../metadata/metadata.effect.js';
@@ -9,7 +10,7 @@ import { readOnlyDatabase } from './read-only-database.js';
 import { Database as DatabaseService } from '../database/database.effect.js';
 
 /** Сервисы, доступные прикладной проверке в той же транзакции, что и действие. */
-type PolicyRequirements = Database | Metadata | ActionContext | ActionDispatcher;
+type PolicyRequirements = Database | Metadata | ActionContext | ActionDispatcher | CurrentUserRights;
 
 /** Действие выбирает собственный контракт входных данных политики. */
 export type PolicyInvocation =
