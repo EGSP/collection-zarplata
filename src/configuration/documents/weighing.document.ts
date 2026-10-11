@@ -112,7 +112,6 @@ export const Weighing = weighing
                 .title('Товары')
                 .field('lineNumber', (field) => field.number().title('Номер строки').integer().minimum(1).required())))
         .handle((input) => Effect.gen(function* () {
-            const database = yield* Database;
             const dispatcher = yield* ActionDispatcher;
             const record = (yield* dispatcher.execute({ target, action: 'get', payload: { guid: input.weighing } })) as WeighingRecord;
             const numbers = input.lines.map((line) => line.lineNumber);
@@ -125,16 +124,11 @@ export const Weighing = weighing
                 if (line.state !== held) return yield* rejected(`Строка ${number} уже не в отвесе: её состояние «${line.state}»`);
                 selected.push({ name: line.name, cost: line.cost, discount: line.discount });
             }
-            // Продажа относится к смене, в которую оформлена, а не к смене отвеса.
-            const shift = yield* database.get(selectTyped(Shift, {
-                columns: ['guid'],
-                where: [{ column: 'closedAt', operator: '=', value: null }],
-                limit: 1,
-            }));
-            if (shift === undefined) return yield* rejected('Открытой смены нет: продажу не к чему отнести');
+            // Продажа относится к смене отвеса, а не к смене, в которую товар выкупили: результат
+            // засчитывается тем, кто отвесил. Продажа создаётся непроведённой, и смену в ней можно изменить.
             const sale = (yield* dispatcher.execute({
                 target: { kind: 'document', name: 'sale' }, action: 'save',
-                payload: { fields: { date: new Date().toISOString(), shift: shift.guid, basis: record.guid, goods: selected } },
+                payload: { fields: { date: new Date().toISOString(), shift: record.shift, basis: record.guid, goods: selected } },
             })) as { readonly guid: string };
             // Продажа записана раньше отвеса: политика отвеса проверяет, что продажа из строки оформлена из него.
             yield* dispatcher.execute({

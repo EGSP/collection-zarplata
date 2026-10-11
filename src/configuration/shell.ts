@@ -24,6 +24,8 @@ import { ExternalLinks } from './information-registers/external-links.informatio
 import { SampleInformation } from './information-registers/sample.information-register.js';
 import { SampleWorkplace } from './pages/sample-workplace.page.js';
 import { SellerWorkplace } from './pages/seller-workplace.page.js';
+import { CustomerSettlements } from './registers/customer-settlements.register.js';
+import { Sales } from './registers/sales.register.js';
 import { SampleRegister } from './registers/sample.register.js';
 
 export const applicationShell = shell()
@@ -31,6 +33,7 @@ export const applicationShell = shell()
         .title('Продажи')
         .group('Рабочие места', [SellerWorkplace])
         .group('Документы', [Sale, Weighing, Refund, Installment])
+        .group('Регистры', [Sales, CustomerSettlements])
         .group('Справочники', [Discounts]))
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')

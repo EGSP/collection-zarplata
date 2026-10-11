@@ -1,13 +1,16 @@
 /**
  * Продажа: товары, проданные в смену. Сумма продажи хранится вычисляемым полем шапки: по ней
- * возврат проверяет свой предел, и отдельный регистр для этого не нужен.
+ * работают списки. Проведённая продажа записывает сумму в регистр «Продажи» со своей сменой;
+ * по итогу регистра проверяется предел возврата.
  *
  * Продажа может быть оформлена из отвеса действием «Продажа» отвеса. Тогда она ссылается на него
  * как на основание, но остаётся самостоятельным документом: товары в неё скопированы, и её
  * изменение отвес не меняет.
  */
-import { document, formula, type ObjectTarget } from '../../server/metadata/index.js';
+import { Effect } from 'effect';
+import { document, formula, movements, type ObjectTarget } from '../../server/metadata/index.js';
 import { Goods } from '../goods.js';
+import { Sales } from '../registers/sales.register.js';
 import { Shift } from './shift.document.js';
 import { Weighing } from './weighing.document.js';
 
@@ -31,4 +34,7 @@ export const Sale = document('sale')
         .group('Продажа', ['number', 'date', 'shift'])
         .group('Товары', ['goods', 'amount'])
         .hide('basis')
-        .hide('posted'));
+        .hide('posted'))
+    .posting((record) => Effect.succeed([
+        movements(Sales, [{ sale: record.guid, shift: record.shift, amount: record.amount }]),
+    ]));

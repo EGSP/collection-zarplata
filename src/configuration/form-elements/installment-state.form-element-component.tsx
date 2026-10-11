@@ -10,6 +10,7 @@ import { Objects } from '../objects.generated';
  * Закрытую рассрочку нельзя изменить, пометить на удаление, пополнить и закрыть повторно:
  * политика рассрочки это отклоняет, и кнопки вели бы к отказу сервера.
  * Проведение и его отмена на закрытой форме также скрыты: она служит только для просмотра.
+ * У непроведённой рассрочки кнопок «Внести» и «Закрыть» нет: оба действия её отклоняют.
  *
  * Стандартные кнопки обоих действий скрыты, а элемент выводит свои. Действия принимают рассрочку
  * во входных данных, и стандартное окно потребовало бы выбрать её вручную; элемент передаёт `guid`
@@ -26,6 +27,7 @@ export default function InstallmentState() {
     const [closing, setClosing] = useState(false);
     const saved = form.saved;
     const closed = (saved?.closedAt ?? null) !== null;
+    const posted = saved?.posted === true;
     useFormRestrictions(installments, closed
         ? { readOnly: true, hiddenActions: ['pay', 'close', 'post', 'unpost', 'markDeleted'] }
         : { readOnlyFields: ['payments'], hiddenActions: ['pay', 'close'] });
@@ -47,10 +49,10 @@ export default function InstallmentState() {
     return (
         <Flex align="center" gap="middle" wrap>
             <Typography.Text strong>
-                {closed ? <>Закрыта <FieldDisplay field={{ kind: 'dateTime', target: null }} value={saved.closedAt} /></> : 'Открыта'}
+                {closed ? <>Закрыта <FieldDisplay field={{ kind: 'dateTime', target: null }} value={saved.closedAt} /></> : posted ? 'Открыта' : 'Не проведена'}
             </Typography.Text>
-            {!closed && pay !== undefined && <Button onClick={() => setPaying(true)}>{pay.title}</Button>}
-            {!closed && close !== undefined && <Button loading={closing} onClick={() => void closeInstallment()}>{close.title}</Button>}
+            {!closed && posted && pay !== undefined && <Button onClick={() => setPaying(true)}>{pay.title}</Button>}
+            {!closed && posted && close !== undefined && <Button loading={closing} onClick={() => void closeInstallment()}>{close.title}</Button>}
             {paying && pay !== undefined && (
                 <ActionDialog
                     action={{ ...pay, input: pay.input.filter((field) => field.name !== 'installment') }}
