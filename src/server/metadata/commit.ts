@@ -19,6 +19,7 @@ import type {
     ObjectDescription,
     ObjectKind,
     ObjectTarget,
+    RegisterConstraintDescription,
     TablePartDescription,
 } from './descriptions.js';
 import { MetadataError, type MetadataProblem } from './metadata.errors.js';
@@ -26,7 +27,7 @@ import { checkName } from './names.js';
 import { formHiddenStandardFields, standardFields } from './standard-fields.js';
 
 /** Стандартные действия платформы: собственное действие не может называться так же. */
-const standardActions: ReadonlySet<string> = new Set(['import', 'list', 'get', 'save', 'delete', 'markDeleted', 'unmarkDeleted', 'post', 'unpost']);
+const standardActions: ReadonlySet<string> = new Set(['import', 'list', 'get', 'save', 'delete', 'markDeleted', 'unmarkDeleted', 'post', 'unpost', 'totals']);
 
 /** Названия видов объектов для сообщений об ошибках. */
 const kindTitles: { readonly [Kind in ObjectKind]: string } = {
@@ -392,6 +393,29 @@ function validateObject(
     // Тип билдера даёт posting(...) только документу, но состояние может прийти и без проверки типов.
     if (state.posting !== null && state.kind !== 'document') problems.add(null, 'обработчик проведения допустим только у документа');
 
+    // Тип билдера даёт constraint(...) только регистру оборотов, но состояние может прийти и без проверки типов.
+    if (state.constraints.length > 0 && state.kind !== 'register') problems.add(null, 'ограничения итога допустимы только у регистра оборотов');
+    const constraintNames = new Set<string>();
+    const constraints = state.constraints.map((constraint): RegisterConstraintDescription => {
+        const location = `ограничение ${constraint.name}`;
+        const constraintNameProblem = checkName(constraint.name);
+        if (constraintNameProblem !== null) problems.add(location, constraintNameProblem);
+        if (constraintNames.has(constraint.name)) problems.add(location, `имя ограничения «${constraint.name}» повторяется`);
+        constraintNames.add(constraint.name);
+        for (const [index, name] of constraint.by.entries()) {
+            if (!fields.some((field) => field.name === name && field.role === 'dimension')) problems.add(location, `нет измерения «${name}»`);
+            // Повтор не изменил бы итог, но указывает на ошибку описания: скорее всего, имелось в виду другое измерение.
+            if (constraint.by.indexOf(name) !== index) problems.add(location, `измерение «${name}» указано дважды`);
+        }
+        if (constraint.resource === null || constraint.minimum === null) {
+            problems.add(location, 'не заданы ресурс и наименьшее значение: вызовите minimum(...)');
+        } else {
+            if (!fields.some((field) => field.name === constraint.resource && field.role === 'resource')) problems.add(location, `нет ресурса «${constraint.resource}»`);
+            if (!Number.isFinite(constraint.minimum)) problems.add(location, `наименьшее значение должно быть конечным числом, получено ${constraint.minimum}`);
+        }
+        return { name: constraint.name, by: constraint.by, resource: constraint.resource ?? '', minimum: constraint.minimum ?? 0, message: constraint.message };
+    });
+
     if (state.form !== null) checkForm(state.form, fields, fieldNames, partNames, formElements, problems);
 
     for (const name of state.listTableParts) if (!partNames.has(name)) problems.add('список', 'Нет табличной части «' + name + '»');
@@ -447,6 +471,7 @@ function validateObject(
         policies: state.policies,
         presentation: describePresentation(state, fields, problems),
         posting: state.posting,
+        constraints,
         presentationParts: state.presentationParts,
         listTableParts: state.listTableParts,
     };

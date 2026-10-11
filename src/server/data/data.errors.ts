@@ -11,7 +11,7 @@ export class DataNotFoundError extends Data.TaggedError('DataNotFoundError')<{
     readonly message: string;
 }> {}
 
-/** Прикладная политика запретила изменение; фильтр возвращает HTTP 409 с причиной. */
+/** Политика записи или ограничение итога регистра запретили изменение; фильтр возвращает HTTP 409 с причиной. */
 export class DataPolicyError extends Data.TaggedError('DataPolicyError')<{
     readonly message: string;
 }> {}

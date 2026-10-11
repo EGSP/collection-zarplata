@@ -10,6 +10,10 @@
  * сравнивая запись до и после всего действия. Шаг, меняющий признак документа, сам обновляет
  * запись в состоянии: цепочке не нужно перечитывать документ из базы между шагами.
  *
+ * Ограничения итога регистров проверяются здесь же, а не в диспетчере: каждый составной шаг,
+ * который меняет движения, сравнивает итоги после изменения с ограничениями. Поэтому проверку
+ * проходит и запись проведённого документа, которая политику проведения не вызывает.
+ *
  * Простые шаги не экспортируются: у них есть предусловия, которые соблюдают только составные
  * шаги. Например, запись строк регистров добавляет строки к существующим и перед ней нужно
  * удалить прежние движения документа.
@@ -24,6 +28,7 @@ import type { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataValidationError } from './data.errors.js';
 import { loadRecord, sqlValue, tableName, validated, type RecordValue } from './records.js';
 import { readOnlyDatabase } from './read-only-database.js';
+import { documentMovementKeys, enforceConstraints } from './register-constraints.js';
 
 /** Описание справочника или документа и его запись с табличными частями в том виде, как её возвращает `get`. */
 export interface DocumentState {
@@ -126,6 +131,19 @@ const writeMovements: Step = (state) => Effect.gen(function* () {
 });
 
 /**
+ * Дополняет шаг, меняющий движения документа, проверкой ограничений итога. Измерения движений
+ * читаются до и после шага: ограничение может нарушить и удалённая строка, и записанная.
+ * Отказ отменяет транзакцию вместе с изменением движений.
+ */
+const withConstraints = (change: Step): Step => (state) => Effect.gen(function* () {
+    const removed = yield* documentMovementKeys(state.description, guidOf(state));
+    const next = yield* change(state);
+    const written = yield* documentMovementKeys(state.description, guidOf(state));
+    yield* enforceConstraints([...removed, ...written]);
+    return next;
+});
+
+/**
  * Перечитывает запись из базы. Нужен после обработчика проведения: через вложенные действия
  * он может изменить сам документ, и состояние перестало бы совпадать с базой.
  */
@@ -139,19 +157,22 @@ function load(description: ObjectDescription, guid: string): Effect.Effect<Docum
 /**
  * Проводит документ: ставит признак проведения и заменяет его движения строками обработчика.
  * Обработчик получает запись уже с признаком проведения, как она будет видна после действия.
- * Повторное проведение не дублирует движения. Документ с пометкой удаления не проводится (400).
+ * Повторное проведение не дублирует движения. Документ с пометкой удаления не проводится (400),
+ * нарушение ограничения итога отклоняет проведение (409).
  */
 export const postDocument: Step = flow(
     ensureNotDeleted,
     Effect.flatMap(setPosted(true)),
-    Effect.flatMap(removeMovements),
-    Effect.flatMap(writeMovements),
+    Effect.flatMap(withConstraints(flow(removeMovements, Effect.flatMap(writeMovements)))),
     Effect.flatMap(reload),
 );
 
-/** Отменяет проведение: удаляет движения документа и снимает признак проведения. */
+/**
+ * Отменяет проведение: удаляет движения документа и снимает признак проведения. Если без этих
+ * движений итог регистра нарушает ограничение, отмена отклоняется (409).
+ */
 export const unpostDocument: Step = flow(
-    removeMovements,
+    withConstraints(removeMovements),
     Effect.flatMap(setPosted(false)),
 );
 

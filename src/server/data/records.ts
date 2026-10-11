@@ -8,9 +8,10 @@
 import { Effect, Schema } from 'effect';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
-import { select } from '../database/sql.builder.js';
+import { select, type SqlCondition } from '../database/sql.builder.js';
 import { guidPattern } from '../common/guid.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
+import type { FilterOperator } from '../ui/descriptions.js';
 import { fieldValueFromRow } from './storage-values.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 
@@ -25,6 +26,19 @@ export interface PageOptions {
     readonly pageSize: number;
     readonly offset: number;
 }
+
+/**
+ * Операторы SQL для способов сравнения из формата описаний. `contains` в SQL не переводится:
+ * `LIKE` в Turso считает `%` и `_` шаблоном и не складывает регистр кириллицы.
+ */
+export const sqlOperators: { readonly [Operator in Exclude<FilterOperator, 'contains'>]: SqlCondition['operator'] } = {
+    equals: '=',
+    notEquals: '!=',
+    greater: '>',
+    greaterOrEqual: '>=',
+    less: '<',
+    lessOrEqual: '<=',
+};
 
 /** Отклоняет массив и null до обращения к полям тела запроса; location попадает в ответ 400. */
 export function objectValue(value: unknown, location: string): RecordValue {
