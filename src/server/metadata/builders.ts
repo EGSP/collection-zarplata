@@ -567,10 +567,13 @@ export interface RegisterBuilder<Name extends string, Fields extends FieldMap, D
      * заданного значения. Платформа проверяет его после каждого изменения движений документа
      * и при нарушении отменяет транзакцию. Ограничений может быть несколько, их имена не повторяются.
      * Объявляется после измерений и ресурсов, которые в нём названы.
+     *
+     * `By` выводится из результата `define`: ограничение может считать итог по части измерений
+     * регистра, а билдеры с разными наборами измерений друг другу не присваиваются.
      */
-    constraint(
+    constraint<By extends Dimensions>(
         name: string,
-        define: (constraint: RegisterConstraintBuilder<Fields, Dimensions>) => RegisterConstraintBuilder<Fields, Dimensions, Dimensions>,
+        define: (constraint: RegisterConstraintBuilder<Fields, Dimensions>) => RegisterConstraintBuilder<Fields, Dimensions, By>,
     ): RegisterBuilder<Name, Fields, Dimensions>;
 }
 
