@@ -126,7 +126,7 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
         .map((field) => formField(field, titles.get(field.name) ?? field.title, inputs.get(field.name) ?? null));
     const tableParts: ReadonlyArray<FormTablePart> = object.tableParts
         .filter((part) => !hidden.has(part.name))
-        .map((part) => ({ name: part.name, title: titles.get(part.name) ?? part.title, columns: part.fields.map((field) => formField(field)) }));
+        .map((part) => ({ inputElement: inputs.get(part.name) ?? null, name: part.name, title: titles.get(part.name) ?? part.title, columns: part.fields.map((field) => formField(field)) }));
 
     // Табличные части идут после полей: на форме они занимают всю ширину и обычно стоят внизу.
     const groups = layout([...fields.map((field) => field.name), ...tableParts.map((part) => part.name)], overrides);

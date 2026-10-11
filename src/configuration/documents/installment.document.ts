@@ -11,8 +11,6 @@ import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { document, formula, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
-import { InstallmentState } from '../form-elements/installment-state.form-element.js';
-import { OpenShift } from '../form-elements/open-shift.form-element.js';
 import { Goods } from '../goods.js';
 import { rubles } from '../money.js';
 import { Shift } from './shift.document.js';
@@ -94,7 +92,7 @@ export const Installment = installment
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе товары оказались бы над ней.
     .form((form) => form
-        .group('Рассрочка', ['number', 'date', 'type', 'shift', 'person', OpenShift, InstallmentState])
+        .group('Рассрочка', ['number', 'date', 'type', 'shift', 'person'])
         .group('Товары', ['goods', 'amount'])
         .group('Взносы', ['payments', 'balance'])
         .hide('closedAt')

@@ -3,6 +3,11 @@
  * поля ввода, пока прикладных элементов нет. Компонент лежит в соседнем файле
  * `sample-comment.form-element-component.tsx`. Удаляется вместе с пробными объектами.
  */
-import { formElement } from '../../server/metadata/form-elements.js';
+import { defineFormComponent } from '../../server/metadata/form-elements.js';
+import { Objects } from '../objects.generated.js';
 
-export const SampleComment = formElement('sampleComment');
+/** Места подключения компонента; сервер проверяет их до запуска приложения. */
+export const SampleComment = defineFormComponent({
+    name: 'sampleComment',
+    override: { object: Objects.document.sample, field: 'comment' },
+});

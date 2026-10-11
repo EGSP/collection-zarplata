@@ -29,7 +29,6 @@ import {
     type NumberFieldBuilder,
     type RequiredField,
 } from './fields.js';
-import type { FormElementBuilder } from './form-elements.js';
 import type { MetadataError } from './metadata.errors.js';
 import { managedStandardFields, standardFields, type StandardFields } from './standard-fields.js';
 
@@ -259,10 +258,10 @@ export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartM
  * части. Группы выводятся в порядке объявления, а элементы, не попавшие ни в одну группу,
  * собираются после них в группу без заголовка. Порядок обхода с клавиатуры следует за раскладкой.
  *
- * Собственный элемент формы указывается билдером из файла объявления `*.form-element.ts`.
- * Что элемент объявлен в таком файле, проверяет `commit()`: по типу это узнать нельзя.
+ * Подключение компонента задаётся в соседнем с ним файле `*.form-element.ts`.
+ * Генератор проверяет парность файлов, сборка конфигурации проверяет места подключения.
  */
-export class FormBuilder<Names extends string, Fields extends string = Names> {
+export class FormBuilder<Names extends string> {
     readonly '~overrides': ReadonlyArray<FormOverride>;
 
     constructor(overrides: ReadonlyArray<FormOverride> = []) {
@@ -270,33 +269,21 @@ export class FormBuilder<Names extends string, Fields extends string = Names> {
     }
 
     /**
-     * Группа с заголовком из полей, табличных частей и собственных элементов; они выводятся
-     * в указанном порядке. Поля и табличные части в этом же порядке обходятся с клавиатуры,
-     * собственный элемент в обход не входит.
+     * Группа с заголовком из полей и табличных частей; они выводятся
+     * в указанном порядке. Порядок обхода с клавиатуры следует за порядком группы.
      */
-    group(title: string, fields: ReadonlyArray<Names | FormElementBuilder>): FormBuilder<Names, Fields> {
-        const items = fields.map((item) => (typeof item === 'string' ? item : { element: item.name }));
-        return new FormBuilder([...this['~overrides'], { kind: 'group', title, fields: items }]);
+    group(title: string, fields: ReadonlyArray<Names>): FormBuilder<Names> {
+        return new FormBuilder([...this['~overrides'], { kind: 'group', title, fields }]);
     }
 
     /** Скрыть поле или табличную часть. Обязательное поле, которое заполняет пользователь, скрыть нельзя. */
-    hide(field: Names): FormBuilder<Names, Fields> {
+    hide(field: Names): FormBuilder<Names> {
         return new FormBuilder([...this['~overrides'], { kind: 'hide', field }]);
     }
 
     /** Подпись поля или табличной части на форме. */
-    title(field: Names, title: string): FormBuilder<Names, Fields> {
+    title(field: Names, title: string): FormBuilder<Names> {
         return new FormBuilder([...this['~overrides'], { kind: 'title', field, title }]);
-    }
-
-    /**
-     * Назначить собственный элемент полем ввода для поля. На форме элемент заменяет виджет вида
-     * поля и остаётся на месте поля в раскладке и в порядке обхода; в списке и в отборе поле
-     * выводится стандартным виджетом. Назначить элемент можно только полю, которое пользователь
-     * заполняет на форме.
-     */
-    input(field: Fields, element: FormElementBuilder): FormBuilder<Names, Fields> {
-        return new FormBuilder([...this['~overrides'], { kind: 'input', field, element: element.name }]);
     }
 
     /**
@@ -304,7 +291,7 @@ export class FormBuilder<Names extends string, Fields extends string = Names> {
      * окне поверх списка. Это только умолчание: место вызова может указать режим само, а прямой
      * адрес новой записи всегда открывает вкладку. Без этого вызова запись создаётся во вкладке.
      */
-    creation(mode: RecordOpeningMode): FormBuilder<Names, Fields> {
+    creation(mode: RecordOpeningMode): FormBuilder<Names> {
         return new FormBuilder([...this['~overrides'], { kind: 'creation', mode }]);
     }
 }
@@ -411,8 +398,8 @@ export interface RecordObjectBuilder<
     /** Переопределение формы. Повторный вызов заменяет предыдущее. */
     form(
         define: (
-            form: FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string, FieldNames<Kind, Fields>>,
-        ) => FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string, FieldNames<Kind, Fields>>,
+            form: FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>,
+        ) => FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>,
     ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 
     /** Политика объекта. Политики из нескольких вызовов выполняются по порядку. */

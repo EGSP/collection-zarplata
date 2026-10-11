@@ -56,13 +56,15 @@ export interface FormField {
     readonly rules: ValidationRules;
     /**
      * Имя собственного элемента конфигурации, который на форме служит полем ввода вместо виджета
-     * вида поля. Заполнено только у поля шапки, которому элемент назначен переопределением формы.
+     * вида поля. Заполнено только у поля шапки, которому компонент назначен через override своего объявления.
      */
     readonly inputElement: string | null;
 }
 
 /** Табличная часть формы: колонки — поля одной строки в порядке объявления. */
 export interface FormTablePart {
+    /** Компонент вместо стандартной таблицы; отсутствие означает стандартное представление. */
+    readonly inputElement?: string | null;
     readonly name: string;
     readonly title: string;
     readonly columns: ReadonlyArray<FormField>;

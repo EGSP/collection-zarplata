@@ -11,8 +11,6 @@ import { selectTyped } from '../../server/data/typed-select.js';
 import { Database } from '../../server/database/database.effect.js';
 import { document, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { Employees } from '../catalogs/employees.catalog.js';
-import { ShiftEmployees } from '../form-elements/shift-employees.form-element.js';
-import { ShiftState } from '../form-elements/shift-state.form-element.js';
 
 /**
  * Описание без политики и действия закрытия. Они читают таблицу самого документа, а ссылка
@@ -119,8 +117,8 @@ export const Shift = shift
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе состав оказался бы над ней.
     .form((form) => form
-        .group('Смена', ['number', 'date', ShiftState])
-        .group('Сотрудники', [ShiftEmployees, 'employees'])
+        .group('Смена', ['number', 'date'])
+        .group('Сотрудники', ['employees'])
         .title('date', 'Открыта')
         .hide('closedAt')
         .hide('posted')

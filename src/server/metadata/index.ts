@@ -37,7 +37,7 @@ export {
 export { commitConfiguration } from './commit.js';
 export type * from './descriptions.js';
 export { FieldFactory, type FieldMap, type FieldsRecord, type ReferenceTarget } from './fields.js';
-export { formElement, FormElementBuilder, isFormElementBuilder } from './form-elements.js';
+export { defineFormComponent, FormComponentDefinition, isFormComponentDefinition } from './form-elements.js';
 export { Metadata } from './metadata.effect.js';
 export { MetadataError, type MetadataProblem } from './metadata.errors.js';
 export { loadConfiguration, type ConfigurationModule } from './registry.js';

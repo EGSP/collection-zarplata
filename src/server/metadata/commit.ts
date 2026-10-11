@@ -6,6 +6,8 @@
  * записывают проблемы в общий список, а описание собирается даже из ошибочного состояния —
  * `commitConfiguration` нужно пройти все объекты, прежде чем сообщить об ошибке.
  */
+import { applyFormComponents, checkFormComponentTargets } from './form-component-attachments.js';
+import type { FormComponentDefinition } from './form-elements.js';
 import type { Formula } from '../../common/formulas.js';
 import type { ReferenceTarget } from './fields.js';
 import { formulaDependencies } from '../../common/formulas.js';
@@ -208,7 +210,7 @@ function checkForm(
     let creationDefined = false;
     const checkElement = (location: string, element: string) => {
         if (!formElements.has(element)) {
-            problems.add(location, `элемент формы «${element}» не объявлен: ожидается файл *.form-element.ts с formElement('${element}')`);
+            problems.add(location, `элемент формы «${element}» не объявлен: ожидается объявление defineFormComponent с именем «${element}»`);
         }
     };
     for (const override of overrides) {
@@ -243,9 +245,7 @@ function checkForm(
             if (previous !== undefined) problems.add(location, `полю уже назначен элемент формы «${previous}»`);
             inputs.set(override.field, override.element);
             const field = fields.find((candidate) => candidate.name === override.field);
-            if (partNames.has(override.field)) {
-                problems.add(location, 'элемент назначается полем ввода только полю, а это табличная часть');
-            } else if (!fieldNames.has(override.field)) {
+            if (!fieldNames.has(override.field) && !partNames.has(override.field)) {
                 problems.add(location, `нет поля «${override.field}»`);
             } else if (formHiddenStandardFields.has(override.field)) {
                 problems.add(location, `стандартное поле «${override.field}» не выводится на форму`);
@@ -501,17 +501,19 @@ export function commitObject(
 export function commitConfiguration(
     configuration: ReadonlyArray<ObjectBuilder>,
     formElements: ReadonlySet<string> = new Set(),
+    formComponents: ReadonlyArray<FormComponentDefinition> = [],
 ): Effect.Effect<ReadonlyArray<ObjectDescription>, MetadataError> {
     return Effect.suspend(() => {
         const problems: Array<MetadataProblem> = [];
         const seen = new Set<string>();
+        checkFormComponentTargets(configuration.map((builder) => builder['~state']), formComponents, problems);
         const descriptions = configuration.map((builder) => {
             const label = objectLabel(builder);
             if (seen.has(label)) {
                 problems.push({ object: label, location: null, message: `${kindTitles[builder.kind]} с именем «${builder.name}» объявлен дважды` });
             }
             seen.add(label);
-            const result = validateObject(builder['~state'], configuration, formElements);
+            const result = validateObject(applyFormComponents(builder['~state'], formComponents, problems), configuration, formElements);
             problems.push(...result.problems);
             return result.description;
         });

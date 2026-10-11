@@ -3,6 +3,11 @@
  * добавляет сотрудника в состав и убирает из него. Компонент лежит в соседнем файле
  * `shift-employees.form-element-component.tsx`.
  */
-import { formElement } from '../../server/metadata/form-elements.js';
+import { defineFormComponent } from '../../server/metadata/form-elements.js';
+import { Objects } from '../objects.generated.js';
 
-export const ShiftEmployees = formElement('shiftEmployees');
+/** Места подключения компонента; сервер проверяет их до запуска приложения. */
+export const ShiftEmployees = defineFormComponent({
+    name: 'shiftEmployees',
+    insert: { object: Objects.document.shift, group: 'Сотрудники' },
+});

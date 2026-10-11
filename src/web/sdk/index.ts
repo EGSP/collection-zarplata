@@ -72,7 +72,7 @@ export { FormDataProvider, useFormData, useFormRestrictions, useFormValue, type 
 export { useFormRestrictionRegistry, type FormRestrictionRegistry, type FormRestrictions } from './form-restrictions';
 export { useFieldTraversal, type FieldTraversal } from './field-traversal';
 export { hasOpenDialog, hasOpenPicker } from './keyboard';
-export { newRecordValues, recordValues, saveFields, type FormValues } from './record-values';
+export { newRecordValues, newRowValues, recordValues, saveFields, type FormValues } from './record-values';
 export { TablePart, type TablePartProperties } from './table-part';
 
 // Иконки по смыслу: добавление, открытие, удаление и прочие.
@@ -91,3 +91,6 @@ export { RecordTable, type RecordTableProperties } from './record-table';
 export { defineShellGroups, shellGroup, ShellGroups, type ShellGroup, type ShellGroupComponent, type ShellGroupEntry } from './shell-groups';
 export { ListControlsProvider, useListControls, useListControlsState, type ListControls } from './list-controls';
 export { ShellGroupContent, ShellGroupsProvider } from './shell-group-content';
+
+/** Контракт замены табличной части и проверка строк без отрисовки таблицы. */
+export { tablePartValidationMessages, type TablePartInputProperties } from './table-part-input';

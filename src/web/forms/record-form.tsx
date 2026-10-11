@@ -157,7 +157,13 @@ export function RecordForm({ object, view, record, reload }: RecordFormPropertie
             // Текст сервера показало уведомление. Отдельного текста на каждое поле у сервера нет,
             // поэтому поля из его перечня только отмечаются.
             if (error instanceof ApiError && error.statusCode === 400) {
-                form.setFields(formFieldPaths(error.fields, 'payload.fields.').map((name) => ({ name, errors: [serverRejectionMessage] })));
+                const paths = formFieldPaths(error.fields, 'payload.fields.');
+                // Ячейка может быть не смонтирована: тогда ошибка остаётся и у части, и по исходному пути.
+                const fallbacks = paths.flatMap((name) => {
+                    const part = view.tableParts.find((candidate) => candidate.name === name[0] && candidate.inputElement != null);
+                    return part !== undefined && form.getFieldInstance(name) === undefined ? [[part.name]] : [];
+                });
+                form.setFields([...paths, ...fallbacks].map((name) => ({ name, errors: [serverRejectionMessage] })));
             }
             return null;
         }

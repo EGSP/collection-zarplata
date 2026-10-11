@@ -8,8 +8,8 @@
  *   меняться без оглядки на конфигурацию;
  * - из серверного кода и файлов объектов компонент импортирует только типы. Импорт значения
  *   включил бы в сборку клиента билдеры, Effect и обработчики действий;
- * - объявление страницы или элемента формы импортирует значение только из модуля своего билдера:
- *   файл объявления попадает и в сервер, и в клиент.
+ * - объявление страницы или элемента формы импортирует значения из модуля своего объявления
+ *   и нейтральных ссылок objects.generated: файл объявления попадает и в сервер, и в клиент.
  *
  * Скрипт разбирает импорты регулярным выражением, а не компилятором: ему нужны только путь
  * и признак `import type`, а API компилятора в TypeScript 7 для этого подключать не стоит.
@@ -75,8 +75,8 @@ function check(file: string, declaration: DeclarationKind | null): Array<string>
             if (declaration !== null) problems.push(`${place}: объявление ${declaration.title} не импортирует клиент («${specifier}»): файл объявления собирается и сервером`);
             else if (module !== sdkModule) problems.push(`${place}: компонент конфигурации импортирует из клиента только web SDK (src/web/sdk), а «${specifier}» — внутренний модуль`);
         } else if (declaration !== null) {
-            if (!typeOnly && module !== declaration.builderModule) {
-                problems.push(`${place}: объявление ${declaration.title} импортирует значение только из src/${declaration.builderModule}, а «${specifier}» попал бы в сборку клиента`);
+            if (!typeOnly && module !== declaration.builderModule && module !== 'configuration/objects.generated') {
+                problems.push(`${place}: объявление ${declaration.title} импортирует значения только из src/${declaration.builderModule} и objects.generated, а «${specifier}» попал бы в сборку клиента`);
             }
         } else if (!typeOnly && !isClientModule(module)) {
             problems.push(`${place}: значение из «${specifier}» попало бы в сборку клиента вместе с серверным кодом; импортируйте только тип (import type)`);

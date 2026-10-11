@@ -12,9 +12,6 @@ import { Effect } from 'effect';
 import { document, formula, movements } from '../../server/metadata/index.js';
 import { SampleDelegate } from '../catalogs/sample-delegate.catalog.js';
 import { Sample } from '../catalogs/sample.catalog.js';
-import { SampleComment } from '../form-elements/sample-comment.form-element.js';
-import { SampleLock } from '../form-elements/sample-lock.form-element.js';
-import { SampleTotal } from '../form-elements/sample-total.form-element.js';
 import { SampleRegister } from '../registers/sample.register.js';
 import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
 
@@ -26,16 +23,21 @@ export const SampleDocument = document('sample')
     .field('comment', (field) => field.string().title('Комментарий').maximumLength(500))
     .field('total', (field) => field.money().title('Итого после скидки').required().computed(formula.sum('lines', 'netAmount')))
     .field('discount', (field) => field.number().title('Скидка шапки, %').suggestions(Sample, 'percentage'))
+    .field('paymentComment', (field) => field.string().title('Примечание к оплате'))
+    .field('paymentTotal', (field) => field.money().title('Итого оплаты').required().computed(formula.sum('payments', 'netAmount')))
+    .tablePart('payments', (part) => part.title('Оплата')
+        .field('method', (field) => field.string().title('Способ оплаты').choices(['Наличные', 'Карта']).initial('Наличные').required())
+        .field('amount', (field) => field.money().title('Сумма оплаты').minimum(0).required())
+        .field('netAmount', (field) => field.money().title('Учтённая сумма').required().computed(formula.field('amount'))))
     .tablePart('lines', (part) => part.title('Строки').include(SampleLines))
     .listTableParts(['lines'])
     .presentation([{ text: '№ ' }, { field: 'number', format: 'number' }, { text: ' от ' }, { field: 'date', format: 'date' }, { text: ', ' }, { tablePart: 'lines', field: 'item' }])
     .action('acceptLines', (action) => action.title('Принять строки').input((input) => input.tablePart('lines', (part) => part.title('Строки действия').include(SampleLines))).handle((input) => Effect.succeed(input.lines)))
-    // Элемент ставится на форму только в группе, а группы выводятся раньше остальных полей.
-    // Поэтому шапка тоже собрана в группу: иначе строки оказались бы над ней.
+    // Группы идут раньше остальных полей, поэтому шапка собрана в группу перед строками.
     .form((form) => form
-        .group('Основное', ['number', 'date', 'posted', 'item', 'delegate', 'comment', SampleLock])
-        .group('Строки и итог', ['lines', SampleTotal])
-        .input('comment', SampleComment))
+        .group('Основное', ['number', 'date', 'posted', 'item', 'delegate', 'comment'])
+        .group('Строки и итог', ['lines'])
+        .group('Оплата', ['discount', 'payments', 'paymentComment', 'paymentTotal']))
     .policy(closedPeriodByDocumentDate())
     .posting((record) => Effect.succeed([
         movements(SampleRegister, record.lines.map((line) => ({ item: line.item, quantity: line.quantity, amount: line.amount }))),

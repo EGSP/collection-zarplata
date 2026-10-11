@@ -11,7 +11,7 @@ import { Effect } from 'effect';
 import { isObjectBuilder, type ObjectBuilder } from './builders.js';
 import { commitConfiguration } from './commit.js';
 import type { ObjectDescription, ObjectKind } from './descriptions.js';
-import { declaredFormElements } from './form-element-registry.js';
+import { declaredFormComponents } from './form-element-registry.js';
 import { MetadataError, type MetadataProblem } from './metadata.errors.js';
 
 /** Модуль объекта конфигурации в реестре: путь файла относительно `src/configuration` и его экспорт. */
@@ -82,8 +82,8 @@ export function loadConfiguration(
     return Effect.suspend(() => {
         const problems: Array<MetadataProblem> = [];
         const builders = modules.flatMap((module) => builderOf(module, problems) ?? []);
-        const formElements = declaredFormElements(formElementModules, problems);
+        const components = declaredFormComponents(formElementModules, problems);
         if (problems.length > 0) return Effect.fail(new MetadataError({ problems }));
-        return commitConfiguration(builders.map((builder) => builder.withStandardFields()), formElements);
+        return commitConfiguration(builders.map((builder) => builder.withStandardFields()), new Set(components.map((component) => component.name)), components);
     });
 }

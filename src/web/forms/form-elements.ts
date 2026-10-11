@@ -9,7 +9,7 @@
  * и импорт реестра из SDK замкнул бы модули в кольцо.
  */
 import { formElements } from '../../configuration/form-elements.generated';
-import { isFormElementBuilder } from '../../server/metadata/form-elements';
+import { isFormComponentDefinition } from '../../server/metadata/form-elements';
 import type { FormElementComponent } from '../sdk';
 
 /** Элемент формы в реестре клиента. */
@@ -28,7 +28,7 @@ export interface FormElementModule {
  */
 const components: ReadonlyMap<string, FormElementComponent> = new Map(
     formElements.flatMap((element) => {
-        const builder = Object.values(element.declaration).find(isFormElementBuilder);
+        const builder = Object.values(element.declaration).find(isFormComponentDefinition);
         return builder === undefined ? [] : [[builder.name, element.component] as const];
     }),
 );

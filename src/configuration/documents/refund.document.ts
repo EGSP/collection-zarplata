@@ -9,8 +9,6 @@ import { selectTyped } from '../../server/data/typed-select.js';
 import { Database } from '../../server/database/database.effect.js';
 import { select } from '../../server/database/sql.builder.js';
 import { document, type Policy, type RecordOf } from '../../server/metadata/index.js';
-import { OpenShift } from '../form-elements/open-shift.form-element.js';
-import { RefundSales } from '../form-elements/refund-sales.form-element.js';
 import { Goods } from '../goods.js';
 import { numberAndDate, rubles } from '../money.js';
 import { Sale } from './sale.document.js';
@@ -94,8 +92,8 @@ export const Refund = refund
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе табличные части оказались бы над ней.
     .form((form) => form
-        .group('Возврат', ['number', 'date', 'shift', OpenShift])
-        .group('На основании', ['bases', RefundSales])
+        .group('Возврат', ['number', 'date', 'shift'])
+        .group('На основании', ['bases'])
         .group('Товары', ['goods'])
         .hide('posted'))
     .policy(refundLimit);

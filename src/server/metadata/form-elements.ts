@@ -1,44 +1,55 @@
-/**
- * Объявление элемента формы: имя собственного блока, который конфигурация ставит на стандартную форму.
- *
- * Стандартная форма выводит поля и табличные части из описания объекта. Блок с собственной логикой,
- * например итог по табличной части или поле ввода с кнопкой, конфигурация объявляет элементом формы.
- * Элемент состоит из двух частей. Объявление описывается билдером в файле `*.form-element.ts`,
- * компонент React лежит в соседнем файле `*.form-element-component.tsx`. Части разделены по той же
- * причине, что и у страницы: сервер собирает конфигурацию без React и DOM, а имя элемента нужно ему,
- * чтобы проверить раскладку формы и отдать её клиенту.
- *
- * На форму элемент ставит переопределение `.form(...)` объекта: в группу либо полем ввода конкретного
- * поля. Объявление от объекта не зависит, поэтому один элемент можно поставить на формы разных объектов.
- *
- * Файл объявления импортирует и клиент: по нему реестр компонентов узнаёт имя элемента. Поэтому
- * здесь нет импортов Nest и Effect, а проверка объявлений вынесена в `form-element-registry.ts`.
- */
+/** Объявления подключений компонентов формы. Сервер читает объявления без React и DOM. */
+import type { ObjectReference } from '../../common/object-reference.js';
 
-/**
- * Билдер элемента формы; его создаёт `formElement(name)`. У элемента есть только имя: подпись
- * и место на форме задаёт переопределение формы объекта.
- */
-export class FormElementBuilder<Name extends string = string> {
-    readonly name: Name;
+/** Имена табличных частей в типе записи объекта. */
+type PartNames<RecordValue> = string extends keyof RecordValue ? string : { [Name in keyof RecordValue]: RecordValue[Name] extends ReadonlyArray<unknown> ? Name : never }[keyof RecordValue] & string;
 
-    constructor(name: Name) {
-        this.name = name;
-    }
+/** Имена полей шапки, в отличие от табличных частей. */
+type HeaderNames<RecordValue> = string extends keyof RecordValue ? string : Exclude<keyof RecordValue & string, PartNames<RecordValue>>;
+
+/** Место замены: ровно одно поле шапки либо одна табличная часть. */
+export type FormComponentOverride<Object extends ObjectReference = ObjectReference> = { readonly object: Object } & (
+    | { readonly field: HeaderNames<Object['~record']>; readonly tablePart?: never }
+    | { readonly tablePart: PartNames<Object['~record']>; readonly field?: never }
+);
+
+/** Вставка блока в существующую группу; без after блок ставится в начало группы. */
+export interface FormComponentInsert<Object extends ObjectReference = ObjectReference> {
+    readonly object: Object;
+    readonly group: string;
+    readonly after?: keyof Object['~record'] & string;
 }
 
-/**
- * Элемент формы с именем `name`. По имени клиент находит компонент элемента. Имя подчиняется
- * правилам имён объектов и не повторяется среди элементов; это проверяет сервер при запуске.
- */
-export function formElement<const Name extends string>(name: Name): FormElementBuilder<Name> {
-    return new FormElementBuilder(name);
+/** Одно подключение компонента. Замена и вставка взаимоисключающие. */
+export type FormComponentAttachment<Object extends ObjectReference = ObjectReference> =
+    | { readonly override: FormComponentOverride<Object>; readonly insert?: never }
+    | { readonly insert: FormComponentInsert<Object>; readonly override?: never };
+
+/** Объявление компонента с одним или несколькими местами подключения на формах. */
+export class FormComponentDefinition<Name extends string = string> {
+    constructor(readonly name: Name, readonly attachments: ReadonlyArray<FormComponentAttachment>) {}
 }
 
-/**
- * Проверяет, что значение — билдер элемента формы. Экспорт файла объявления известен только
- * во время выполнения, и кроме билдера файл может экспортировать вспомогательные значения.
- */
-export function isFormElementBuilder(value: unknown): value is FormElementBuilder {
-    return value instanceof FormElementBuilder;
+/** Ссылка конкретного подключения; у каждого места в массиве свой тип записи. */
+type AttachmentObject<Attachment> = Attachment extends { readonly override: { readonly object: infer Object extends ObjectReference } }
+    ? Object : Attachment extends { readonly insert: { readonly object: infer Object extends ObjectReference } } ? Object : ObjectReference;
+
+/** Объявляет компонент с одним подключением. Типы проверяют имена полей; сервер проверяет места и конфликты. */
+export function defineFormComponent<const Name extends string, const Object extends ObjectReference>(
+    definition: { readonly name: Name } & FormComponentAttachment<Object>,
+): FormComponentDefinition<Name>;
+/** Объявляет несколько подключений; имена полей проверяются отдельно для объекта каждого места. */
+export function defineFormComponent<const Name extends string, const Attachments extends ReadonlyArray<FormComponentAttachment>>(
+    definition: { readonly name: Name; readonly attachments: Attachments & { readonly [Index in keyof Attachments]: FormComponentAttachment<AttachmentObject<Attachments[Index]>> } },
+): FormComponentDefinition<Name>;
+export function defineFormComponent(
+    definition: { readonly name: string } & (FormComponentAttachment | { readonly attachments: ReadonlyArray<FormComponentAttachment> }),
+): FormComponentDefinition {
+    const attachments = 'attachments' in definition ? definition.attachments : [definition];
+    return new FormComponentDefinition(definition.name, attachments);
+}
+
+/** Отличает объявление компонента от вспомогательных экспортов файла. */
+export function isFormComponentDefinition(value: unknown): value is FormComponentDefinition {
+    return value instanceof FormComponentDefinition;
 }

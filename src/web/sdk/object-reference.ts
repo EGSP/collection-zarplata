@@ -12,47 +12,11 @@
  * берутся импортом только типа, а вид и имя ссылки получаются из пути обращения
  * `Objects.document.sample`, который компилятор сверяет с билдерами.
  */
-import type { StandardAction } from '../../server/authorization/rights';
-import type { BuildersOf, ListRecordOf, ObjectBuilder, RecordOf } from '../../server/metadata/builders';
-import type { FilterOperator, ListSort, ObjectKind } from '../../server/ui/descriptions';
+import type { FilterOperator, ListSort } from '../../server/ui/descriptions';
 import type { ListCondition } from '../data-provider/data-provider';
 import type { PerformTarget } from '../data-provider/perform';
-import type { RecordData } from '../data-provider/records';
-
-/**
- * Ссылка на объект конфигурации. Во время работы это вид и имя объекта. Свойства с `~` существуют
- * только на уровне типов: `Row` — строка списка, `Record` — запись с табличными частями,
- * `Action` — имена стандартных и собственных действий.
- */
-export interface ObjectReference<
-    Kind extends ObjectKind = ObjectKind,
-    Name extends string = string,
-    Row extends RecordData = RecordData,
-    Record extends RecordData = RecordData,
-    Action extends string = string,
-> extends PerformTarget {
-    readonly kind: Kind;
-    readonly name: Name;
-    readonly '~row': Row;
-    readonly '~record': Record;
-    readonly '~action': Action;
-}
-
-/** Ссылка на объект по типу его билдера. */
-export type ObjectReferenceOf<Builder extends ObjectBuilder> = ObjectReference<
-    Builder['kind'],
-    Builder['name'],
-    ListRecordOf<Builder>,
-    RecordOf<Builder>,
-    StandardAction<Builder['kind']> | Builder['~actions']
->;
-
-/** Ссылки на все объекты конфигурации: вид объекта → имя объекта → ссылка. */
-export type ObjectReferences<Modules extends ReadonlyArray<object>> = {
-    readonly [Kind in ObjectKind]: {
-        readonly [Builder in Extract<BuildersOf<Modules>, { readonly kind: Kind }> as Builder['name']]: ObjectReferenceOf<Builder>;
-    };
-};
+export { objectReferences } from '../../common/object-reference';
+export type { ObjectReference, ObjectReferenceOf, ObjectReferences } from '../../common/object-reference';
 
 /**
  * Объект, строки списка которого имеют тип `Row`. Подходит и ссылка на объект, и описание
@@ -86,41 +50,3 @@ export type RecordCondition<Row> = string extends keyof Row
               | { readonly field: Field; readonly operator: Exclude<FilterOperator, 'contains'>; readonly value: Row[Field] | null }
               | { readonly field: Field; readonly operator: 'contains'; readonly value: string };
       }[FieldName<Row>];
-
-/**
- * Создаёт ссылки на объекты конфигурации. Вызывается в сгенерированном файле `objects.generated.ts`
- * с типами модулей всех объектов. Перечня объектов у функции нет: ссылка создаётся при обращении
- * `Objects.<вид>.<имя>` из вида и имени в этом пути. Допустимость пути проверяет компилятор по типам
- * билдеров, а генератору реестра не нужно разбирать исходники, чтобы узнать имена объектов.
- *
- * Повторное обращение возвращает ту же ссылку, поэтому её можно указывать в зависимостях хуков.
- */
-export function objectReferences<Modules extends ReadonlyArray<object>>(): ObjectReferences<Modules> {
-    const kinds = new Map<string, object>();
-    const namesOf = (kind: string): object => {
-        const references = new Map<string, PerformTarget>();
-        return new Proxy(
-            {},
-            {
-                get: (_target, name) => {
-                    // Символы запрашивает среда выполнения, например при выводе объекта в консоль: объектов с такими именами нет.
-                    if (typeof name !== 'string') return undefined;
-                    const reference = references.get(name) ?? Object.freeze({ kind, name });
-                    references.set(name, reference);
-                    return reference;
-                },
-            },
-        );
-    };
-    return new Proxy(
-        {},
-        {
-            get: (_target, kind) => {
-                if (typeof kind !== 'string') return undefined;
-                const names = kinds.get(kind) ?? namesOf(kind);
-                kinds.set(kind, names);
-                return names;
-            },
-        },
-    ) as ObjectReferences<Modules>;
-}

@@ -146,8 +146,8 @@ function renderServerRegistry(objects: ReadonlyArray<string>, pages: ReadonlyArr
 function renderObjectReferences(objects: ReadonlyArray<string>): string {
     return [
         ...header,
-        "import { objectReferences } from '../web/sdk/object-reference';",
-        ...objects.map((file, index) => `import type * as module${index} from '${clientImport(file)}';`),
+        "import { objectReferences } from '../common/object-reference.js';",
+        ...objects.map((file, index) => `import type * as module${index} from '${serverImport(file)}';`),
         '',
         '/**',
         ' * Ссылки на объекты конфигурации для страниц и элементов формы: `Objects.document.sample`.',

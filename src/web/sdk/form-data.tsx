@@ -31,7 +31,7 @@ export type EnteredValue<Value> = Value extends ReadonlyArray<infer Row> ? Reado
 /**
  * Компонент собственного элемента формы. Свойства закрыты типом `never`: что получит компонент,
  * определяет его место на форме, а не реестр. В группе компонент свойств не получает, на месте
- * поля ввода получает свойства поля ввода `InputProperties`.
+ * поля ввода получает `InputProperties`, на месте части получает `TablePartInputProperties`.
  */
 export type FormElementComponent = ComponentType<never>;
 

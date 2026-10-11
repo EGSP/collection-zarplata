@@ -7,7 +7,7 @@ import { fieldRules, isMarkedRequired } from '../widgets/validation';
 import type { InputProperties } from '../widgets/widget';
 import { fieldAttribute, type FieldTraversal } from './field-traversal';
 import { useFieldRestricted, useFormElement } from './form-data';
-import { TablePart } from './table-part';
+import { TablePartInput } from './table-part-input';
 
 /** Свойства группы полей. */
 export interface FieldGroupProperties {
@@ -89,15 +89,17 @@ function TablePartItem({ part, disabled, traversal }: TablePartItemProperties) {
     const restricted = useFieldRestricted(part.name);
     return (
         // Недоступность ячейкам передаёт контекст Ant Design, как на форме только для просмотра.
-        <ConfigProvider {...(restricted ? { componentDisabled: true } : {})}>
-            <TablePart
-                part={part}
-                disabled={disabled || restricted}
-                // Обход останавливается на имени, у которого есть ссылка, поэтому недоступная часть её не получает.
-                ref={restricted ? undefined : traversal?.register(part.name)}
-                onPrevious={traversal === undefined ? undefined : () => traversal.previous(part.name)}
-            />
-        </ConfigProvider>
+        <div {...{ [fieldAttribute]: part.name }}>
+            <ConfigProvider {...(restricted ? { componentDisabled: true } : {})}>
+                <TablePartInput
+                    part={part}
+                    disabled={disabled || restricted}
+                    // Обход останавливается на имени, у которого есть ссылка, поэтому недоступная часть её не получает.
+                    ref={restricted ? undefined : traversal?.register(part.name)}
+                    onPrevious={traversal === undefined ? undefined : () => traversal.previous(part.name)}
+                />
+            </ConfigProvider>
+        </div>
     );
 }
 

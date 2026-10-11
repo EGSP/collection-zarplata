@@ -14,8 +14,6 @@ import { selectTyped } from '../../server/data/typed-select.js';
 import { Database } from '../../server/database/database.effect.js';
 import { document, formula, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
-import { OpenShift } from '../form-elements/open-shift.form-element.js';
-import { WeighingState } from '../form-elements/weighing-state.form-element.js';
 import { Goods } from '../goods.js';
 import { Sale } from './sale.document.js';
 import { Shift } from './shift.document.js';
@@ -101,7 +99,7 @@ export const Weighing = weighing
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе товары оказались бы над ней.
     .form((form) => form
-        .group('Отвес', ['number', 'date', 'shift', 'person', OpenShift, WeighingState])
+        .group('Отвес', ['number', 'date', 'shift', 'person'])
         .group('Товары', ['goods', 'balance'])
         .hide('heldCount')
         .hide('posted'))

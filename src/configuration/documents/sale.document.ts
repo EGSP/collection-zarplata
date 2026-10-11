@@ -7,8 +7,6 @@
  * изменение отвес не меняет.
  */
 import { document, formula, type ObjectTarget } from '../../server/metadata/index.js';
-import { OpenShift } from '../form-elements/open-shift.form-element.js';
-import { SaleBasis } from '../form-elements/sale-basis.form-element.js';
 import { Goods } from '../goods.js';
 import { Shift } from './shift.document.js';
 import { Weighing } from './weighing.document.js';
@@ -30,7 +28,7 @@ export const Sale = document('sale')
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе товары оказались бы над ней.
     .form((form) => form
-        .group('Продажа', ['number', 'date', 'shift', OpenShift, SaleBasis])
+        .group('Продажа', ['number', 'date', 'shift'])
         .group('Товары', ['goods', 'amount'])
         .hide('basis')
         .hide('posted'));

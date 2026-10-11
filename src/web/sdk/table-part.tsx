@@ -13,6 +13,8 @@ import { newRowValues } from './record-values';
 /** Свойства табличной части. */
 export interface TablePartProperties {
     readonly part: FormTablePart;
+    /** Скрывает повторную подпись, когда её уже выводит контейнер замены части. */
+    readonly showTitle?: boolean | undefined;
     /** Строки нельзя изменять, добавлять и удалять: форма открыта только для просмотра. */
     readonly disabled?: boolean | undefined;
     /** Возвращает обход в предыдущее поле формы из первой ячейки. Без обработчика обход останавливается в первой ячейке. */
@@ -57,7 +59,7 @@ interface RowTableProperties extends TablePartProperties {
  * Фокус ячеек хранится по устойчивому ключу строки, поэтому удаление строки не сдвигает
  * ссылки на поля остальных строк. Новая строка получает фокус после регистрации её полей.
  */
-function RowTable({ part, disabled = false, ref, onPrevious, rows, add, remove }: RowTableProperties) {
+function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove }: RowTableProperties) {
     const form = Form.useFormInstance();
     const watched: unknown = Form.useWatch(part.name, { form, preserve: true });
     const values = (Array.isArray(watched) ? watched : form.getFieldValue(part.name) ?? []) as Record<string, unknown>[];
@@ -125,7 +127,7 @@ function RowTable({ part, disabled = false, ref, onPrevious, rows, add, remove }
     });
     return (
         <Flex vertical gap="small" align="flex-start" data-table-part={part.name}>
-            <Typography.Text strong>{part.title}</Typography.Text>
+            {showTitle && <Typography.Text strong>{part.title}</Typography.Text>}
             <Table<Row> size="small" style={{ width: '100%' }} rowKey="key" columns={columns} dataSource={[...rows]} pagination={false} expandable={expanded.length === 0 ? {} : {
                 expandedRowKeys: [...expandedKeys],
                 onExpandedRowsChange: setExpandedKeys,

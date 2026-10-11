@@ -4,6 +4,11 @@
  * Компонент лежит в соседнем файле `sample-lock.form-element-component.tsx`. Удаляется вместе
  * с пробными объектами.
  */
-import { formElement } from '../../server/metadata/form-elements.js';
+import { defineFormComponent } from '../../server/metadata/form-elements.js';
+import { Objects } from '../objects.generated.js';
 
-export const SampleLock = formElement('sampleLock');
+/** Места подключения компонента; сервер проверяет их до запуска приложения. */
+export const SampleLock = defineFormComponent({
+    name: 'sampleLock',
+    insert: { object: Objects.document.sample, group: 'Основное', after: 'comment' },
+});
