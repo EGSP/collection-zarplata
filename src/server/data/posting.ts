@@ -19,6 +19,7 @@
  * удалить прежние движения документа.
  */
 import { Effect, flow, pipe, Schema } from 'effect';
+import type { CurrentUserRights } from '../authorization/current-user-rights.js';
 import { Database } from '../database/database.effect.js';
 import { insert, remove, update, type SqlValue } from '../database/sql.builder.js';
 import type { ObjectDescription, RegisterMovements } from '../metadata/descriptions.js';
@@ -37,10 +38,11 @@ export interface DocumentState {
 }
 
 /**
- * Сервисы, которые нужны шагам. `ActionContext` и `ActionDispatcher` требуются обработчику
- * проведения: он выполняется внутри действия и может вызывать вложенные действия.
+ * Сервисы, которые нужны шагам. `ActionContext`, `ActionDispatcher` и `CurrentUserRights` требуются
+ * обработчику проведения: он выполняется внутри действия, может вызывать вложенные действия
+ * и проверять права пользователя.
  */
-type PostingRequirements = Database | Metadata | ActionContext | ActionDispatcher;
+type PostingRequirements = Database | Metadata | ActionContext | ActionDispatcher | CurrentUserRights;
 
 /** Шаг проведения. Ошибка обработчика проведения конфигурации не типизирована, поэтому ошибка шага — `unknown`. */
 type Step = (state: DocumentState) => Effect.Effect<DocumentState, unknown, PostingRequirements>;

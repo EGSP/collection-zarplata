@@ -11,6 +11,7 @@
  * закрытый период запретил бы перепроведение прошлых документов.
  */
 import { Effect } from 'effect';
+import type { CurrentUserRights } from '../authorization/current-user-rights.js';
 import { Database } from '../database/database.effect.js';
 import { select } from '../database/sql.builder.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
@@ -39,7 +40,7 @@ interface PostedDocument {
  * документа, на котором она возникла. Вызывающий код выполняет операцию в транзакции:
  * при ошибке откатываются движения всех уже перепроведённых документов.
  */
-export const repostDocuments: Effect.Effect<{ readonly documents: number }, unknown, Database | Metadata | ActionContext | ActionDispatcher> = Effect.gen(function* () {
+export const repostDocuments: Effect.Effect<{ readonly documents: number }, unknown, Database | Metadata | ActionContext | ActionDispatcher | CurrentUserRights> = Effect.gen(function* () {
     const occurredAt = new Date().toISOString();
     const database = yield* Database;
     const metadata = yield* Metadata;

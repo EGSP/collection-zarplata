@@ -1,5 +1,5 @@
 /**
- * Роли конфигурации. Пока прикладных объектов нет, здесь описаны две роли для пробных объектов;
+ * Роли конфигурации. Пока прикладных объектов нет, здесь описаны роли для пробных объектов;
  * настоящий набор ролей появится вместе с прикладными объектами.
  *
  * Права берутся из объекта `Rights`, который генератор реестра строит из файлов объектов:
@@ -20,4 +20,8 @@ export const roles = [
         .grant(Rights.catalog.discounts.read, Rights.document.sale.read, Rights.document.installment.read, Rights.document.weighing.read, Rights.document.refund.read, Rights.page.sellerWorkplace.open)
         // Регистры продаж: по ним читаются итоги по продажам, рассрочкам и сменам.
         .grant(Rights.register.sales.read, Rights.register.customerSettlements.read),
+    role('sampleEditor')
+        .title('Запись пробного документа')
+        // Права на действие «Принять строки» нет: на этой роли проверяется политика, которая его требует.
+        .grant(Rights.catalog.sample.read, Rights.catalog.sampleDelegate.read, Rights.document.sample.read, Rights.document.sample.write),
 ];
