@@ -7,7 +7,7 @@
  * объявить один раз в базовом классе и сохранить тип подкласса со всеми его методами.
  */
 import type { Formula } from '../../common/formulas.js';
-import type { FieldKind, ObjectTarget, RecorderValue, ObjectReferenceValue } from './descriptions.js';
+import type { CompositeReferenceValue, CompositeType, FieldKind, ObjectTarget, RecorderValue, ObjectReferenceValue } from './descriptions.js';
 
 /**
  * Цель ссылки: билдер справочника или документа либо функция, которая его возвращает.
@@ -35,6 +35,10 @@ export interface FieldState {
     readonly computed: Formula | null;
     readonly suggestions: { readonly target: ReferenceTarget; readonly field: string } | null;
     readonly expandedTablePart: string | null;
+    /** Варианты составного поля в порядке объявления; у остальных видов `null`. */
+    readonly variants: ReadonlyArray<AnyFieldBuilder> | null;
+    /** Способ ввода, заданный конфигурацией составному полю; `null` оставляет способ, выведенный из вариантов. */
+    readonly inputMode: 'solid' | null;
 }
 
 /** Метка обязательного поля в типе билдера. Существует только на уровне типов. */
@@ -74,6 +78,8 @@ export abstract class FieldBuilder<Value> {
 
 /** Строка. Длина считается в символах UTF-16, как `String.length`. */
 export class StringFieldBuilder extends FieldBuilder<string> {
+    /** Только для вывода типов: по виду составное поле выбирает тип значения варианта. */
+    declare readonly '~kind': 'string';
     /** Ограничивает ввод заданными значениями и включает выбор из списка в форме. */
     choices(values: ReadonlyArray<string>): this {
         return this.with({ choices: Object.freeze([...values]) });
@@ -98,6 +104,7 @@ export class StringFieldBuilder extends FieldBuilder<string> {
 
 /** Число. Для сумм денег используется `MoneyFieldBuilder`: дробные рубли дают ошибки округления. */
 export class NumberFieldBuilder extends FieldBuilder<number> {
+    declare readonly '~kind': 'number';
     /** Значение вычисляет платформа; клиентское значение при записи игнорируется. */
     computed(expression: Formula): this { return this.with({ computed: expression }); }
     /** Выбор подставляет число, которое пользователь может затем изменить. */
@@ -118,6 +125,7 @@ export class NumberFieldBuilder extends FieldBuilder<number> {
 
 /** Деньги: целое число копеек. Границы тоже задаются в копейках. */
 export class MoneyFieldBuilder extends FieldBuilder<number> {
+    declare readonly '~kind': 'money';
     /** Формула возвращает целое число копеек, например через formula.round(). */
     computed(expression: Formula): this { return this.with({ computed: expression }); }
     /** Источник подсказок сумм в копейках. */
@@ -132,22 +140,66 @@ export class MoneyFieldBuilder extends FieldBuilder<number> {
 }
 
 /** Дата: строка `YYYY-MM-DD`. */
-export class DateFieldBuilder extends FieldBuilder<string> {}
+export class DateFieldBuilder extends FieldBuilder<string> {
+    declare readonly '~kind': 'date';
+}
 
 /** Дата и время: строка ISO 8601 с часовым поясом. */
-export class DateTimeFieldBuilder extends FieldBuilder<string> {}
+export class DateTimeFieldBuilder extends FieldBuilder<string> {
+    declare readonly '~kind': 'dateTime';
+}
 
 /** Логическое значение. */
-export class BooleanFieldBuilder extends FieldBuilder<boolean> {}
+export class BooleanFieldBuilder extends FieldBuilder<boolean> {
+    declare readonly '~kind': 'boolean';
+}
 
 /** Ссылка на справочник или документ. Значение — `guid` объекта. */
 export class ReferenceFieldBuilder extends FieldBuilder<string> {
+    declare readonly '~kind': 'reference';
     /** Раскрытие строки формы показывает указанную часть записи по ссылке. */
     expandTablePart(name: string): this { return this.with({ expandedTablePart: name }); }
 }
 
 /** Ссылка произвольного вида: значение содержит тип, имя объекта и guid записи. */
 export class ObjectReferenceFieldBuilder extends FieldBuilder<ObjectReferenceValue> {}
+
+/**
+ * Билдер, допустимый вариантом составного поля: простой вид платформы либо ссылка с заданной целью.
+ * Классы билдеров без собственных методов структурно одинаковы, поэтому их различает метка `~kind`:
+ * без неё вариантом прошёл бы, например, билдер стандартного поля `guid`.
+ */
+export type CompositeVariantBuilder =
+    | StringFieldBuilder | NumberFieldBuilder | MoneyFieldBuilder | DateFieldBuilder
+    | DateTimeFieldBuilder | BooleanFieldBuilder | ReferenceFieldBuilder;
+
+/**
+ * Значение варианта в записи. Простой вариант хранит тип и значение, ссылочный хранит тип и полную
+ * ссылку: целей у поля может быть несколько, и по одному `guid` запись не найти.
+ */
+type CompositeVariantValue<Variant> =
+    Variant extends { readonly '~kind': 'reference' } ? CompositeReferenceValue
+    : Variant extends { readonly '~kind': infer Type extends Exclude<CompositeType, 'reference'>; readonly '~value': infer Value } ? { readonly type: Type; readonly value: Value }
+    : never;
+
+/**
+ * Составное поле: значение одного из объявленных вариантов. `Value` является объединением значений
+ * вариантов, поэтому `RecordOf` требует различать их по свойству `type`. Ограничения задаются
+ * вариантам, а подпись и обязательность самому полю.
+ */
+export class CompositeFieldBuilder<Value> extends FieldBuilder<Value> {
+    declare readonly '~kind': 'composite';
+
+    /**
+     * Отключает единое текстовое поле: пользователь сначала выбирает тип значения, затем вводит
+     * его в поле этого типа. Нужен, когда свободный ввод мешает, например значения вариантов
+     * легко спутать. Задать можно только `solid`: поле с датой или флажком текстом не вводится,
+     * и обратная настройка была бы невыполнимой.
+     */
+    inputMode(mode: 'solid'): this {
+        return this.with({ inputMode: mode });
+    }
+}
 
 /** Идентификатор объекта UUIDv7. Используется только в стандартных полях. */
 export class GuidFieldBuilder extends FieldBuilder<string> {}
@@ -178,6 +230,8 @@ function initialState(kind: FieldKind): FieldState {
         computed: null,
         suggestions: null,
         expandedTablePart: null,
+        variants: null,
+        inputMode: null,
     };
 }
 
@@ -219,6 +273,19 @@ export class FieldFactory {
         return target === undefined
             ? new ObjectReferenceFieldBuilder(initialState('objectReference'))
             : new ReferenceFieldBuilder({ ...initialState('reference'), target });
+    }
+
+    /**
+     * Составное поле: значение одного из перечисленных вариантов. Вариантом служит простой вид
+     * платформы или ссылка на конкретный справочник либо документ со своими ограничениями:
+     * `field.composite([field.string().maximumLength(200), field.reference(Receivers)])`.
+     * Нужно не меньше двух вариантов; простой вид и цель ссылки не повторяются, иначе по значению
+     * нельзя было бы определить вариант. Это проверяет `commit()`.
+     */
+    composite<const Variants extends readonly [CompositeVariantBuilder, CompositeVariantBuilder, ...Array<CompositeVariantBuilder>]>(
+        variants: Variants,
+    ): CompositeFieldBuilder<CompositeVariantValue<Variants[number]>> {
+        return new CompositeFieldBuilder({ ...initialState('composite'), variants: Object.freeze([...variants]) });
     }
 }
 

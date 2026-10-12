@@ -21,6 +21,7 @@ import { SampleDocument } from './documents/sample.document.js';
 import { Shift } from './documents/shift.document.js';
 import { Weighing } from './documents/weighing.document.js';
 import { ExternalLinks } from './information-registers/external-links.information-register.js';
+import { SampleCompositeInformation } from './information-registers/sample-composite.information-register.js';
 import { SampleInformation } from './information-registers/sample.information-register.js';
 import { SampleWorkplace } from './pages/sample-workplace.page.js';
 import { SellerWorkplace } from './pages/seller-workplace.page.js';
@@ -39,5 +40,5 @@ export const applicationShell = shell()
         .title('НСИ')
         .group('Справочники', [PhysicalPersons, Employees, Nomenclature, Sample, SampleDelegate])
         .group('Документы', [Shift, PeriodClosing, SampleDocument, SampleSelection])
-        .group('Регистры', [SampleRegister, ExternalLinks, SampleInformation])
+        .group('Регистры', [SampleRegister, ExternalLinks, SampleInformation, SampleCompositeInformation])
         .group('Рабочие места', [SampleWorkplace]));

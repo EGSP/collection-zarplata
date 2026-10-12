@@ -4,7 +4,7 @@
  * Функции с именем таблицы обслуживают служебные таблицы, не описанные объектами конфигурации.
  */
 import type { FieldEntry, ListRecordOf, ObjectBuilder } from '../metadata/builders.js';
-import type { FieldsRecord } from '../metadata/fields.js';
+import type { AnyFieldBuilder, FieldsRecord } from '../metadata/fields.js';
 import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
 import { fieldStorage, tablePartStorageFields, type FieldStorage } from './field-storage.js';
 import type { TypedSqlQuery } from './typed-query.js';
@@ -160,8 +160,14 @@ export function remove(table: string, where: readonly SqlFilter[]): SqlQuery {
     return { sql: `DELETE FROM ${sqlIdentifier(table)}${conditions(where, parameters)}`, parameters };
 }
 
-/** Операторы для значения поля: составные и логические поля сравниваются только на равенство. */
-type FieldOperator<Value> = unknown extends Value ? SqlCondition['operator'] : Exclude<Value, null> extends boolean | object ? '=' | '!='
+/**
+ * Операторы для значения поля. Значение из нескольких частей и логическое значение сравниваются
+ * только на равенство. Составное поле отличает свойство `type`: оно упорядочено внутри простого
+ * типа значения, а ссылочный и логический варианты билдер отклоняет при построении запроса.
+ */
+type FieldOperator<Value> = unknown extends Value ? SqlCondition['operator']
+    : Exclude<Value, null> extends { readonly type: string } ? Exclude<SqlCondition['operator'], 'LIKE'>
+    : Exclude<Value, null> extends boolean | object ? '=' | '!='
     : Exclude<Value, null> extends string ? SqlCondition['operator'] : Exclude<SqlCondition['operator'], 'LIKE'>;
 
 /** Условие связывает имя поля, способ сравнения и тип значения; IN принимает значения того же поля. */
@@ -211,10 +217,23 @@ type QueryParts<Builder extends ObjectBuilder> = {
 /** Поля строки части вместе с ключами, которые заполняет платформа. */
 type TablePartRow<Row> = Row & { readonly ownerGuid: string; readonly lineNumber: number };
 
-/** Описание поля билдера для кодека; цель ссылки не требуется для проверки и хранения GUID. */
+/** Описание варианта составного поля по его билдеру. */
+function queryVariant(entry: FieldEntry, variant: AnyFieldBuilder): FieldDescription {
+    const state = variant['~state'];
+    // Цель входит в значение ссылочного варианта и в его столбец, поэтому здесь она нужна.
+    // К построению запроса все файлы конфигурации загружены, и функция цели уже возвращает билдер.
+    const target = typeof state.target === 'function' ? state.target() : state.target;
+    return { ...state, name: entry.name, role: entry.role, managed: entry.managed, title: entry.name, required: true,
+        target: target === null ? null : { kind: target.kind, name: target.name }, suggestions: null, variants: null, inputMode: 'solid' };
+}
+
+/** Описание поля билдера для кодека; цель обычной ссылки не требуется для проверки и хранения GUID. */
 function queryField(entry: FieldEntry): FieldDescription {
-    return { ...entry.builder['~state'], name: entry.name, role: entry.role, managed: entry.managed,
-        title: entry.builder['~state'].title ?? entry.name, target: null, suggestions: null };
+    const state = entry.builder['~state'];
+    return { ...state, name: entry.name, role: entry.role, managed: entry.managed,
+        // Способ ввода запросу не нужен; значение задано, чтобы состояние билдера совпало с типом описания.
+        title: state.title ?? entry.name, target: null, suggestions: null, inputMode: 'solid',
+        variants: state.variants === null ? null : state.variants.map((variant) => queryVariant(entry, variant)) };
 }
 
 /** Неизвестная настройка не должна молча расширять выборку из-за опечатки в вызове JavaScript. */
@@ -282,24 +301,27 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
         }
         checkQueryProperties(filter, ['column', 'operator', 'value']);
         const { description, storage } = this.field(filter.column);
-        const names = storage.columns.map((column) => sqlIdentifier(column.name));
         const compare = (value: unknown, operator: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'LIKE'): string => {
             if (!operators.has(operator)) throw new Error('Недопустимый оператор отбора');
-            if ((names.length > 1 || description.kind === 'boolean' || description.kind === 'objectReference') && operator !== '=' && operator !== '!=') {
-                throw new Error(`Для поля «${description.name}» допустимы только =, != и IN`);
-            }
             if (value === null) {
                 if (operator !== '=' && operator !== '!=') throw new Error('С NULL допустимы только = и !=');
+                const names = storage.columns.map((column) => sqlIdentifier(column.name));
                 return `(${names.map((name) => `${name} IS ${operator === '=' ? '' : 'NOT '}NULL`).join(operator === '=' ? ' AND ' : ' OR ')})`;
             }
-            let values: readonly SqlValue[];
             if (operator === 'LIKE') {
                 if (!['string', 'date', 'dateTime'].includes(description.kind) || typeof value !== 'string') throw new Error('LIKE требует строковое поле и строковый шаблон');
-                values = [value];
-            } else values = storage.encode(value, true);
-            parameters.push(...values);
-            // Неравенство составного значения истинно, если отличается хотя бы одна его часть.
-            return `(${names.map((name) => `${name} ${operator} ?`).join(operator === '!=' ? ' OR ' : ' AND ')})`;
+                parameters.push(value);
+                return `(${sqlIdentifier(storage.columns[0]!.name)} LIKE ?)`;
+            }
+            const comparison = storage.comparison(value);
+            const names = comparison.columns.map(sqlIdentifier);
+            parameters.push(...comparison.values);
+            if (operator === '=') return `(${names.map((name) => `${name} = ?`).join(' AND ')})`;
+            // Неравенство значения из нескольких частей истинно, если отличается хотя бы одна его часть.
+            if (operator === '!=') return `(${names.map((name) => `${name} != ?`).join(' OR ')})`;
+            if (!comparison.ordered) throw new Error(`Для поля «${description.name}» и этого значения допустимы только =, != и IN`);
+            // Порядок существует внутри одного типа значения: ведущие столбцы фиксируют тип, последний сравнивается.
+            return `(${names.map((name, index) => `${name} ${index === names.length - 1 ? operator : '='} ?`).join(' AND ')})`;
         };
         if (filter.operator === 'IN') {
             if (!Array.isArray(filter.value) || filter.value.length === 0) throw new Error('IN требует непустой список значений');
@@ -321,7 +343,8 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
             if (options.orderBy.length > 0) sql += ` ORDER BY ${options.orderBy.flatMap((order) => {
                 checkQueryProperties(order, ['column', 'direction']);
                 if (order.direction !== 'ASC' && order.direction !== 'DESC') throw new Error('Недопустимое направление сортировки');
-                return this.columnNames([order.column]).map((name) => `${name} ${order.direction}`);
+                if (typeof order.column !== 'string') throw new Error('Сортировка требует имя поля');
+                return this.field(order.column).storage.orderColumns.map((name) => `${sqlIdentifier(name)} ${order.direction}`);
             }).join(', ')}`;
         }
         if (options.limit !== undefined || options.offset !== undefined) {

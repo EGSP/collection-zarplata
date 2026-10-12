@@ -6,6 +6,7 @@
  * записывают проблемы в общий список, а описание собирается даже из ошибочного состояния —
  * `commitConfiguration` нужно пройти все объекты, прежде чем сообщить об ошибке.
  */
+import { compositeInputMode, fieldInputModes } from './composite.js';
 import { applyFormComponents, checkFormComponentTargets } from './form-component-attachments.js';
 import type { FormComponentDefinition } from './form-elements.js';
 import type { Formula } from '../../common/formulas.js';
@@ -17,6 +18,7 @@ import type {
     ActionDescription,
     DelegatedPresentation,
     FieldDescription,
+    FieldKind,
     FormOverride,
     ObjectDescription,
     ObjectKind,
@@ -118,6 +120,76 @@ function resolveTarget(entry: FieldEntry, location: string, problems: Problems, 
     return { kind, name };
 }
 
+/** Перечень значений допустим только у строки и состоит из непустых неповторяющихся значений. */
+function checkChoices(field: FieldDescription, location: string, problems: Problems): void {
+    if (field.choices !== null && (
+        field.kind !== 'string' || field.choices.length === 0 ||
+        new Set(field.choices).size !== field.choices.length ||
+        field.choices.some((value) => value.trim() === '')
+    )) {
+        problems.add(location, 'Предопределённые значения должны быть непустыми уникальными строками');
+    }
+}
+
+/** Виды полей, допустимые вариантом составного поля: простые виды и ссылка с заданной целью. */
+const variantKinds: ReadonlySet<FieldKind> = new Set(['string', 'number', 'money', 'date', 'dateTime', 'boolean', 'reference']);
+
+/**
+ * Проверяет и описывает варианты составного поля. Вариантов должно быть не меньше двух: поле
+ * с одним вариантом ничем не отличается от обычного поля этого вида, но хранит лишний тип.
+ * Простой вид и цель ссылки не повторяются: значение называет вариант только типом и целью,
+ * и при повторе нельзя было бы выбрать ограничения для проверки. Подпись и обязательность
+ * относятся к полю целиком, поэтому у варианта они отклоняются, а не молча пропускаются.
+ */
+function describeVariants(
+    entry: FieldEntry,
+    location: string,
+    problems: Problems,
+    configuration: ReadonlyArray<ObjectBuilder>,
+): ReadonlyArray<FieldDescription> {
+    const builders = entry.builder['~state'].variants ?? [];
+    if (builders.length < 2) problems.add(location, `составному полю нужно не меньше двух вариантов, объявлено ${builders.length}`);
+    const seen = new Set<string>();
+    return builders.flatMap((builder, index) => {
+        const state = builder['~state'];
+        const variantLocation = `${location}, вариант ${index + 1}`;
+        if (!variantKinds.has(state.kind)) {
+            problems.add(variantLocation, 'вариантом может быть простой вид поля или ссылка с заданной целью: field.reference(Объект)');
+            return [];
+        }
+        const target = state.kind === 'reference' ? resolveTarget(entry, variantLocation, problems, configuration, state.target) : null;
+        const key = state.kind !== 'reference' ? `тип «${state.kind}»` : target === null ? null : `ссылка на ${kindTitles[target.kind]} «${target.name}»`;
+        if (key !== null) {
+            if (seen.has(key)) problems.add(variantLocation, `${key} повторяется: по значению нельзя определить вариант`);
+            seen.add(key);
+        }
+        if (state.required || state.title !== null) problems.add(variantLocation, 'подпись и обязательность задаются составному полю, а не варианту');
+        if (state.computed !== null || state.suggestions !== null || state.initial !== null || state.expandedTablePart !== null) {
+            problems.add(variantLocation, 'вариант не поддерживает формулу, подсказки, начальное значение и раскрытие табличной части');
+        }
+        const description: FieldDescription = {
+            name: entry.name,
+            kind: state.kind,
+            role: entry.role,
+            title: entry.builder['~state'].title ?? entry.name,
+            // Пустое значение составного поля равно null, поэтому значение варианта всегда заполнено.
+            required: true,
+            managed: entry.managed,
+            minimumLength: state.minimumLength,
+            maximumLength: state.maximumLength,
+            minimum: state.minimum,
+            maximum: state.maximum,
+            integer: state.integer,
+            choices: state.choices,
+            target,
+            inputMode: fieldInputModes[state.kind],
+        };
+        checkBounds(description, variantLocation, problems);
+        checkChoices(description, variantLocation, problems);
+        return [description];
+    });
+}
+
 /** Проверяет и описывает набор полей: реквизиты объекта, строки табличной части или входные данные действия. */
 function describeFields(
     entries: ReadonlyArray<FieldEntry>,
@@ -140,6 +212,11 @@ function describeFields(
         seen.set(entry.name, entry);
 
         const state = entry.builder['~state'];
+        const variants = state.kind === 'composite' ? describeVariants(entry, location, problems, configuration) : null;
+        // Тип билдера принимает только solid, но состояние может прийти и без проверки типов.
+        if (state.inputMode !== null && (state.kind !== 'composite' || state.inputMode !== 'solid')) {
+            problems.add(location, 'способ ввода задаётся только составному полю и только как solid');
+        }
         const description: FieldDescription = {
             name: entry.name,
             kind: state.kind,
@@ -158,6 +235,9 @@ function describeFields(
             choices: state.choices,
             initial: state.initial,
             target: state.kind === 'reference' ? resolveTarget(entry, location, problems, configuration) : null,
+            variants,
+            // Настройка конфигурации может только отключить текстовый ввод, выведенный из вариантов.
+            inputMode: variants === null ? fieldInputModes[state.kind] : state.inputMode ?? compositeInputMode(variants),
         };
         checkBounds(description, location, problems);
         if (description.suggestions != null) {
@@ -169,13 +249,7 @@ function describeFields(
             const target = configuration.find((object) => object.kind === description.target?.kind && object.name === description.target?.name);
             if (!target?.['~state'].tableParts.some((part) => part.name === state.expandedTablePart)) problems.add(location, 'Для раскрытия нужна существующая табличная часть объекта ссылки');
         }
-        if (description.choices !== null && (
-            description.kind !== 'string' || description.choices.length === 0 ||
-            new Set(description.choices).size !== description.choices.length ||
-            description.choices.some((value) => value.trim() === '')
-        )) {
-            problems.add(location, 'Предопределённые значения должны быть непустыми уникальными строками');
-        }
+        checkChoices(description, location, problems);
         if (state.initial !== null && (state.kind !== 'string' || state.computed !== null || (state.choices !== null && !state.choices.includes(state.initial)))) {
             problems.add(location, 'Начальное значение задаётся строковому полю и входит в его предопределённые значения');
         }
@@ -335,6 +409,12 @@ function validateObject(
     const fields = describeFields(state.fields, '', problems, configuration);
     if ((state.kind === 'register' || state.kind === 'informationRegister') && !fields.some((field) => field.role === 'resource')) {
         problems.add(null, 'у регистра нет ни одного ресурса');
+    }
+    if (state.kind === 'register') {
+        // Тип билдера принимает ресурсом только число или деньги, но состояние может прийти и без проверки типов.
+        for (const field of fields) {
+            if (field.role === 'resource' && field.kind !== 'number' && field.kind !== 'money') problems.add(`поле ${field.name}`, 'ресурс регистра оборотов суммируется, поэтому должен быть числом или суммой');
+        }
     }
     if (state.kind === 'informationRegister') {
         if (!fields.some((field) => field.role === 'dimension')) problems.add(null, 'у регистра сведений нет измерений');
@@ -526,6 +606,8 @@ export function commitConfiguration(
                 const fields = 'tablePart' in part ? object.tableParts.find((candidate) => candidate.name === part.tablePart)?.fields : object.fields;
                 const field = fields?.find((candidate) => candidate.name === part.field);
                 if (field?.target != null) targets.push(field.target);
+                // Ссылочный вариант составного поля показывается представлением цели, как обычная ссылка.
+                for (const variant of field?.variants ?? []) if (variant.target !== null) targets.push(variant.target);
             }
             const next = new Set([...path, object]);
             for (const target of targets) {

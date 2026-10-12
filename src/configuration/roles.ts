@@ -37,4 +37,8 @@ export const roles = [
         .title('Запись пробного документа')
         // Права на действие «Принять строки» нет: на этой роли проверяется политика, которая его требует.
         .grant(Rights.catalog.sample.read, Rights.catalog.sampleDelegate.read, Rights.document.sample.read, Rights.document.sample.write),
+    role('sampleDocumentReader')
+        .title('Чтение пробного документа без справочников')
+        // Права на пробный справочник нет: на этой роли проверяется, что ссылка на него показана как «Нет доступа».
+        .grant(Rights.document.sample.read, Rights.register.sample.read),
 ];

@@ -6,7 +6,10 @@
  * блок «Итого» под табличной частью, поле ввода комментария с кнопкой и элемент, который делает
  * форму документа с комментарием недоступной для изменения. Политика `sampleCommentRight` проверяет
  * право пользователя: без права на действие «Принять строки» комментарий записанного документа
- * не меняется. Удаляется, когда появятся настоящие документы.
+ * не меняется. Составные поля шапки показывают оба способа ввода: «Куда оплачено» принимает
+ * текст либо запись справочника в одном поле, «Отметка» в том же поле принимает ещё и число,
+ * а «Срок» содержит дату и поэтому сначала спрашивает тип значения.
+ * Удаляется, когда появятся настоящие документы.
  */
 import { SampleLines } from '../sample-lines.js';
 import { Effect } from 'effect';
@@ -27,6 +30,9 @@ export const SampleDocument = document('sample')
     .field('discount', (field) => field.number().title('Скидка шапки, %').suggestions(Sample, 'percentage'))
     .field('paymentComment', (field) => field.string().title('Примечание к оплате'))
     .field('paymentTotal', (field) => field.money().title('Итого оплаты').required().computed(formula.sum('payments', 'netAmount')))
+    .field('receiver', (field) => field.composite([field.string().maximumLength(200), field.reference(Sample)]).title('Куда оплачено'))
+    .field('mark', (field) => field.composite([field.string().maximumLength(50), field.number(), field.reference(Sample)]).title('Отметка'))
+    .field('term', (field) => field.composite([field.date(), field.string().maximumLength(50)]).title('Срок'))
     .tablePart('payments', (part) => part.title('Оплата')
         .field('method', (field) => field.string().title('Способ оплаты').choices(['Наличные', 'Карта']).initial('Наличные').required())
         .field('amount', (field) => field.money().title('Сумма оплаты').minimum(0).required())
@@ -39,9 +45,9 @@ export const SampleDocument = document('sample')
     .form((form) => form
         .group('Основное', ['number', 'date', 'posted', 'item', 'delegate', 'comment'])
         .group('Строки и итог', ['lines'])
-        .group('Оплата', ['discount', 'payments', 'paymentComment', 'paymentTotal']))
+        .group('Оплата', ['discount', 'payments', 'paymentComment', 'paymentTotal', 'receiver', 'mark', 'term']))
     .policy(closedPeriodByDocumentDate())
     .policy(sampleCommentRight)
     .posting((record) => Effect.succeed([
-        movements(SampleRegister, record.lines.map((line) => ({ item: line.item, quantity: line.quantity, amount: line.amount }))),
+        movements(SampleRegister, record.lines.map((line) => ({ item: line.item, receiver: record.receiver, mark: record.mark, quantity: line.quantity, amount: line.amount }))),
     ]));

@@ -33,6 +33,7 @@ const expectedValues: { readonly [Kind in FieldKind]: string } = {
     boolean: 'логическое значение',
     reference: 'guid объекта',
     objectReference: 'ссылка { kind, name, guid }',
+    composite: 'значение с типом { type, … }',
     guid: 'guid',
     recorder: 'регистратор { document, guid }',
 };
@@ -117,9 +118,32 @@ export function fieldSchema(field: FieldDescription): Schema.Top {
                 name: Schema.String.check(Schema.makeFilter((value: string) => /^[a-z][a-zA-Z0-9]{0,59}$/.test(value) || 'ожидается имя объекта конфигурации')),
                 guid: guidString('guid'),
             }).annotate({ message: 'ожидается ссылка { kind, name, guid }' });
+        case 'composite':
+            return compositeSchema(field);
         case 'recorder':
             return RecorderValue;
     }
+}
+
+/**
+ * Схема составного значения: объединение структур по вариантам. Свойство `type` выбирает
+ * структуру, поэтому ошибка значения указывает на путь внутри поля, например `receiver.value`,
+ * а неизвестный тип и чужая цель ссылки отклоняются на самом поле. Структура возвращает свойства
+ * в своём порядке и без посторонних: журнал и ключ сведений сравнивают значения через JSON.
+ * Вид и имя цели заданы литералами варианта: ссылку на объект вне перечня схема не принимает.
+ */
+function compositeSchema(field: FieldDescription): Schema.Top {
+    const variants = field.variants ?? [];
+    const members = variants.map((variant) => variant.kind === 'reference' && variant.target !== null
+        ? Schema.Struct({
+            type: Schema.Literal('reference'),
+            kind: Schema.Literal(variant.target.kind),
+            name: Schema.Literal(variant.target.name),
+            guid: guidString('reference'),
+        })
+        : Schema.Struct({ type: Schema.Literal(variant.kind), value: fieldSchema(variant) }));
+    const expected = variants.map((variant) => variant.target === null ? variant.kind : `reference (${variant.target.kind}.${variant.target.name})`).join(', ');
+    return Schema.Union(members).annotate({ message: `ожидается значение одного из типов: ${expected}` });
 }
 
 /**

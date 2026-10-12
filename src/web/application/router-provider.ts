@@ -15,8 +15,14 @@ import { useMetadata } from '../data-provider/metadata';
 import { resourceName } from '../data-provider/perform';
 
 /** Возвращает значение отбора в том типе, в котором его ждёт сервер для поля этого вида. */
-function typedValue(filter: ListFilter | undefined, value: unknown): unknown {
-    if (filter === undefined || typeof value !== 'string') return value;
+function typedValue(filter: Pick<ListFilter, 'kind'> | undefined, value: unknown): unknown {
+    if (filter === undefined) return value;
+    // Значение составного поля лежит в адресе вместе с типом варианта: по нему восстанавливается
+    // тип самого значения, иначе число 100 вернулось бы строкой «100», а это другое значение.
+    if (filter.kind === 'composite' && typeof value === 'object' && value !== null && 'type' in value && 'value' in value) {
+        return { ...value, value: typedValue({ kind: value.type as ListFilter['kind'] }, value.value) };
+    }
+    if (typeof value !== 'string') return value;
     if (filter.kind === 'number' || filter.kind === 'money') return Number(value);
     if (filter.kind === 'boolean') return value === 'true';
     return value;

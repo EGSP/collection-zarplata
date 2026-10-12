@@ -18,10 +18,9 @@ import type { RegisterBuilder, ResourceTotals } from '../metadata/builders.js';
 import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
 import type { FieldMap, FieldsRecord } from '../metadata/fields.js';
 import { Metadata } from '../metadata/metadata.effect.js';
-import { fieldSchema } from '../metadata/schema.js';
 import { filterOperators, type FilterOperator } from '../ui/descriptions.js';
 import { DataValidationError } from './data.errors.js';
-import { objectValue, sqlOperators, stringValue, validated, type RecordValue } from './records.js';
+import { filterValue, objectValue, sqlOperators, stringValue, type RecordValue } from './records.js';
 
 /** Число знаков после запятой, до которого округляется сумма дробного ресурса. */
 const fractionDigits = 9;
@@ -163,11 +162,7 @@ export function totalsAction(register: ObjectDescription, payload: unknown): Eff
             if (operator === 'contains' || !filterOperators[field.kind].includes(operator)) {
                 return yield* new DataValidationError({ message: `Недопустимый способ сравнения для «${name}»`, fields: [location] });
             }
-            const value = condition['value'];
-            if (value === undefined || (value === null && operator !== 'equals' && operator !== 'notEquals')) {
-                return yield* new DataValidationError({ message: `Неверное значение отбора «${name}»`, fields: [location] });
-            }
-            if (value !== null) yield* validated(fieldSchema(field), value, location);
+            const value = yield* filterValue(field, operator, condition['value'], location);
             where.push({ column: name, operator: sqlOperators[operator], value });
         }
         return { items: yield* readTotals(register, names, where) };

@@ -1,4 +1,4 @@
-import type { ObjectDescription } from '../metadata/descriptions.js';
+import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
 import { sqlIdentifier } from '../database/sql.builder.js';
 import { fieldStorage, tablePartStorageFields } from '../database/field-storage.js';
 
@@ -37,12 +37,25 @@ const index = (table: string, name: string, columns: readonly string[], unique =
     name: `idx_${table}_${name}`, columns, unique,
 });
 
+/**
+ * Поле хранит ссылку: обычную, полную либо ссылочным вариантом составного поля. По таким полям
+ * ищут записи, которые ссылаются на объект, поэтому они индексируются.
+ */
+function storesReference(field: FieldDescription): boolean {
+    return field.kind === 'reference' || field.kind === 'objectReference' || (field.variants ?? []).some((variant) => variant.kind === 'reference');
+}
+
+/** Индекс поля по столбцам сравнения: у составного поля первым идёт тип варианта. */
+function fieldIndex(table: string, field: FieldDescription): IndexStructure {
+    return index(table, field.name, fieldStorage(field).orderColumns);
+}
+
 function objectTable(object: ObjectDescription): TableStructure {
     const name = `${object.kind}_${object.name}`;
     const columns = object.fields.flatMap((field) => fieldStorage(field).columns);
     const keyFields = object.kind === 'register' ? ['recorder', 'lineNumber']
         : object.kind === 'informationRegister' ? object.fields.filter((field) => field.role === 'dimension').map((field) => field.name) : ['guid'];
-    const primaryKey = keyFields.flatMap((name) => fieldStorage(object.fields.find((field) => field.name === name)!).columns.map((column) => column.name));
+    const primaryKey = keyFields.flatMap((name) => fieldStorage(object.fields.find((field) => field.name === name)!).keyColumns);
     const indexes: IndexStructure[] = [];
     if (object.kind === 'catalog' || object.kind === 'document') {
         indexes.push(index(name, 'deletedAt', ['deletedAt']));
@@ -51,8 +64,7 @@ function objectTable(object: ObjectDescription): TableStructure {
         indexes.push(index(name, 'period', ['period']));
     }
     for (const field of object.fields) {
-        if (field.kind === 'reference' || field.kind === 'objectReference') indexes.push(index(name, field.name, fieldStorage(field).columns.map((column) => column.name)));
-        if (field.role === 'dimension' && field.kind !== 'reference' && field.kind !== 'objectReference') indexes.push(index(name, field.name, fieldStorage(field).columns.map((column) => column.name)));
+        if (storesReference(field) || field.role === 'dimension') indexes.push(fieldIndex(name, field));
     }
     return { name, columns, primaryKey, indexes };
 }
@@ -64,7 +76,7 @@ function tableParts(object: ObjectDescription): readonly TableStructure[] {
             name,
             columns: [...tablePartStorageFields, ...part.fields].flatMap((field) => fieldStorage(field).columns),
             primaryKey: ['ownerGuid', 'lineNumber'],
-            indexes: part.fields.filter((field) => field.kind === 'reference' || field.kind === 'objectReference').map((field) => index(name, field.name, fieldStorage(field).columns.map((column) => column.name))),
+            indexes: part.fields.filter(storesReference).map((field) => fieldIndex(name, field)),
         };
     });
 }

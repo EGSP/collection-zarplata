@@ -8,17 +8,18 @@ import { newGuid } from '../common/guid.js';
 import { DatabaseService } from '../database/database.service.js';
 import { Database } from '../database/database.effect.js';
 import { query, type QueryFilter, type SqlOrder } from '../database/sql.builder.js';
-import type { ObjectDescription } from '../metadata/descriptions.js';
+import type { FieldKind, ObjectDescription } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { MetadataService } from '../metadata/metadata.service.js';
 import { actionInputSchema, fieldSchema, inputSchema } from '../metadata/schema.js';
 import { readJournal, recordChanges, writeJournal } from '../journal/journal.js';
-import { filterOperators, type FilterOperator } from '../ui/descriptions.js';
-import { formatSearchValue, normalizeSearchText } from '../ui/value-format.js';
+import { filterOperators, type FilterOperator, type ListColumn } from '../ui/descriptions.js';
+import { columnReference } from '../ui/reference-presentation.js';
+import { displayedKind, formatSearchValue, normalizeSearchText } from '../ui/value-format.js';
 import { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
-import { guidValue, loadRecord, objectValue, pageOptions, sqlOperators, stringValue, validated, type RecordValue } from './records.js';
+import { filterValue, guidValue, loadRecord, objectValue, pageOptions, sqlOperators, stringValue, validated, type RecordValue } from './records.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { enforcePolicies, type PolicyInvocation } from './policies.js';
 import { importCatalog } from './import.js';
@@ -341,6 +342,19 @@ export class DataService {
             if (!Array.isArray(filters) || !Array.isArray(sorting)) return yield* new DataValidationError({ message: 'Отбор и сортировка должны быть списками', fields: ['payload.filter', 'payload.sort'] });
             const where: QueryFilter[] = [];
             const predicates: RowPredicate[] = [];
+            /**
+             * Текст, которым значение колонки показано пользователю, и вид, по правилам которого он
+             * сравнивается. Ссылка, в том числе ссылочный вариант составного поля, показана
+             * представлением записи; без права чтения цели текста нет, и совпадением она не считается.
+             */
+            const displayedText = (column: ListColumn, record: RecordValue): { readonly kind: FieldKind; readonly text: string | null } => {
+                const value = record[column.field];
+                return columnReference(column, value) !== null
+                    ? { kind: 'reference', text: presentations.text(column, record) }
+                    : { kind: displayedKind(column.kind, value), text: formatSearchValue(column.kind, value) };
+            };
+            // Подстрока в ссылочном варианте ищется в представлении, которое нужно прочитать до проверки строки.
+            let containsNeedsPresentations = false;
             for (const raw of filters) {
                 const filter = objectValue(raw, 'payload.filter');
                 const name = stringValue(filter['field'], 'payload.filter.field');
@@ -355,18 +369,24 @@ export class DataService {
                     if (typeof filter['value'] !== 'string') {
                         return yield* new DataValidationError({ message: `Для поиска по «${name}» нужна строка`, fields: [`payload.filter.${name}`] });
                     }
-                    const text = normalizeSearchText(field.kind, filter['value']);
+                    const entered = filter['value'];
+                    const column = columns.find((candidate) => candidate.field === name);
+                    if (field.kind === 'composite' && column !== undefined) {
+                        containsNeedsPresentations = true;
+                        predicates.push((row) => {
+                            const displayed = displayedText(column, row);
+                            return displayed.text !== null && normalizeSearchText(displayed.kind, displayed.text).includes(normalizeSearchText(displayed.kind, entered));
+                        });
+                        continue;
+                    }
+                    const text = normalizeSearchText(field.kind, entered);
                     predicates.push((row) => {
                         const displayed = formatSearchValue(field.kind, row[name]);
                         return displayed !== null && normalizeSearchText(field.kind, displayed).includes(text);
                     });
                     continue;
                 }
-                const value = filter['value'];
-                if (value === undefined || (value === null && operator !== 'equals' && operator !== 'notEquals')) {
-                    return yield* new DataValidationError({ message: `Неверное значение отбора «${name}»`, fields: [`payload.filter.${name}`] });
-                }
-                if (value !== null) yield* validated(fieldSchema(field), value, `payload.filter.${name}`);
+                const value = yield* filterValue(field, operator, filter['value'], `payload.filter.${name}`);
                 where.push({ column: name, operator: sqlOperators[operator], value });
             }
             const orderBy: SqlOrder[] = [];
@@ -399,6 +419,7 @@ export class DataService {
                     // Turso LIKE обрабатывает % и _ как шаблон и не складывает регистр кириллицы.
                     // Читаем кандидатов порциями, применяя такие условия до выбора страницы.
                     const candidates = yield* database.all<RecordValue>(builder.select({ where, orderBy, limit: chunkSize, offset: scanned }));
+                    if (containsNeedsPresentations) yield* presentations.load(candidates);
                     const records = candidates.filter((row) => predicates.every((predicate) => predicate(row)));
                     if (search !== '') yield* presentations.load(records);
                     if (presented !== null && presentation !== '') yield* presentations.loadOwn(presented, records);
@@ -408,11 +429,9 @@ export class DataService {
                             if (own === null || !normalizeSearchText('string', own).includes(presentation)) continue;
                         }
                         if (search !== '' && !columns.some((column) => {
-                            const displayed = ['reference', 'objectReference', 'recorder'].includes(column.kind)
-                                ? presentations.text(column, record)
-                                : formatSearchValue(column.kind, record[column.field]);
-                            return displayed !== null && normalizeSearchText(column.kind, displayed)
-                                .includes(normalizeSearchText(column.kind, search));
+                            const displayed = displayedText(column, record);
+                            return displayed.text !== null && normalizeSearchText(displayed.kind, displayed.text)
+                                .includes(normalizeSearchText(displayed.kind, search));
                         })) continue;
                         total++;
                         if (total > offset && items.length < pageSize) items.push(record);

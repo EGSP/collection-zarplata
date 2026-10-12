@@ -11,9 +11,9 @@
  */
 import type { Formula } from '../../common/formulas.js';
 import type { ValueSuggestions } from '../metadata/descriptions.js';
-import type { DelegatedPresentation, FieldKind, FieldRole, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
+import type { DelegatedPresentation, FieldKind, FieldRole, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
 
-export type { DelegatedPresentation, FieldKind, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
+export type { DelegatedPresentation, FieldKind, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
 
 /**
  * Правила проверки значения поля. Клиент проверяет по ним ввод до отправки, окончательную
@@ -53,6 +53,13 @@ export interface FormField {
     readonly computed?: Formula | null;
     readonly suggestions?: ValueSuggestions | null;
     readonly expandedTablePart?: string | null;
+    /**
+     * Варианты составного поля в порядке объявления. Каждый вариант описан как поле своего вида:
+     * по нему клиент выбирает виджет ввода и показа и проверяет значение варианта.
+     */
+    readonly variants?: ReadonlyArray<FormField> | null;
+    /** Способ ввода: `fluent` — значение пишется текстом, `solid` — нужен собственный элемент ввода. */
+    readonly inputMode?: InputMode;
     readonly rules: ValidationRules;
     /**
      * Имя собственного элемента конфигурации, который на форме служит полем ввода вместо виджета
@@ -127,6 +134,15 @@ export interface FormView {
     readonly creationMode: RecordOpeningMode;
 }
 
+/** Вариант составной колонки или отбора: вид значения, цель ссылки и перечень значений строки. */
+export interface ListVariant {
+    readonly kind: FieldKind;
+    readonly target: ObjectTarget | null;
+    readonly choices?: ReadonlyArray<string> | null;
+    /** Правила нужны полю ввода отбора, например запрет дробной части целого числа. */
+    readonly rules: ValidationRules;
+}
+
 /** Колонка списка: поле записи. */
 export interface ListColumn {
     /** Роль поля позволяет отличить измерения ключа от ресурсов регистра. */
@@ -137,6 +153,8 @@ export interface ListColumn {
     readonly target: ObjectTarget | null;
     /** Допустимые строковые значения для выбора. */
     readonly choices?: ReadonlyArray<string> | null;
+    /** Варианты составного поля; у остальных видов отсутствуют либо `null`. */
+    readonly variants?: ReadonlyArray<ListVariant> | null;
 }
 
 /**
@@ -164,6 +182,8 @@ export const filterOperators: { readonly [Kind in FieldKind]: ReadonlyArray<Filt
     boolean: equality,
     reference: equality,
     objectReference: equality,
+    // Упорядоченное сравнение действует внутри простого типа значения; подстрока ищется в показанном тексте варианта.
+    composite: [...ordered, 'contains'],
     guid: equality,
     recorder: equality,
 };
@@ -176,6 +196,10 @@ export interface ListFilter {
     readonly target: ObjectTarget | null;
     /** Допустимые строковые значения для выбора. */
     readonly choices?: ReadonlyArray<string> | null;
+    /** Варианты составного поля: отбор вводит значение вместе с его типом. */
+    readonly variants?: ReadonlyArray<ListVariant> | null;
+    /** Способ ввода значения отбора; совпадает со способом ввода поля на форме. */
+    readonly inputMode?: InputMode;
     readonly operators: ReadonlyArray<FilterOperator>;
 }
 
