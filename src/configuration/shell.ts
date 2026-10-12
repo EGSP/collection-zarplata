@@ -16,6 +16,7 @@ import { Sample } from './catalogs/sample.catalog.js';
 import { Installment } from './documents/installment.document.js';
 import { PeriodClosing } from './documents/period-closing.document.js';
 import { Refund } from './documents/refund.document.js';
+import { SaleInstallment } from './documents/sale-installment.document.js';
 import { Sale } from './documents/sale.document.js';
 import { SampleSelection } from './documents/sample-selection.document.js';
 import { SampleDocument } from './documents/sample.document.js';
@@ -28,6 +29,7 @@ import { SampleWorkplace } from './pages/sample-workplace.page.js';
 import { SellerWorkplace } from './pages/seller-workplace.page.js';
 import { CustomerSettlements } from './registers/customer-settlements.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
+import { SaleInstallments } from './registers/sale-installments.register.js';
 import { Sales } from './registers/sales.register.js';
 import { SampleRegister } from './registers/sample.register.js';
 
@@ -35,8 +37,8 @@ export const applicationShell = shell()
     .subsystem('sales', (subsystem) => subsystem
         .title('Продажи')
         .group('Рабочие места', [SellerWorkplace])
-        .group('Документы', [Sale, Weighing, Refund, Installment])
-        .group('Регистры', [Sales, CustomerSettlements, MoneyReceipts])
+        .group('Документы', [Sale, Weighing, Refund, Installment, SaleInstallment])
+        .group('Регистры', [Sales, CustomerSettlements, MoneyReceipts, SaleInstallments])
         .group('Справочники', [Discounts, PaymentReceivers]))
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')

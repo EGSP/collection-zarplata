@@ -2,10 +2,13 @@ import { Alert, Button, Card, Flex, Typography } from 'antd';
 import { FieldDisplay, useObjectView, useOpenRecord, useReferencePresentation, type ApiError, type ObjectView, type PerformTarget } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
-/** Документ в блоке незакрытых: физическое лицо и остаток в копейках. */
+/**
+ * Документ в блоке незакрытых: физическое лицо и остаток в копейках. По типу записи рассрочки
+ * физического лица может не быть; проведённая рассрочка, которую показывает блок, его имеет.
+ */
 export interface DebtRow {
     readonly guid: string;
-    readonly person: string;
+    readonly person: string | null;
     readonly balance: number;
 }
 
@@ -31,7 +34,7 @@ function PersonName({ view, guid }: { readonly view: ObjectView; readonly guid: 
 
 /**
  * Блок незакрытых документов: в строке ФИО физического лица и остаток, нажатие открывает документ
- * во вкладке. Общая часть блоков «Рассрочки» и «Отвесы»: они различаются объектом и условием
+ * во вкладке. Общая часть блоков рассрочек и блока «Отвесы»: они различаются объектом и условием
  * незакрытого документа, а выглядят одинаково.
  *
  * Данные блок не читает: их передаёт блок документа, который знает свой отбор. Перечитывать их
@@ -52,7 +55,7 @@ export function DebtList({ title, object, rows, total, loading, error, empty }: 
                     {rows.map((row) => (
                         <Button key={row.guid} type="text" block style={{ justifyContent: 'space-between' }} onClick={() => void openRecord(object, row.guid)}>
                             {/* Без права читать физические лица сервер их описание не отдаёт. */}
-                            <span>{persons === undefined ? 'Нет доступа' : <PersonName view={persons} guid={row.person} />}</span>
+                            <span>{row.person === null ? 'Без физического лица' : persons === undefined ? 'Нет доступа' : <PersonName view={persons} guid={row.person} />}</span>
                             <FieldDisplay field={{ kind: 'money', target: null }} value={row.balance} />
                         </Button>
                     ))}
