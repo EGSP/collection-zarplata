@@ -224,14 +224,15 @@ function queryVariant(entry: FieldEntry, variant: AnyFieldBuilder): FieldDescrip
     // К построению запроса все файлы конфигурации загружены, и функция цели уже возвращает билдер.
     const target = typeof state.target === 'function' ? state.target() : state.target;
     return { ...state, name: entry.name, role: entry.role, managed: entry.managed, title: entry.name, required: true,
-        target: target === null ? null : { kind: target.kind, name: target.name }, suggestions: null, variants: null };
+        target: target === null ? null : { kind: target.kind, name: target.name }, suggestions: null, variants: null, inputMode: 'solid' };
 }
 
 /** Описание поля билдера для кодека; цель обычной ссылки не требуется для проверки и хранения GUID. */
 function queryField(entry: FieldEntry): FieldDescription {
     const state = entry.builder['~state'];
     return { ...state, name: entry.name, role: entry.role, managed: entry.managed,
-        title: state.title ?? entry.name, target: null, suggestions: null,
+        // Способ ввода запросу не нужен; значение задано, чтобы состояние билдера совпало с типом описания.
+        title: state.title ?? entry.name, target: null, suggestions: null, inputMode: 'solid',
         variants: state.variants === null ? null : state.variants.map((variant) => queryVariant(entry, variant)) };
 }
 

@@ -37,6 +37,8 @@ export interface FieldState {
     readonly expandedTablePart: string | null;
     /** Варианты составного поля в порядке объявления; у остальных видов `null`. */
     readonly variants: ReadonlyArray<AnyFieldBuilder> | null;
+    /** Способ ввода, заданный конфигурацией составному полю; `null` оставляет способ, выведенный из вариантов. */
+    readonly inputMode: 'solid' | null;
 }
 
 /** Метка обязательного поля в типе билдера. Существует только на уровне типов. */
@@ -187,6 +189,16 @@ type CompositeVariantValue<Variant> =
  */
 export class CompositeFieldBuilder<Value> extends FieldBuilder<Value> {
     declare readonly '~kind': 'composite';
+
+    /**
+     * Отключает единое текстовое поле: пользователь сначала выбирает тип значения, затем вводит
+     * его в поле этого типа. Нужен, когда свободный ввод мешает, например значения вариантов
+     * легко спутать. Задать можно только `solid`: поле с датой или флажком текстом не вводится,
+     * и обратная настройка была бы невыполнимой.
+     */
+    inputMode(mode: 'solid'): this {
+        return this.with({ inputMode: mode });
+    }
 }
 
 /** Идентификатор объекта UUIDv7. Используется только в стандартных полях. */
@@ -219,6 +231,7 @@ function initialState(kind: FieldKind): FieldState {
         suggestions: null,
         expandedTablePart: null,
         variants: null,
+        inputMode: null,
     };
 }
 

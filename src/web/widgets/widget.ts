@@ -13,7 +13,7 @@
 import type { ValueSuggestions } from '../../server/metadata/descriptions';
 import type { ComponentType, Ref } from 'react';
 import type { CompositeValue, ObjectReferenceValue } from '../../server/metadata/descriptions';
-import type { FieldKind, ObjectTarget, RecorderValue, ValidationRules } from '../../server/ui/descriptions';
+import type { FieldKind, InputMode, ObjectTarget, RecorderValue, ValidationRules } from '../../server/ui/descriptions';
 
 /**
  * Что виджету нужно знать о поле. Подходит и поле формы, и колонка, и отбор списка: у двух
@@ -30,6 +30,8 @@ export interface WidgetField {
     readonly rules?: ValidationRules;
     /** Варианты составного поля: каждый описан как поле своего вида, и для него берётся виджет этого вида. */
     readonly variants?: ReadonlyArray<WidgetField> | null;
+    /** Способ ввода, который платформа определила для поля; у составного поля выбирает его виджет. */
+    readonly inputMode?: InputMode;
 }
 
 /** Типы значений по видам полей в формате сервера. */
@@ -66,6 +68,26 @@ export interface InputProperties<Value> {
     /** Идентификатор элемента: его передаёт элемент формы Ant Design, чтобы подпись указывала на поле. */
     readonly id?: string | undefined;
     readonly ref?: Ref<InputHandle> | undefined;
+    /**
+     * Отключает единое текстовое поле составного значения на этом экране: пользователь сначала
+     * выбирает тип. Включить текстовый ввод свойством нельзя: возможен ли он, определяет платформа
+     * по вариантам поля. Остальные виды полей свойство не учитывают.
+     */
+    readonly inputMode?: 'solid' | undefined;
+}
+
+/** Свойства поля ввода составного значения; одинаковы для обоих способов ввода. */
+export type CompositeInputProperties = InputProperties<CompositeValue>;
+
+/**
+ * Контракт виджета составного поля: компонент на каждый способ ввода. Реализация обязана
+ * поддержать оба, потому что способ определяет не она, а описание поля и настройка экрана.
+ * `fluent` принимает значение текстом и предлагает подсказки по всем вариантам, `solid`
+ * сначала спрашивает тип значения.
+ */
+export interface CompositeInputModes {
+    readonly fluent: ComponentType<CompositeInputProperties>;
+    readonly solid: ComponentType<CompositeInputProperties>;
 }
 
 /** Свойства компонента отображения: значение выводится текстом и не редактируется. */

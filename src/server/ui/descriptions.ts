@@ -11,9 +11,9 @@
  */
 import type { Formula } from '../../common/formulas.js';
 import type { ValueSuggestions } from '../metadata/descriptions.js';
-import type { DelegatedPresentation, FieldKind, FieldRole, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
+import type { DelegatedPresentation, FieldKind, FieldRole, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
 
-export type { DelegatedPresentation, FieldKind, FormElementReference, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
+export type { DelegatedPresentation, FieldKind, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
 
 /**
  * Правила проверки значения поля. Клиент проверяет по ним ввод до отправки, окончательную
@@ -58,6 +58,8 @@ export interface FormField {
      * по нему клиент выбирает виджет ввода и показа и проверяет значение варианта.
      */
     readonly variants?: ReadonlyArray<FormField> | null;
+    /** Способ ввода: `fluent` — значение пишется текстом, `solid` — нужен собственный элемент ввода. */
+    readonly inputMode?: InputMode;
     readonly rules: ValidationRules;
     /**
      * Имя собственного элемента конфигурации, который на форме служит полем ввода вместо виджета
@@ -196,6 +198,8 @@ export interface ListFilter {
     readonly choices?: ReadonlyArray<string> | null;
     /** Варианты составного поля: отбор вводит значение вместе с его типом. */
     readonly variants?: ReadonlyArray<ListVariant> | null;
+    /** Способ ввода значения отбора; совпадает со способом ввода поля на форме. */
+    readonly inputMode?: InputMode;
     readonly operators: ReadonlyArray<FilterOperator>;
 }
 

@@ -27,6 +27,7 @@ export type {
     FormGroup,
     FormTablePart,
     FormView,
+    InputMode,
     ListColumn,
     ListFilter,
     ListSort,
@@ -64,9 +65,9 @@ export { useUnsavedChanges, useWindowScope, useWindowTitle, type WindowScope } f
 export { Page, type PageProperties } from './page';
 
 // Поля: ввод и отображение значения по виду поля, проверка ввода, обход с клавиатуры.
-export { FieldDisplay, FieldInput, hasInput } from '../widgets/registry';
+export { FieldDisplay, FieldInput, compositeInputs, hasInput } from '../widgets/registry';
 export { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage, validationMessage } from '../widgets/validation';
-export type { DisplayProperties, FieldValues, InputHandle, InputProperties, WidgetField } from '../widgets/widget';
+export type { CompositeInputModes, CompositeInputProperties, DisplayProperties, FieldValues, InputHandle, InputProperties, WidgetField } from '../widgets/widget';
 export { FieldGroup, type FieldGroupProperties } from './field-group';
 export { FormDataProvider, useFormData, useFormRestrictions, useFormValue, type EnteredValue, type FormData, type FormDataProviderProperties, type FormElementComponent } from './form-data';
 export { useFormRestrictionRegistry, type FormRestrictionRegistry, type FormRestrictions } from './form-restrictions';

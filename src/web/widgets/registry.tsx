@@ -7,20 +7,20 @@
  * не добавлена пара компонентов.
  */
 import { ValueSuggestionInput } from './value-suggestions';
-import { Flex, Select } from 'antd';
+import { Flex, Select, Typography } from 'antd';
 import { useState, type ComponentType } from 'react';
 import { compositeVariant } from '../../server/metadata/composite';
-import type { CompositeType, CompositeValue } from '../../server/metadata/descriptions';
+import type { CompositeValue } from '../../server/metadata/descriptions';
 import type { FieldKind } from '../../server/ui/descriptions';
-import { useMetadata, findObjectView } from '../data-provider/metadata';
-import { CompositeReferenceInput } from '../references/composite-reference-input';
-import { noAccessText } from '../references/presentation';
+import { useMetadata } from '../data-provider/metadata';
 import { ObjectReferenceDisplay, RecordLink, RecorderDisplay, ReferenceDisplay } from '../references/reference-display';
 import { ObjectReferenceInput } from '../references/object-reference-input';
 import { ReferenceInput } from '../references/reference-input';
 import { BooleanDisplay, DateDisplay, DateTimeDisplay, MoneyDisplay, NumberDisplay, TextDisplay } from './displays';
 import { BooleanInput, DateInput, DateTimeInput, MoneyInput, NumberInput, StringInput, defined, useInputHandle } from './inputs';
-import type { DisplayProperties, FieldValues, InputProperties, Widget, WidgetField } from './widget';
+import { CompositeFluentInput } from './composite-fluent-input';
+import { compositeTypeTitle } from './composite-text';
+import type { CompositeInputModes, CompositeInputProperties, DisplayProperties, FieldValues, InputProperties, Widget, WidgetField } from './widget';
 
 /** Пары компонентов по видам полей. */
 export const widgets: { readonly [Kind in FieldKind]: Widget<FieldValues[Kind]> } = {
@@ -59,42 +59,42 @@ export function FieldDisplay(properties: DisplayProperties<unknown>) {
     return <Display {...properties} />;
 }
 
-/** Названия простых типов значения в выборе варианта. Ссылочный вариант называется заголовком своего объекта. */
-const variantTitles: { readonly [Type in Exclude<CompositeType, 'reference'>]: string } = {
-    string: 'Строка',
-    number: 'Число',
-    money: 'Сумма',
-    date: 'Дата',
-    dateTime: 'Дата и время',
-    boolean: 'Да или нет',
-};
-
 /**
  * Отображение составного значения виджетом его варианта: ссылка открывает запись и показана
- * её текущим представлением, простое значение выводится так же, как поле этого вида.
+ * её текущим представлением, простое значение выводится так же, как поле этого вида. Рядом
+ * подписан тип значения: строка «100» и число 100 выглядят одинаково, а значения это разные.
  */
 function CompositeDisplay({ field, value }: DisplayProperties<CompositeValue>) {
+    const metadata = useMetadata().data;
     if (value === null || value === undefined) return null;
-    if (value.type === 'reference') return <RecordLink reference={{ kind: value.kind, name: value.name, guid: value.guid }} />;
-    // Вариант могли убрать из конфигурации; значение всё равно показывается по своему типу.
-    return <FieldDisplay field={compositeVariant(field.variants, value) ?? { kind: value.type, target: null }} value={value.value} />;
+    const reference = value.type === 'reference' ? { kind: value.kind, name: value.name, guid: value.guid } : null;
+    return (
+        <>
+            {value.type === 'reference'
+                ? <RecordLink reference={{ kind: value.kind, name: value.name, guid: value.guid }} />
+                // Вариант могли убрать из конфигурации; значение всё равно показывается по своему типу.
+                : <FieldDisplay field={compositeVariant(field.variants, value) ?? { kind: value.type, target: null }} value={value.value} />}
+            {' '}
+            <Typography.Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>· {compositeTypeTitle(metadata, value.type, reference)}</Typography.Text>
+        </>
+    );
 }
 
 /**
- * Поле ввода составного значения. Для строки со ссылками служит единый ввод с подсказками:
- * вариант определяется тем, выбрал пользователь запись или оставил текст. Остальные сочетания
- * вводятся выбором типа и полем ввода выбранного варианта.
+ * Поле ввода составного значения. Способ ввода определила платформа и передала в описании поля:
+ * `fluent` означает, что каждый вариант вводится текстом. Экран может отключить текстовый ввод
+ * свойством `inputMode`, но не включить его: поле с датой или флажком в одной строке не набрать.
  */
-function CompositeInput(properties: InputProperties<CompositeValue>) {
-    const variants = properties.field.variants ?? [];
-    const scalar = variants.filter((variant) => variant.kind !== 'reference');
-    // Строка с перечнем значений выбирается из списка, а не печатается, поэтому единый ввод ей не подходит.
-    const text = scalar.length === 1 && scalar[0]!.kind === 'string' && scalar[0]!.choices == null;
-    return text && scalar.length < variants.length ? <CompositeReferenceInput {...properties} /> : <CompositeVariantInput {...properties} />;
+function CompositeInput(properties: CompositeInputProperties) {
+    const Input = compositeInputs[properties.field.inputMode === 'fluent' && properties.inputMode !== 'solid' ? 'fluent' : 'solid'];
+    return <Input {...properties} />;
 }
 
-/** Выбор типа значения и поле ввода выбранного варианта. Смена типа очищает значение прежнего варианта. */
-function CompositeVariantInput({ field, value, onChange, disabled, id, ref }: InputProperties<CompositeValue>) {
+/**
+ * Выбор типа значения и поле ввода выбранного варианта (способ `solid`). Смена типа очищает
+ * значение прежнего варианта. Тип значения виден в самом выборе, отдельной подписи ему не нужно.
+ */
+function CompositeSolidInput({ field, value, onChange, disabled, id, ref }: CompositeInputProperties) {
     const inner = useInputHandle(ref);
     const metadata = useMetadata().data;
     const variants = field.variants ?? [];
@@ -113,10 +113,7 @@ function CompositeVariantInput({ field, value, onChange, disabled, id, ref }: In
                 placeholder="Тип значения"
                 allowClear={field.rules?.required !== true}
                 value={index}
-                options={variants.map((candidate, position) => ({
-                    value: position,
-                    label: candidate.kind === 'reference' ? findObjectView(metadata, candidate.target)?.title ?? noAccessText : variantTitles[candidate.kind as Exclude<CompositeType, 'reference'>],
-                }))}
+                options={variants.map((candidate, position) => ({ value: position, label: compositeTypeTitle(metadata, candidate.kind, candidate.target) }))}
                 onChange={(position: number | undefined) => {
                     setChosen(position ?? null);
                     // Флажок не бывает незаполненным: выбранный логический тип сразу означает «нет».
@@ -142,3 +139,9 @@ function CompositeVariantInput({ field, value, onChange, disabled, id, ref }: In
         </Flex>
     );
 }
+
+/**
+ * Компоненты составного поля по способам ввода. Тип контракта требует оба компонента: способ
+ * выбирает описание поля, и виджет без одного из них оставил бы часть полей без ввода.
+ */
+export const compositeInputs: CompositeInputModes = { fluent: CompositeFluentInput, solid: CompositeSolidInput };

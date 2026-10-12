@@ -77,6 +77,7 @@ function formField(field: FieldDescription, title: string = field.title, inputEl
         suggestions: field.suggestions ?? null,
         expandedTablePart: field.expandedTablePart ?? null,
         variants: field.variants?.map((variant) => formField(variant, title)) ?? null,
+        ...(field.inputMode === undefined ? {} : { inputMode: field.inputMode }),
         rules: validationRules(field),
     };
 }
@@ -177,6 +178,7 @@ export function buildList(object: ObjectDescription): ListView {
     const filters: ReadonlyArray<ListFilter> = fields.map((field) => ({
         field: field.name, title: field.title, kind: field.kind, target: field.target,
         choices: field.choices, variants: listVariants(field), operators: filterOperators[field.kind],
+        ...(field.inputMode === undefined ? {} : { inputMode: field.inputMode }),
     }));
     // Регистратор состоит из двух значений, и порядок по нему ничего не говорит пользователю.
     const sortable = fields.filter((field) => field.kind !== 'recorder').map((field) => field.name);

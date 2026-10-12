@@ -5,7 +5,36 @@
  * тексту и виджеты выбирают вариант одинаково, поэтому правило выбора записано один раз. Модуль
  * не зависит от Nest и Effect и входит в обе сборки.
  */
-import type { CompositeValue, FieldKind, ObjectReferenceValue, ObjectTarget } from './descriptions.js';
+import type { CompositeValue, FieldKind, InputMode, ObjectReferenceValue, ObjectTarget } from './descriptions.js';
+
+/**
+ * Реестр способов ввода по видам полей: единственное место, где сказано, значение какого вида
+ * можно написать текстом. Видов немного, и все известны платформе заранее, поэтому способ
+ * не настраивается у каждого поля. Новый вид поля не соберётся, пока не получит здесь запись.
+ * Полная ссылка требует выбора объекта до поиска записи, поэтому текстом не вводится.
+ */
+export const fieldInputModes: { readonly [Kind in FieldKind]: InputMode } = {
+    string: 'fluent',
+    number: 'fluent',
+    money: 'fluent',
+    reference: 'fluent',
+    date: 'solid',
+    dateTime: 'solid',
+    boolean: 'solid',
+    objectReference: 'solid',
+    composite: 'solid',
+    guid: 'solid',
+    recorder: 'solid',
+};
+
+/**
+ * Способ ввода составного поля по его вариантам: одно текстовое поле возможно, только если
+ * текстом вводится каждый вариант. Один вариант с собственным элементом ввода делает `solid`
+ * всё поле: дату или флажок в общей строке ввода набрать нельзя.
+ */
+export function compositeInputMode(variants: ReadonlyArray<{ readonly kind: FieldKind }>): InputMode {
+    return variants.length > 0 && variants.every((variant) => fieldInputModes[variant.kind] === 'fluent') ? 'fluent' : 'solid';
+}
 
 /** Что нужно знать о варианте, чтобы сопоставить его со значением: вид и цель ссылки. */
 export interface CompositeVariant {

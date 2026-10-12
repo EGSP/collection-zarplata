@@ -6,6 +6,7 @@
  * записывают проблемы в общий список, а описание собирается даже из ошибочного состояния —
  * `commitConfiguration` нужно пройти все объекты, прежде чем сообщить об ошибке.
  */
+import { compositeInputMode, fieldInputModes } from './composite.js';
 import { applyFormComponents, checkFormComponentTargets } from './form-component-attachments.js';
 import type { FormComponentDefinition } from './form-elements.js';
 import type { Formula } from '../../common/formulas.js';
@@ -181,6 +182,7 @@ function describeVariants(
             integer: state.integer,
             choices: state.choices,
             target,
+            inputMode: fieldInputModes[state.kind],
         };
         checkBounds(description, variantLocation, problems);
         checkChoices(description, variantLocation, problems);
@@ -210,6 +212,11 @@ function describeFields(
         seen.set(entry.name, entry);
 
         const state = entry.builder['~state'];
+        const variants = state.kind === 'composite' ? describeVariants(entry, location, problems, configuration) : null;
+        // Тип билдера принимает только solid, но состояние может прийти и без проверки типов.
+        if (state.inputMode !== null && (state.kind !== 'composite' || state.inputMode !== 'solid')) {
+            problems.add(location, 'способ ввода задаётся только составному полю и только как solid');
+        }
         const description: FieldDescription = {
             name: entry.name,
             kind: state.kind,
@@ -228,7 +235,9 @@ function describeFields(
             choices: state.choices,
             initial: state.initial,
             target: state.kind === 'reference' ? resolveTarget(entry, location, problems, configuration) : null,
-            variants: state.kind === 'composite' ? describeVariants(entry, location, problems, configuration) : null,
+            variants,
+            // Настройка конфигурации может только отключить текстовый ввод, выведенный из вариантов.
+            inputMode: variants === null ? fieldInputModes[state.kind] : state.inputMode ?? compositeInputMode(variants),
         };
         checkBounds(description, location, problems);
         if (description.suggestions != null) {

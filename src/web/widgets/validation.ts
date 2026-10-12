@@ -25,6 +25,8 @@ export function validationMessage(field: FormField, value: unknown): string | nu
         return variant === undefined || value.type === 'reference' ? null : validationMessage(variant, value.value);
     }
     if (typeof value === 'string') {
+        // Обычное поле с перечнем выбирает значение из списка, а в едином поле составного значения текст вводится свободно.
+        if (field.choices != null && !field.choices.includes(value)) return `Выберите одно из значений: ${field.choices.join(', ')}`;
         if (rules.minimumLength !== null && value.length < rules.minimumLength) return `Не меньше ${rules.minimumLength} символов`;
         if (rules.maximumLength !== null && value.length > rules.maximumLength) return `Не больше ${rules.maximumLength} символов`;
     }
