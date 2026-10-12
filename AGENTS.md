@@ -4,7 +4,7 @@
 
 ## Язык и стиль текстов
 
-Перед работой прочитай [Стиль общения](communication-style-v2.md) и [russian-style-v2](.agents/skills/russian-style-v2/SKILL.md). Пиши на русском: в чате, документации, issues, коммитах, комментариях кода и сообщениях пользователю.
+В начале каждого разговора, до первого ответа, прочитай [communication-style](.agents/skills/communication-style/SKILL.md) и [russian-style-v2](.agents/skills/russian-style-v2/SKILL.md). Пиши на русском: в чате, документации, issues, коммитах, комментариях кода и сообщениях пользователю.
 
 Идентификаторы, имена веток и типы коммитов (`feat`, `fix` и другие) пиши латиницей.
 
@@ -12,7 +12,7 @@
 
 Обновляй документацию вместе с описанным в ней кодом. Перед её созданием или переработкой прочитай [documentation-directions](.agents/skills/documentation-directions/SKILL.md).
 
-Оба навыка, `russian-style-v2` и `documentation-directions`, хранятся в `.agents/skills` и `.claude/skills`. При изменении навыка обновляй обе копии.
+Навыки `communication-style`, `russian-style-v2` и `documentation-directions` хранятся в `.agents/skills` и `.claude/skills`. При изменении навыка обновляй обе копии.
 
 Новый раздел архитектуры добавляй файлом в `docs` и строкой в `ARCHITECTURE.md`. Правила ведения разделов описаны в [документации](docs/documentation.md).
 
