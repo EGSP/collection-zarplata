@@ -17,9 +17,12 @@ const total = formula.round(formula.divide(
     formula.value(10000),
 ));
 
-/** Колонки товара. Название остаётся текстом: ссылки на номенклатуру в первой редакции нет. */
+/** Колонки товара. Название и код остаются текстом, без ссылки на номенклатуру. */
 export const Goods = tablePart((part) => part
     .field('name', (field) => field.string().title('Название').required().maximumLength(300))
+    .field('code', (field) => field.string().title('Код').maximumLength(50))
+    .field('comment', (field) => field.string().title('Комментарий').maximumLength(500))
+    .field('postedIn1C', (field) => field.boolean().title('Проведено в 1С'))
     .field('cost', (field) => field.money().title('Стоимость').minimum(0).required())
     .field('discount', (field) => field.number().title('Скидка, %').minimum(0).maximum(100).suggestions(Discounts, 'percentage'))
     .field('total', (field) => field.money().title('Итог').required().computed(total)));
