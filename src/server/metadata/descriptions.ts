@@ -30,10 +30,18 @@ export type ObjectKind = 'catalog' | 'document' | 'register' | 'informationRegis
  * - `boolean` — логическое значение;
  * - `reference` — ссылка на справочник или документ, значение — `guid` объекта;
  * - `objectReference` — полная ссылка с видом объекта, именем и guid записи;
+ * - `composite` — составное поле: значение одного из объявленных вариантов вместе с его типом;
  * - `guid` — идентификатор объекта UUIDv7, только стандартное поле;
  * - `recorder` — ссылка на документ-регистратор движения регистра, только стандартное поле.
  */
-export type FieldKind = 'string' | 'number' | 'money' | 'date' | 'dateTime' | 'boolean' | 'reference' | 'objectReference' | 'guid' | 'recorder';
+export type FieldKind = 'string' | 'number' | 'money' | 'date' | 'dateTime' | 'boolean' | 'reference' | 'objectReference' | 'composite' | 'guid' | 'recorder';
+
+/**
+ * Тип варианта составного поля. Совпадает с видом поля варианта: простые виды платформы
+ * и `reference` для ссылки на конкретный справочник или документ. Тип хранится рядом
+ * со значением, поэтому строка «100» и число 100 остаются разными значениями.
+ */
+export type CompositeType = 'string' | 'number' | 'money' | 'date' | 'dateTime' | 'boolean' | 'reference';
 
 /**
  * Роль поля в объекте:
@@ -54,6 +62,27 @@ export interface ObjectTarget {
 export interface ObjectReferenceValue extends ObjectTarget {
     readonly guid: string;
 }
+
+/** Значение простого варианта составного поля: тип варианта и значение в формате поля этого вида. */
+export interface CompositeScalarValue<Type extends Exclude<CompositeType, 'reference'>, Value> {
+    readonly type: Type;
+    readonly value: Value;
+}
+
+/** Значение ссылочного варианта составного поля: цель входит в значение, потому что целей у поля может быть несколько. */
+export interface CompositeReferenceValue extends ObjectReferenceValue {
+    readonly type: 'reference';
+}
+
+/**
+ * Значение составного поля в записи и в API. Незаполненное поле равно `null`. Свойство `type`
+ * различает варианты, поэтому после его проверки компилятор знает тип значения.
+ */
+export type CompositeValue =
+    | CompositeScalarValue<'string' | 'date' | 'dateTime', string>
+    | CompositeScalarValue<'number' | 'money', number>
+    | CompositeScalarValue<'boolean', boolean>
+    | CompositeReferenceValue;
 
 /** Значение поля `recorder`: документ-регистратор движения. */
 export interface RecorderValue {
@@ -98,6 +127,13 @@ export interface FieldDescription {
     readonly suggestions?: ValueSuggestions | null;
     /** Табличная часть записи по ссылке для раскрытия строки формы. */
     readonly expandedTablePart?: string | null;
+    /**
+     * Варианты составного поля в порядке объявления; у остальных видов отсутствуют либо `null`.
+     * Вариант описан как поле своего вида с именем и ролью составного поля: по нему строятся
+     * схема проверки, хранение и виджет варианта. Вариант всегда обязателен: пустое значение
+     * составного поля равно `null`, а не варианту без значения.
+     */
+    readonly variants?: ReadonlyArray<FieldDescription> | null;
 }
 
 /** Табличная часть: список строк внутри объекта. В записи она представлена массивом строк. */

@@ -53,6 +53,11 @@ export interface FormField {
     readonly computed?: Formula | null;
     readonly suggestions?: ValueSuggestions | null;
     readonly expandedTablePart?: string | null;
+    /**
+     * Варианты составного поля в порядке объявления. Каждый вариант описан как поле своего вида:
+     * по нему клиент выбирает виджет ввода и показа и проверяет значение варианта.
+     */
+    readonly variants?: ReadonlyArray<FormField> | null;
     readonly rules: ValidationRules;
     /**
      * Имя собственного элемента конфигурации, который на форме служит полем ввода вместо виджета
@@ -127,6 +132,15 @@ export interface FormView {
     readonly creationMode: RecordOpeningMode;
 }
 
+/** Вариант составной колонки или отбора: вид значения, цель ссылки и перечень значений строки. */
+export interface ListVariant {
+    readonly kind: FieldKind;
+    readonly target: ObjectTarget | null;
+    readonly choices?: ReadonlyArray<string> | null;
+    /** Правила нужны полю ввода отбора, например запрет дробной части целого числа. */
+    readonly rules: ValidationRules;
+}
+
 /** Колонка списка: поле записи. */
 export interface ListColumn {
     /** Роль поля позволяет отличить измерения ключа от ресурсов регистра. */
@@ -137,6 +151,8 @@ export interface ListColumn {
     readonly target: ObjectTarget | null;
     /** Допустимые строковые значения для выбора. */
     readonly choices?: ReadonlyArray<string> | null;
+    /** Варианты составного поля; у остальных видов отсутствуют либо `null`. */
+    readonly variants?: ReadonlyArray<ListVariant> | null;
 }
 
 /**
@@ -164,6 +180,8 @@ export const filterOperators: { readonly [Kind in FieldKind]: ReadonlyArray<Filt
     boolean: equality,
     reference: equality,
     objectReference: equality,
+    // Упорядоченное сравнение действует внутри простого типа значения; подстрока ищется в показанном тексте варианта.
+    composite: [...ordered, 'contains'],
     guid: equality,
     recorder: equality,
 };
@@ -176,6 +194,8 @@ export interface ListFilter {
     readonly target: ObjectTarget | null;
     /** Допустимые строковые значения для выбора. */
     readonly choices?: ReadonlyArray<string> | null;
+    /** Варианты составного поля: отбор вводит значение вместе с его типом. */
+    readonly variants?: ReadonlyArray<ListVariant> | null;
     readonly operators: ReadonlyArray<FilterOperator>;
 }
 

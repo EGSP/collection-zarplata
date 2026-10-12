@@ -10,7 +10,9 @@ import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
 import { query, type SqlCondition } from '../database/sql.builder.js';
 import { guidPattern } from '../common/guid.js';
-import type { ObjectDescription } from '../metadata/descriptions.js';
+import { isCompositeValue, isOrderedCompositeValue } from '../metadata/composite.js';
+import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
+import { fieldSchema } from '../metadata/schema.js';
 import type { FilterOperator } from '../ui/descriptions.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 
@@ -101,6 +103,27 @@ export function validated<S extends Schema.Top>(schema: S, value: unknown, locat
             return new DataValidationError({ message: `${location}: ${message}`, fields: fields.length ? fields : [location] });
         }),
     );
+}
+
+/**
+ * Проверяет значение точного отбора по полю и возвращает его в виде, который принимает билдер
+ * запросов. `null` допустим только для проверки заполненности. Значение составного поля
+ * передаётся вместе с типом; упорядоченное сравнение отклоняется для ссылки и логического
+ * значения, у которых порядка нет. Ошибка завершает действие ответом 400 с путём `location`.
+ */
+export function filterValue(field: FieldDescription, operator: Exclude<FilterOperator, 'contains'>, value: unknown, location: string): Effect.Effect<unknown, DataValidationError> {
+    return Effect.gen(function* () {
+        const equality = operator === 'equals' || operator === 'notEquals';
+        if (value === undefined || (value === null && !equality)) {
+            return yield* new DataValidationError({ message: `Неверное значение отбора «${field.name}»`, fields: [location] });
+        }
+        if (value === null) return null;
+        const checked: unknown = yield* validated(fieldSchema(field), value, location);
+        if (!equality && isCompositeValue(checked) && !isOrderedCompositeValue(checked)) {
+            return yield* new DataValidationError({ message: `Значение типа «${checked.type}» поля «${field.name}» сравнивается только на равенство`, fields: [location] });
+        }
+        return checked;
+    });
 }
 
 /**

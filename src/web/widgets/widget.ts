@@ -2,7 +2,7 @@
  * Общий контракт виджетов: полей ввода и компонентов отображения значений.
  *
  * Значение поля на всём пути остаётся в формате сервера: деньги в копейках, даты строками ISO,
- * ссылка в виде `guid` или `{ kind, name, guid }`, отсутствие значения в виде `null`. В привычный человеку вид значение
+ * ссылка в виде `guid` или `{ kind, name, guid }`, значение составного поля вместе с типом варианта, отсутствие значения в виде `null`. В привычный человеку вид значение
  * переводит само поле ввода, и оно же переводит введённое обратно. Поэтому значения формы уходят
  * в `save`, а значение отбора в `list` без преобразования, и общего слоя преобразования нет.
  *
@@ -12,7 +12,7 @@
  */
 import type { ValueSuggestions } from '../../server/metadata/descriptions';
 import type { ComponentType, Ref } from 'react';
-import type { ObjectReferenceValue } from '../../server/metadata/descriptions';
+import type { CompositeValue, ObjectReferenceValue } from '../../server/metadata/descriptions';
 import type { FieldKind, ObjectTarget, RecorderValue, ValidationRules } from '../../server/ui/descriptions';
 
 /**
@@ -28,11 +28,15 @@ export interface WidgetField {
     readonly choices?: ReadonlyArray<string> | null;
     /** По правилам поле ввода ограничивает сам ввод, например не даёт ввести дробную часть целого числа. */
     readonly rules?: ValidationRules;
+    /** Варианты составного поля: каждый описан как поле своего вида, и для него берётся виджет этого вида. */
+    readonly variants?: ReadonlyArray<WidgetField> | null;
 }
 
 /** Типы значений по видам полей в формате сервера. */
 export interface FieldValues {
     readonly objectReference: ObjectReferenceValue;
+    /** Значение вместе с типом варианта: `{ type, value }` либо `{ type: 'reference', kind, name, guid }`. */
+    readonly composite: CompositeValue;
     readonly string: string;
     readonly number: number;
     /** Целое число копеек. */

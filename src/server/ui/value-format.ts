@@ -5,6 +5,7 @@
  * при отображении это пояс браузера на том же компьютере.
  */
 import dayjs from 'dayjs';
+import { isCompositeValue } from '../metadata/composite.js';
 import type { FieldKind } from '../metadata/descriptions.js';
 
 /** Вид даты на экране, в том числе в поле выбора даты. */
@@ -50,8 +51,18 @@ export function formatSearchValue(kind: FieldKind, value: unknown): string | nul
         case 'date': return typeof value === 'string' ? formatDate(value) : null;
         case 'dateTime': return typeof value === 'string' ? formatDateTime(value) : null;
         case 'boolean': return typeof value === 'boolean' ? formatBoolean(value) : null;
+        // Простой вариант составного поля показывается так же, как поле его вида; текст ссылки даёт её представление.
+        case 'composite': return isCompositeValue(value) && value.type !== 'reference' ? formatSearchValue(value.type, value.value) : null;
         default: return null;
     }
+}
+
+/**
+ * Вид, по правилам которого показывается и ищется значение: у составного поля это тип
+ * выбранного варианта, у остальных полей их собственный вид.
+ */
+export function displayedKind(kind: FieldKind, value: unknown): FieldKind {
+    return kind === 'composite' && isCompositeValue(value) ? value.type : kind;
 }
 
 /**

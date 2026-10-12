@@ -20,7 +20,9 @@ import {
     type ListColumn,
     type ListFilter,
     type ListSort,
+    type ListVariant,
     type ListView,
+    type ValidationRules,
     type ObjectView,
 } from './descriptions.js';
 
@@ -74,15 +76,26 @@ function formField(field: FieldDescription, title: string = field.title, inputEl
         computed: field.computed ?? null,
         suggestions: field.suggestions ?? null,
         expandedTablePart: field.expandedTablePart ?? null,
-        rules: {
-            required: field.required,
-            minimumLength: field.minimumLength,
-            maximumLength: field.maximumLength,
-            minimum: field.minimum,
-            maximum: field.maximum,
-            integer: field.integer,
-        },
+        variants: field.variants?.map((variant) => formField(variant, title)) ?? null,
+        rules: validationRules(field),
     };
+}
+
+/** Правила проверки значения из описания поля или варианта составного поля. */
+function validationRules(field: FieldDescription): ValidationRules {
+    return {
+        required: field.required,
+        minimumLength: field.minimumLength,
+        maximumLength: field.maximumLength,
+        minimum: field.minimum,
+        maximum: field.maximum,
+        integer: field.integer,
+    };
+}
+
+/** Варианты составного поля для колонки и отбора списка. */
+function listVariants(field: FieldDescription): ReadonlyArray<ListVariant> | null {
+    return field.variants?.map((variant) => ({ kind: variant.kind, target: variant.target, choices: variant.choices, rules: validationRules(variant) })) ?? null;
 }
 
 /**
@@ -159,11 +172,11 @@ export function buildList(object: ObjectDescription): ListView {
     const fields = object.fields.filter((field) => field.role !== 'standard' || !formHiddenStandardFields.has(field.name));
     const columns: ReadonlyArray<ListColumn> = fields.map((field) => ({
         field: field.name, title: field.title, kind: field.kind, target: field.target,
-        choices: field.choices, role: field.role,
+        choices: field.choices, role: field.role, variants: listVariants(field),
     }));
     const filters: ReadonlyArray<ListFilter> = fields.map((field) => ({
         field: field.name, title: field.title, kind: field.kind, target: field.target,
-        choices: field.choices, operators: filterOperators[field.kind],
+        choices: field.choices, variants: listVariants(field), operators: filterOperators[field.kind],
     }));
     // Регистратор состоит из двух значений, и порядок по нему ничего не говорит пользователю.
     const sortable = fields.filter((field) => field.kind !== 'recorder').map((field) => field.name);

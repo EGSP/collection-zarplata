@@ -1,4 +1,5 @@
 /** Общий текст ссылок для серверного поиска и всех мест отображения на клиенте. */
+import { compositeReference } from '../metadata/composite.js';
 import type { DelegatedPresentation, ObjectReferenceValue, ObjectTarget, RecorderValue } from '../metadata/descriptions.js';
 import type { ListColumn } from './descriptions.js';
 import { formatDate } from './value-format.js';
@@ -15,7 +16,7 @@ export function referenceKey(reference: ObjectReferenceValue): string {
  * Извлекает полную ссылку из значения колонки; нессылочные и пустые значения возвращают null.
  * Вызывающий код передаёт значение с восстановленным типом по метаданным колонки.
  */
-export function columnReference(column: ListColumn, value: unknown): ObjectReferenceValue | null {
+export function columnReference(column: Pick<ListColumn, 'kind' | 'target'>, value: unknown): ObjectReferenceValue | null {
     if (value === null || value === undefined) return null;
     if (column.kind === 'reference' && column.target !== null) return { ...column.target, guid: value as string };
     if (column.kind === 'objectReference') return value as ObjectReferenceValue;
@@ -23,6 +24,7 @@ export function columnReference(column: ListColumn, value: unknown): ObjectRefer
         const recorder = value as RecorderValue;
         return { kind: 'document', name: recorder.document, guid: recorder.guid };
     }
+    if (column.kind === 'composite') return compositeReference(value);
     return null;
 }
 

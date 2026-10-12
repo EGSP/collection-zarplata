@@ -2,6 +2,7 @@ import { Switch, Button, Dropdown, Flex, Table, theme, type TableProps } from 'a
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import type { ListColumn, ObjectView } from '../../server/ui/descriptions';
+import { compositeReference } from '../../server/metadata/composite';
 import { useSearchParams } from 'react-router';
 import { RecordTablePart } from './record-table-part';
 import { recordPath } from '../common/paths';
@@ -131,7 +132,7 @@ function DescribedTable({ object, list, columns: columnNames, hiddenRowActions, 
             const display = <FieldDisplay field={column} value={value} />;
             if (index > 0 || form === null) return display;
             // Ссылочная колонка открывает свою цель; вложенная ссылка перехватила бы переход к ней.
-            if (column.kind === 'reference' || column.kind === 'objectReference' || column.kind === 'recorder') {
+            if (column.kind === 'reference' || column.kind === 'objectReference' || column.kind === 'recorder' || compositeReference(value) !== null) {
                 return <Flex gap="small" align="center"><RecordMark record={record} />{display}</Flex>;
             }
             return (

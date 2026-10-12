@@ -88,7 +88,7 @@ export class ListPresentations {
                     const field = fields.find((candidate) => candidate.name === part.field)!;
                     const rows = 'tablePart' in part ? record[part.tablePart] as RecordValue[] : [record];
                     for (const row of rows) {
-                        const reference = columnReference({ ...field, field: field.name }, row[field.name]);
+                        const reference = columnReference(field, row[field.name]);
                         if (reference !== null) references.push(reference);
                     }
                 }
@@ -106,7 +106,7 @@ export class ListPresentations {
                     const rows = 'tablePart' in part ? record[part.tablePart] as RecordValue[] : [record];
                     return rows.map((row) => {
                         const value = row[field.name];
-                        const reference = columnReference({ ...field, field: field.name }, value);
+                        const reference = columnReference(field, value);
                         if (reference !== null) return this.cache.get(referenceKey(reference)) ?? 'Запись недоступна';
                         if ('format' in part && part.format === 'number') return value == null ? '' : formatSearchValue('number', typeof value === 'string' ? Number(value) : value) ?? '';
                         if ('format' in part && part.format !== undefined && typeof value === 'string') return part.format === 'date' ? formatDate(value) : formatDateTime(value);

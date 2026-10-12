@@ -10,6 +10,7 @@
  * не больше двух, и каждое объединяет все ссылки страницы.
  */
 import { useMany } from '@refinedev/core';
+import type { ObjectReferenceValue } from '../../server/metadata/descriptions';
 import type { ObjectView } from '../../server/ui/descriptions';
 import type { ApiError } from '../common/api';
 import { useObjectView } from '../data-provider/metadata';
@@ -147,4 +148,26 @@ export function useReferencePresentation(object: ObjectView, guid: string | null
     }
     if (own.record !== undefined) return presentation;
     return { text: own.failed ? 'Не удалось прочитать запись' : 'Загрузка…', loaded: false };
+}
+
+/**
+ * Описание-заглушка для вызова хуков, когда объекта ссылки нет: хуки нельзя вызывать по условию,
+ * а без `guid` они ничего не запрашивают, и имя ресурса значения не имеет.
+ */
+const absentObject: ObjectView = {
+    kind: 'catalog', name: '', title: '', presentation: null, form: null,
+    list: { columns: [], filters: [], sortable: [], defaultSort: [], deletionMark: false },
+};
+
+/**
+ * Представление записи по полной ссылке, когда объект заранее неизвестен: так показана ссылка
+ * составного поля. Без ссылки возвращает пустой текст, а если объект пользователю недоступен,
+ * запись не запрашивается и возвращается «Нет доступа».
+ */
+export function useObjectReferencePresentation(reference: ObjectReferenceValue | null): ReferencePresentation {
+    const object = useObjectView(reference);
+    const presentation = useReferencePresentation(object ?? absentObject, object === undefined ? null : reference?.guid ?? null);
+    if (reference === null) return { text: '', loaded: false };
+    if (object === undefined) return { text: noAccessText, loaded: false };
+    return presentation;
 }
