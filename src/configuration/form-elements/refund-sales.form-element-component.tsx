@@ -14,7 +14,8 @@ function SaleTitle({ view, guid }: { readonly view: ObjectView; readonly guid: s
  * раскрываемым блоком с её товарами; нажатие на товар добавляет его копию в товары возврата
  * со ссылкой на продажу. Сама продажа при этом не читается для изменения и не меняется.
  *
- * Товар копируется вместе со стоимостью и скидкой, а итог форма пересчитывает сама. Один товар
+ * Товар копируется вместе с кодом, комментарием, стоимостью и скидкой, а итог форма пересчитывает сама.
+ * Отметка о внесении в 1С снята: возврат является новым документом. Один товар
  * можно добавить несколько раз и затем исправить стоимость: предел возврата действует на сумму
  * по продаже, а не на отдельные товары, и проверяется при проведении.
  *
@@ -47,7 +48,7 @@ export default function RefundSales() {
                             const line = row as RecordOf<typeof Sale>['goods'][number];
                             // Строки вычисляются от текущего значения формы: при быстрых нажатиях подряд
                             // второе нажатие по строкам прошлой отрисовки отменило бы первое.
-                            form.setValue('goods', (current) => [...current, { name: line.name, cost: line.cost, discount: line.discount, total: line.total, sale: guid }]);
+                            form.setValue('goods', (current) => [...current, { name: line.name, code: line.code, comment: line.comment, postedIn1C: false, cost: line.cost, discount: line.discount, total: line.total, sale: guid }]);
                         }}
                     />
                 ),

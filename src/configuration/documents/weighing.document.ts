@@ -122,7 +122,8 @@ export const Weighing = weighing
                 const line = record.goods[number - 1];
                 if (line === undefined) return yield* rejected(`В отвесе нет строки ${number}`);
                 if (line.state !== held) return yield* rejected(`Строка ${number} уже не в отвесе: её состояние «${line.state}»`);
-                selected.push({ name: line.name, cost: line.cost, discount: line.discount });
+                // Новый документ ещё не внесён в 1С, поэтому отметка исходной строки не переносится.
+                selected.push({ name: line.name, code: line.code, comment: line.comment, postedIn1C: false, cost: line.cost, discount: line.discount });
             }
             // Продажа относится к смене отвеса, а не к смене, в которую товар выкупили: результат
             // засчитывается тем, кто отвесил. Продажа создаётся непроведённой, и смену в ней можно изменить.
