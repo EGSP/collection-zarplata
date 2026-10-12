@@ -14,5 +14,6 @@ export const OpenShift = defineFormComponent({
         { insert: { object: Objects.document.refund, group: 'Возврат', after: 'shift' } },
         { insert: { object: Objects.document.weighing, group: 'Отвес', after: 'person' } },
         { insert: { object: Objects.document.installment, group: 'Рассрочка', after: 'person' } },
+        { insert: { object: Objects.document.saleInstallment, group: 'Рассрочка', after: 'person' } },
     ],
 });

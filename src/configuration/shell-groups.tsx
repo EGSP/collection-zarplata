@@ -1,12 +1,13 @@
 /**
  * Клиентский состав групп. Блок «Текущая смена» и набор пробных компонентов показаны в двух местах:
- * на главном экране и над списком своего документа. Блоки незакрытых рассрочек и отвесов стоят
- * на главном экране рядом; их же выводит страница «Рабочее место продавца».
+ * на главном экране и над списком своего документа. Блоки незакрытых рассрочек обоих видов
+ * и отвесов стоят на главном экране рядом; их же выводит страница «Рабочее место продавца».
  */
 import { defineShellGroups, shellGroup, ShellGroups } from '../web/sdk';
 import { Objects } from './objects.generated';
 import CurrentShift from './shell-components/current-shift';
 import OpenInstallments from './shell-components/open-installments';
+import OpenSaleInstallments from './shell-components/open-sale-installments';
 import OpenWeighings from './shell-components/open-weighings';
 import SampleSummary from './shell-components/sample-summary';
 import SampleHint from './shell-components/sample-hint';
@@ -24,6 +25,7 @@ export const configurationShellGroups = defineShellGroups([
     { parent: ShellGroups.list(Objects.document.shift), content: currentShift },
     { parent: ShellGroups.home, content: homeSales },
     { parent: homeSales, content: { component: OpenInstallments, requiredObjects: [Objects.document.installment] } },
+    { parent: homeSales, content: { component: OpenSaleInstallments, requiredObjects: [Objects.document.saleInstallment] } },
     { parent: homeSales, content: { component: OpenWeighings, requiredObjects: [Objects.document.weighing] } },
     { parent: ShellGroups.home, content: homeSamples },
     { parent: homeSamples, content: summary },

@@ -1,0 +1,237 @@
+/**
+ * Общее описание рассрочек: долг покупателя, который он гасит взносами. Рассрочек два вида:
+ * «Рассрочка» оформляется вместо продажи и хранит свои товары, «Рассрочка по продаже» закрывает
+ * часть оплаты продажи и товаров не имеет. Поля, взносы, политика, проведение и действия «Внести»
+ * и «Закрыть» у них одинаковы и объявлены здесь один раз; документ добавляет только сумму
+ * и собственные поля.
+ *
+ * У рассрочки два состояния, открыта и закрыта; закрытая не изменяется и взносов не принимает.
+ * Остаток хранится вычисляемым полем шапки: по нему работают блок незакрытых рассрочек и условие
+ * закрытия. Проведённая рассрочка записывает в регистр «Расчёты с покупателями» свою сумму
+ * и взносы, а в регистр «Поступления денег» каждый взнос по его способу.
+ */
+import { Effect } from 'effect';
+import { requireRight } from '../server/authorization/current-user-rights.js';
+import { ActionDispatcher } from '../server/data/action-context.js';
+import { DataPolicyError } from '../server/data/data.errors.js';
+import { query } from '../server/database/sql.builder.js';
+import { Database } from '../server/database/database.effect.js';
+import {
+    document,
+    formula,
+    movements,
+    objectReference,
+    type DocumentBuilder,
+    type FieldFactory,
+    type ObjectRecord,
+    type ObjectTarget,
+    type Policy,
+    type RecordOf,
+    type RegisterMovements,
+    type TablePartMap,
+} from '../server/metadata/index.js';
+import { Employees } from './catalogs/employees.catalog.js';
+import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
+import { Rights } from './configuration.generated.js';
+import { Shift } from './documents/shift.document.js';
+import { rubles } from './money.js';
+import { paymentMethods, Payments, receiverField } from './payments.js';
+import { CustomerSettlements } from './registers/customer-settlements.register.js';
+import { MoneyReceipts } from './registers/money-receipts.register.js';
+
+/** Имена документов-рассрочек. По имени из `Rights` берётся право закрытия своего документа. */
+type InstallmentName = 'installment' | 'saleInstallment';
+
+/** Рассрочка, за которую отвечает магазин: у неё обязателен ответственный сотрудник. */
+const ownInstallment = 'Собственная';
+
+/**
+ * Начало шапки: поля до суммы. Сумму объявляет документ, потому что считается она по-разному:
+ * у рассрочки по товарам, у рассрочки по продаже вводится.
+ *
+ * Тип и физическое лицо у поля необязательны: рассрочку по продаже создаёт действие продажи,
+ * и заполняет их продавец уже в созданном документе. Когда они обязательны, решает политика.
+ */
+const head = <const Name extends InstallmentName>(name: Name, title: string) => document(name)
+    .title(title)
+    .field('type', (field) => field.string().title('Тип').choices(['Банковская', ownInstallment]))
+    .field('shift', (field) => field.reference(Shift).title('Смена').required())
+    .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо'))
+    .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник'));
+
+type HeadBuilder<Name extends InstallmentName> = ReturnType<typeof head<Name>>;
+type HeadFields = HeadBuilder<InstallmentName>['~fields'];
+
+/** Сумма рассрочки: обязательные деньги. Формулу или ввод задаёт документ. */
+const amountField = (field: FieldFactory) => field.money().required();
+type AmountField = { readonly amount: ReturnType<typeof amountField> };
+
+/**
+ * Конец шапки и взносы: поля после суммы. Взнос хранит общие колонки оплат, дату и смену,
+ * в которую его приняли. Смена необязательна: взнос принимается и без открытой смены.
+ */
+const tail = <Name extends InstallmentName>(base: DocumentBuilder<Name, HeadFields & AmountField, {}>) => base
+    .field('balance', (field) => field.money().title('Остаток').required().computed(formula.subtract(formula.field('amount'), formula.sum('payments', 'amount'))))
+    .field('closedAt', (field) => field.dateTime().title('Закрыта'))
+    .tablePart('payments', (part) => part
+        .title('Взносы')
+        .field('date', (field) => field.dateTime().title('Дата').required())
+        .include(Payments)
+        .field('shift', (field) => field.reference(Shift).title('Смена')));
+
+type TailBuilder = ReturnType<typeof tail<InstallmentName>>;
+
+/** Общая запись рассрочки: поля, которые есть у обоих документов. */
+type InstallmentRecord = RecordOf<TailBuilder>;
+
+const rejected = (message: string) => new DataPolicyError({ message });
+
+const closedRejection = 'Рассрочка закрыта, изменить её нельзя';
+
+const notPosted = 'Рассрочка не проведена: сначала проведите её';
+
+/**
+ * Тип и физическое лицо нужны движениям и отчётам, поэтому без них рассрочка не проводится.
+ * Обычная рассрочка требует их при каждой записи, как до появления рассрочки по продаже.
+ */
+const checkCustomer = (record: InstallmentRecord) => {
+    // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
+    if ((record.type ?? null) === null) return Effect.fail(rejected('Укажите тип рассрочки'));
+    if ((record.person ?? null) === null) return Effect.fail(rejected('Укажите физическое лицо рассрочки'));
+    return Effect.void;
+};
+
+/**
+ * Правила рассрочки (раздел «Правила учёта»).
+ *
+ * Запись с датой закрытия политика не отличает от закрытия действием «Закрыть»: так рассрочку
+ * закрывает само действие. Поэтому условие закрытия и право на него проверяются здесь.
+ * Ответственный обязателен только у собственной рассрочки, в том числе при вложенной записи
+ * взноса или закрытия. `Rights` читается при выполнении: при загрузке документа реестр ещё не готов.
+ * Предел взносов политика не проверяет: его задаёт ограничение регистра «Расчёты с покупателями».
+ */
+const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => ({
+    name: 'installment-rules',
+    save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
+        if (existingRecord !== null && existingRecord.closedAt !== null) return yield* rejected(closedRejection);
+        const closes = (existingRecord?.closedAt ?? null) === null && (proposedRecord.closedAt ?? null) !== null;
+        if (closes) yield* requireRight(Rights.document[name].actions.close);
+        // Рассрочку по продаже действие продажи создаёт без типа и физического лица, поэтому
+        // её черновик записывается без них.
+        if (name === 'installment' || proposedRecord.posted) yield* checkCustomer(proposedRecord);
+        if (proposedRecord.type === ownInstallment && (proposedRecord.responsibleEmployee ?? null) === null) {
+            return yield* rejected('Укажите ответственного сотрудника собственной рассрочки');
+        }
+        if ((proposedRecord.closedAt ?? null) !== null && proposedRecord.balance !== 0) {
+            return yield* rejected(`Рассрочку можно закрыть, только когда остаток равен нулю, а он равен ${rubles(proposedRecord.balance)}`);
+        }
+    }),
+    post: ({ document: record }) => checkCustomer(record),
+    markDeleted: ({ record }) => record.closedAt === null ? Effect.void : Effect.fail(rejected(closedRejection)),
+});
+
+/**
+ * Строит документ-рассрочку из общего описания. `extend` получает начало шапки и объявляет сумму
+ * `amount` и собственные поля и табличные части документа; после них функция добавляет остаток,
+ * дату закрытия, взносы, политику, проведение и действия. `additionalMovements` возвращает движения
+ * документа сверх общих.
+ *
+ * Форму документ задаёт сам вызовом `.form(...)` на результате: её состав зависит от собственных
+ * полей. Группа «Рассрочка» с полем `person` должна быть у обоих документов: после него стоят
+ * общие элементы формы.
+ *
+ * Взносы на форме недоступны для изменения, а дата закрытия скрыта: взнос добавляет действие
+ * «Внести», закрывает рассрочку действие «Закрыть». Оба действия записывают рассрочку вложенным
+ * `save`, а оно проверяется по правам того же пользователя, поэтому пользователю нужны права
+ * и на действие, и на запись рассрочки. Непроведённую рассрочку оба действия отклоняют: её запись
+ * движений не меняет, взнос не попал бы в регистры, а предел взносов не проверился бы.
+ *
+ * Тип результата несёт поля документа и имена действий: по ним строятся права `Rights`
+ * и ссылки `Objects`.
+ */
+export function installmentDocument<const Name extends InstallmentName, Fields extends HeadFields & AmountField, Parts extends TablePartMap>(
+    name: Name,
+    title: string,
+    extend: (base: HeadBuilder<Name>) => DocumentBuilder<Name, Fields, Parts>,
+    additionalMovements: (record: ObjectRecord<'document', Fields, Parts>) => ReadonlyArray<RegisterMovements> = () => [],
+): DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close'> {
+    // Общая часть читает только общие поля, поэтому дальше документ виден как билдер с ними одними.
+    // Приведение нужно, потому что для обобщённых `Fields` компилятор не проверяет имена новых полей.
+    const base = tail(extend(head(name, title)) as unknown as DocumentBuilder<Name, HeadFields & AmountField, {}>);
+    const target: ObjectTarget = { kind: 'document', name };
+
+    /** Читает рассрочку вложенным действием: так чтение проверяется по правам пользователя. */
+    const read = (guid: string) => Effect.gen(function* () {
+        const dispatcher = yield* ActionDispatcher;
+        return (yield* dispatcher.execute({ target, action: 'get', payload: { guid } })) as InstallmentRecord;
+    });
+
+    /**
+     * Записывает рассрочку с изменёнными полями вложенным действием: оно проходит политику и попадает
+     * в журнал. Запись проведённой рассрочки проводит её заново, поэтому движения регистров
+     * обновляются без отдельного проведения.
+     */
+    const write = (record: InstallmentRecord, changes: Partial<InstallmentRecord>) => Effect.gen(function* () {
+        const dispatcher = yield* ActionDispatcher;
+        return yield* dispatcher.execute({ target, action: 'save', payload: { guid: record.guid, fields: { ...record, ...changes } } });
+    });
+
+    const complete = base
+        .policy(installmentRules(name))
+        .posting((record) => Effect.gen(function* () {
+            // Политика не пропускает проведение без физического лица; проверка сужает тип поля.
+            if (record.person === null) return yield* rejected('Укажите физическое лицо рассрочки');
+            const person = record.person;
+            const basis = objectReference(target, record.guid);
+            return [
+                movements(CustomerSettlements, [
+                    { basis, person, shift: record.shift, amount: record.amount },
+                    // Взнос уменьшает долг датой взноса, но сменой рассрочки: рассрочка считается продажей
+                    // выдавшей её смены, оплата которой растянута во времени.
+                    ...record.payments.map((payment) => ({ basis, person, shift: record.shift, period: payment.date, amount: 0 - payment.amount })),
+                ]),
+                // Деньги взноса приняла смена взноса. У взноса без смены это смена рассрочки:
+                // движение без смены регистр не принимает.
+                movements(MoneyReceipts, record.payments.map((payment) => ({ shift: payment.shift ?? record.shift, method: payment.method, period: payment.date, amount: payment.amount }))),
+                // Запись документа содержит и его собственные поля: общий тип их только не называет.
+                ...additionalMovements(record as unknown as ObjectRecord<'document', Fields, Parts>),
+            ];
+        }))
+        .action('pay', (action) => action
+            .title('Внести')
+            .input((input) => input
+                .field('installment', (field) => field.reference(base).title('Рассрочка').required())
+                .field('date', (field) => field.dateTime().title('Дата').required())
+                .field('method', (field) => field.string().title('Способ').choices(paymentMethods).required())
+                .field('amount', (field) => field.money().title('Сумма').minimum(1).required())
+                .field('receiver', receiverField))
+            .handle((input) => Effect.gen(function* () {
+                const record = yield* read(input.installment);
+                if (record.closedAt !== null) return yield* rejected('Рассрочка закрыта, взносов она не принимает');
+                if (!record.posted) return yield* rejected(`${notPosted}, чтобы внести взнос`);
+                // Взнос запоминает смену, в которую его приняли. Без открытой смены взнос принимается
+                // с пустой сменой: работа не должна зависеть от того, успели ли открыть смену.
+                const database = yield* Database;
+                const shift = yield* database.get(query(Shift).select({
+                    columns: ['guid'],
+                    where: [{ column: 'closedAt', operator: '=', value: null }],
+                    limit: 1,
+                }));
+                // Необязательное поле, не переданное в запросе, приходит в действие как `undefined`, а запись принимает `null`.
+                const payment = { date: input.date, method: input.method, amount: input.amount, receiver: input.receiver ?? null, shift: shift?.guid ?? null };
+                return yield* write(record, { payments: [...record.payments, payment] });
+            })))
+        .action('close', (action) => action
+            .title('Закрыть')
+            .input((input) => input.field('installment', (field) => field.reference(base).title('Рассрочка').required()))
+            .handle((input) => Effect.gen(function* () {
+                const record = yield* read(input.installment);
+                if (record.closedAt !== null) return yield* rejected('Рассрочка уже закрыта');
+                if (!record.posted) return yield* rejected(`${notPosted}, чтобы закрыть её`);
+                // Условие закрытия проверяет политика: она же отклонит запись формы с датой закрытия.
+                return yield* write(record, { closedAt: new Date().toISOString() });
+            })));
+    // Точный тип существует только на уровне типов: билдер хранит поля документа в состоянии,
+    // а общая часть добавлена к тем же полям.
+    return complete as unknown as DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close'>;
+}

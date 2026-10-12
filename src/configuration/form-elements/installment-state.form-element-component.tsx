@@ -1,10 +1,21 @@
 import { Button, Flex, Typography } from 'antd';
 import { useState } from 'react';
-import { ActionDialog, FieldDisplay, useFormData, useFormRestrictions } from '../../web/sdk';
+import { ActionDialog, FieldDisplay, useFormData, useFormRestrictions, type ActedObject, type ReadObject } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
+type Installments = typeof Objects.document.installment;
+type SaleInstallments = typeof Objects.document.saleInstallment;
+
+/** Поля, которые есть у обеих рассрочек: только их элемент и читает. */
+type InstallmentRecord = Pick<Installments['~record'], keyof Installments['~record'] & keyof SaleInstallments['~record']>;
+
+/** Ссылка на любую из двух рассрочек с их общими полями и действиями. */
+type InstallmentObject = ReadObject<InstallmentRecord> & ActedObject<Installments['~action']>;
+
 /**
- * Состояние рассрочки на её форме и кнопки «Внести» и «Закрыть».
+ * Состояние рассрочки на её форме и кнопки «Внести» и «Закрыть». Элемент стоит на формах
+ * рассрочки и рассрочки по продаже: состояния, действия и запреты у них общие, а документ
+ * он определяет по форме.
  *
  * Элемент управляет формой. Взносы недоступны для изменения: взнос добавляет действие «Внести».
  * Закрытую рассрочку нельзя изменить, пометить на удаление, пополнить и закрыть повторно:
@@ -14,14 +25,15 @@ import { Objects } from '../objects.generated';
  *
  * Стандартные кнопки обоих действий скрыты, а элемент выводит свои. Действия принимают рассрочку
  * во входных данных, и стандартное окно потребовало бы выбрать её вручную; элемент передаёт `guid`
- * открытой записи сам, а в окне взноса оставляет дату, сумму и получателя. Действие выполняет
- * форма: перед ним она записывает несохранённые изменения, после него показывает рассрочку
+ * открытой записи сам, а в окне взноса оставляет дату, способ, сумму и «Куда оплачено».
+ * Действие выполняет форма: перед ним она записывает несохранённые изменения, после него показывает рассрочку
  * в новом состоянии. Кнопки, на действие которой у пользователя нет права, нет.
  *
  * Условие берётся из записанного состояния: рассрочка становится закрытой после ответа сервера.
  */
 export default function InstallmentState() {
-    const installments = Objects.document.installment;
+    const { object } = useFormData();
+    const installments: InstallmentObject = object.name === Objects.document.saleInstallment.name ? Objects.document.saleInstallment : Objects.document.installment;
     const form = useFormData(installments);
     const [paying, setPaying] = useState(false);
     const [closing, setClosing] = useState(false);
