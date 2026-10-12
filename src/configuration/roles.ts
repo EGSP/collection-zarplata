@@ -1,6 +1,5 @@
 /**
- * Роли конфигурации. Пока прикладных объектов нет, здесь описаны роли для пробных объектов;
- * настоящий набор ролей появится вместе с прикладными объектами.
+ * Роли конфигурации: полный доступ, работа продавца, чтение и проверка пробной политики.
  *
  * Права берутся из объекта `Rights`, который генератор реестра строит из файлов объектов:
  * право несуществующего объекта или действия — ошибка компиляции.
@@ -8,10 +7,24 @@
 import { role } from '../server/authorization/roles.js';
 import { Rights } from './configuration.generated.js';
 
+/** Наборы прав, назначаемые пользователям по имени роли. */
 export const roles = [
     role('administrator')
         .title('Администратор')
         .grantAll(),
+    role('seller')
+        .title('Продавец')
+        .grant(Rights.page.sellerWorkplace.open)
+        .grant(Rights.catalog.physicalPersons.read, Rights.catalog.physicalPersons.write,
+            Rights.catalog.employees.read, Rights.catalog.nomenclature.read, Rights.catalog.discounts.read)
+        // Закрытие смены проводит её вложенным действием: одного права на закрытие недостаточно.
+        .grant(Rights.document.shift.read, Rights.document.shift.write, Rights.document.shift.post, Rights.document.shift.actions.close)
+        .grant(Rights.document.sale.read, Rights.document.sale.write, Rights.document.sale.post,
+            Rights.document.weighing.read, Rights.document.weighing.write, Rights.document.weighing.post, Rights.document.weighing.actions.sell,
+            Rights.document.refund.read, Rights.document.refund.write, Rights.document.refund.post,
+            Rights.document.installment.read, Rights.document.installment.write, Rights.document.installment.post, Rights.document.installment.actions.pay)
+        // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
+        .grant(Rights.register.sales.read, Rights.register.customerSettlements.read),
     role('reader')
         .title('Только чтение')
         // Пробные сведения исключены, чтобы проверять скрытие клиентских блоков без запрещённых запросов.

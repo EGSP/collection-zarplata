@@ -8,12 +8,15 @@
  * с покупателями» свою сумму и взносы; по итогу регистра проверяется предел взносов.
  */
 import { Effect } from 'effect';
+import { requireRight } from '../../server/authorization/current-user-rights.js';
 import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
 import { document, formula, movements, objectReference, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
+import { Employees } from '../catalogs/employees.catalog.js';
+import { Rights } from '../configuration.generated.js';
 import { Goods } from '../goods.js';
 import { rubles } from '../money.js';
 import { CustomerSettlements } from '../registers/customer-settlements.register.js';
@@ -28,6 +31,7 @@ const installment = document('installment')
     .field('type', (field) => field.string().title('Тип').choices(['Банковская', 'Собственная']).required())
     .field('shift', (field) => field.reference(Shift).title('Смена').required())
     .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').required())
+    .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник'))
     .field('amount', (field) => field.money().title('Сумма').required().computed(formula.sum('goods', 'total')))
     .field('balance', (field) => field.money().title('Остаток').required().computed(formula.subtract(formula.field('amount'), formula.sum('payments', 'amount'))))
     .field('closedAt', (field) => field.dateTime().title('Закрыта'))
@@ -54,19 +58,25 @@ const notPosted = 'Рассрочка не проведена: сначала п
  * Правила рассрочки (раздел «Правила учёта»).
  *
  * Запись с датой закрытия политика не отличает от закрытия действием «Закрыть»: так рассрочку
- * закрывает само действие. Поэтому условие закрытия проверяется здесь. Предел взносов политика
- * не проверяет: его задаёт ограничение регистра «Расчёты с покупателями».
+ * закрывает само действие. Поэтому условие закрытия и право на него проверяются здесь.
+ * Ответственный обязателен только у собственной рассрочки, в том числе при вложенной записи
+ * взноса или закрытия. `Rights` читается при выполнении: при загрузке документа реестр ещё не готов.
+ * Предел взносов политика не проверяет: его задаёт ограничение регистра «Расчёты с покупателями».
  */
 const installmentRules: Policy<InstallmentRecord> = {
     name: 'installment-rules',
-    save: ({ existingRecord, proposedRecord }) => {
-        if (existingRecord !== null && existingRecord.closedAt !== null) return Effect.fail(rejected(closedRejection));
+    save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
+        if (existingRecord !== null && existingRecord.closedAt !== null) return yield* rejected(closedRejection);
+        const closes = (existingRecord?.closedAt ?? null) === null && (proposedRecord.closedAt ?? null) !== null;
+        if (closes) yield* requireRight(Rights.document.installment.actions.close);
+        if (proposedRecord.type === 'Собственная' && (proposedRecord.responsibleEmployee ?? null) === null) {
+            return yield* rejected('Укажите ответственного сотрудника собственной рассрочки');
+        }
         // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
         if ((proposedRecord.closedAt ?? null) !== null && proposedRecord.balance !== 0) {
-            return Effect.fail(rejected(`Рассрочку можно закрыть, только когда остаток равен нулю, а он равен ${rubles(proposedRecord.balance)}`));
+            return yield* rejected(`Рассрочку можно закрыть, только когда остаток равен нулю, а он равен ${rubles(proposedRecord.balance)}`);
         }
-        return Effect.void;
-    },
+    }),
     markDeleted: ({ record }) => record.closedAt === null ? Effect.void : Effect.fail(rejected(closedRejection)),
 };
 
@@ -104,7 +114,7 @@ export const Installment = installment
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе товары оказались бы над ней.
     .form((form) => form
-        .group('Рассрочка', ['number', 'date', 'type', 'shift', 'person'])
+        .group('Рассрочка', ['number', 'date', 'type', 'shift', 'person', 'responsibleEmployee'])
         .group('Товары', ['goods', 'amount'])
         .group('Взносы', ['payments', 'balance'])
         .hide('closedAt')
