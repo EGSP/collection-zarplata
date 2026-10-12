@@ -15,6 +15,7 @@ import { Database } from '../../server/database/database.effect.js';
 import { document, formula, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
+import { cash } from '../payments.js';
 import { Sale } from './sale.document.js';
 import { Shift } from './shift.document.js';
 
@@ -118,18 +119,24 @@ export const Weighing = weighing
             if (numbers.length === 0) return yield* rejected('Не выбран ни один товар');
             if (new Set(numbers).size !== numbers.length) return yield* rejected('Строка отвеса выбрана больше одного раза');
             const selected = [];
+            let amount = 0;
             for (const number of numbers) {
                 const line = record.goods[number - 1];
                 if (line === undefined) return yield* rejected(`В отвесе нет строки ${number}`);
                 if (line.state !== held) return yield* rejected(`Строка ${number} уже не в отвесе: её состояние «${line.state}»`);
                 // Новый документ ещё не внесён в 1С, поэтому отметка исходной строки не переносится.
                 selected.push({ name: line.name, code: line.code, comment: line.comment, postedIn1C: false, cost: line.cost, discount: line.discount });
+                amount += line.total;
             }
             // Продажа относится к смене отвеса, а не к смене, в которую товар выкупили: результат
             // засчитывается тем, кто отвесил. Продажа создаётся непроведённой, и смену в ней можно изменить.
+            // Оплата заполняется так же, как на форме новой продажи: наличными на всю сумму. Итоги
+            // скопированных строк равны итогам строк отвеса, поэтому сумма оплаты равна сумме продажи.
+            // У продажи с нулевой суммой оплаты нет: сумма оплаты больше нуля.
+            const payments = amount > 0 ? [{ method: cash, amount, receiver: null }] : [];
             const sale = (yield* dispatcher.execute({
                 target: { kind: 'document', name: 'sale' }, action: 'save',
-                payload: { fields: { date: new Date().toISOString(), shift: record.shift, basis: record.guid, goods: selected } },
+                payload: { fields: { date: new Date().toISOString(), shift: record.shift, basis: record.guid, goods: selected, paymentMode: cash, payments } },
             })) as { readonly guid: string };
             // Продажа записана раньше отвеса: политика отвеса проверяет, что продажа из строки оформлена из него.
             yield* dispatcher.execute({
