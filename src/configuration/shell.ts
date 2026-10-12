@@ -9,6 +9,7 @@ import { shell } from '../server/ui/shell.js';
 import { Discounts } from './catalogs/discounts.catalog.js';
 import { Employees } from './catalogs/employees.catalog.js';
 import { Nomenclature } from './catalogs/nomenclature.catalog.js';
+import { PaymentReceivers } from './catalogs/payment-receivers.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { SampleDelegate } from './catalogs/sample-delegate.catalog.js';
 import { Sample } from './catalogs/sample.catalog.js';
@@ -26,6 +27,7 @@ import { SampleInformation } from './information-registers/sample.information-re
 import { SampleWorkplace } from './pages/sample-workplace.page.js';
 import { SellerWorkplace } from './pages/seller-workplace.page.js';
 import { CustomerSettlements } from './registers/customer-settlements.register.js';
+import { MoneyReceipts } from './registers/money-receipts.register.js';
 import { Sales } from './registers/sales.register.js';
 import { SampleRegister } from './registers/sample.register.js';
 
@@ -34,8 +36,8 @@ export const applicationShell = shell()
         .title('Продажи')
         .group('Рабочие места', [SellerWorkplace])
         .group('Документы', [Sale, Weighing, Refund, Installment])
-        .group('Регистры', [Sales, CustomerSettlements])
-        .group('Справочники', [Discounts]))
+        .group('Регистры', [Sales, CustomerSettlements, MoneyReceipts])
+        .group('Справочники', [Discounts, PaymentReceivers]))
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')
         .group('Справочники', [PhysicalPersons, Employees, Nomenclature, Sample, SampleDelegate])

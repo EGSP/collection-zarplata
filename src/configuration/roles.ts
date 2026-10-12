@@ -16,7 +16,9 @@ export const roles = [
         .title('Продавец')
         .grant(Rights.page.sellerWorkplace.open)
         .grant(Rights.catalog.physicalPersons.read, Rights.catalog.physicalPersons.write,
-            Rights.catalog.employees.read, Rights.catalog.nomenclature.read, Rights.catalog.discounts.read)
+            Rights.catalog.employees.read, Rights.catalog.nomenclature.read, Rights.catalog.discounts.read,
+            // Без чтения приёмников продавец не выберет приёмника в оплате.
+            Rights.catalog.paymentReceivers.read)
         // Закрытие смены проводит её вложенным действием: одного права на закрытие недостаточно.
         .grant(Rights.document.shift.read, Rights.document.shift.write, Rights.document.shift.post, Rights.document.shift.actions.close)
         .grant(Rights.document.sale.read, Rights.document.sale.write, Rights.document.sale.post,
@@ -24,15 +26,15 @@ export const roles = [
             Rights.document.refund.read, Rights.document.refund.write, Rights.document.refund.post,
             Rights.document.installment.read, Rights.document.installment.write, Rights.document.installment.post, Rights.document.installment.actions.pay)
         // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
-        .grant(Rights.register.sales.read, Rights.register.customerSettlements.read),
+        .grant(Rights.register.sales.read, Rights.register.customerSettlements.read, Rights.register.moneyReceipts.read),
     role('reader')
         .title('Только чтение')
         // Пробные сведения исключены, чтобы проверять скрытие клиентских блоков без запрещённых запросов.
         .grant(Rights.catalog.physicalPersons.read, Rights.catalog.employees.read, Rights.catalog.nomenclature.read, Rights.informationRegister.externalLinks.read, Rights.catalog.sample.read, Rights.catalog.sampleDelegate.read, Rights.document.shift.read, Rights.document.sample.read, Rights.document.periodClosing.read, Rights.register.sample.read)
         // Продажи: чтение документов и справочника и рабочее место, на котором без права записи нет кнопок создания.
-        .grant(Rights.catalog.discounts.read, Rights.document.sale.read, Rights.document.installment.read, Rights.document.weighing.read, Rights.document.refund.read, Rights.page.sellerWorkplace.open)
-        // Регистры продаж: по ним читаются итоги по продажам, рассрочкам и сменам.
-        .grant(Rights.register.sales.read, Rights.register.customerSettlements.read),
+        .grant(Rights.catalog.discounts.read, Rights.catalog.paymentReceivers.read, Rights.document.sale.read, Rights.document.installment.read, Rights.document.weighing.read, Rights.document.refund.read, Rights.page.sellerWorkplace.open)
+        // Регистры продаж: по ним читаются итоги по продажам, рассрочкам, сменам и способам оплаты.
+        .grant(Rights.register.sales.read, Rights.register.customerSettlements.read, Rights.register.moneyReceipts.read),
     role('sampleEditor')
         .title('Запись пробного документа')
         // Права на действие «Принять строки» нет: на этой роли проверяется политика, которая его требует.
