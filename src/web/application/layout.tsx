@@ -9,7 +9,7 @@ import { useWindowTabs } from '../tabs/window-tabs';
 import { SubsystemList } from './subsystems';
 
 /**
- * Раскладка приложения: слева список подсистем, документация и выход, справа полоса вкладок и страница
+ * Раскладка приложения: слева список подсистем, документация, граф модулей и выход, справа полоса вкладок и страница
  * активной вкладки.
  *
  * Страницы строятся по описаниям объектов, поэтому раскладка показывает их только после
@@ -28,6 +28,7 @@ export function ApplicationLayout() {
                         <SubsystemList />
                     </div>
                     <DocumentationButton />
+                    <ModulesGraphButton />
                     <LogoutButton />
                 </Flex>
             </Layout.Sider>
@@ -77,6 +78,26 @@ function DocumentationButton() {
             style={{ marginInline: token.marginXS, marginBlockStart: token.marginXS, justifyContent: 'flex-start' }}
         >
             Документация
+        </Button>
+    );
+}
+
+/**
+ * Граф модулей сервера открывается в новой вкладке браузера по той же причине, что и документация:
+ * у страницы свой каркас с холстом во всё окно.
+ */
+function ModulesGraphButton() {
+    const { token } = theme.useToken();
+    return (
+        <Button
+            type="text"
+            icon={<Icons.modulesGraph />}
+            href="/modules-graph"
+            target="_blank"
+            rel="noopener"
+            style={{ marginInline: token.marginXS, marginBlockStart: token.marginXS, justifyContent: 'flex-start' }}
+        >
+            Граф модулей
         </Button>
     );
 }

@@ -24,6 +24,7 @@
   "private": true,
   "dependencies": {
     "@ant-design/icons": "6.3.4",
+    "@dagrejs/dagre": "3.1.1",
     "@fastify/cookie": "11.1.2",
     "@fastify/static": "10.1.5",
     "@nestjs/common": "12.1.1",
@@ -35,6 +36,7 @@
     "@tanstack/react-query": "5.104.0",
     "@tanstack/react-store": "0.11.2",
     "@tursodatabase/database": "0.8.0",
+    "@xyflow/react": "12.12.0",
     "antd": "6.6.5",
     "axios": "1.20.0",
     "dayjs": "1.11.23",
