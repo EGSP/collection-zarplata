@@ -35,12 +35,13 @@ export type {
     ObjectKind,
     ObjectTarget,
     ObjectView,
+    PageView,
     RecordOpeningMode,
     SortDirection,
     ValidationRules,
 } from '../../server/ui/descriptions';
 export { RecordTablePart, type RecordTablePartProperties } from './record-table-part';
-export { useObjectView } from '../data-provider/metadata';
+export { useObjectView, usePageView } from '../data-provider/metadata';
 export type { PerformTarget } from '../data-provider/perform';
 
 // Ссылки на объекты конфигурации: по ним компилятор проверяет имена полей и действий.
@@ -76,8 +77,12 @@ export { hasOpenDialog, hasOpenPicker } from './keyboard';
 export { newRecordValues, newRowValues, recordValues, saveFields, type FormValues } from './record-values';
 export { TablePart, type TablePartProperties } from './table-part';
 
-// Иконки по смыслу: добавление, открытие, удаление и прочие.
+// Иконки по смыслу: добавление, открытие, удаление и прочие; крупные пиктограммы разделов.
 export { Icons, type IconName } from './icons';
+export { Pictograms, type PictogramName } from './pictograms';
+
+// Плитка перехода к странице.
+export { Tile, type TileProperties } from './tile';
 
 // Действия.
 export { ActionButton, actionApplies, actionSuccessMessage, type ActionButtonProperties } from './action-button';

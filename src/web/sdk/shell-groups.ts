@@ -5,10 +5,14 @@
 import type { ComponentType } from 'react';
 import type { PerformTarget } from '../data-provider/perform';
 
-/** Именованный контейнер с направлением раскладки. */
+/**
+ * Именованный контейнер с раскладкой содержимого: столбцом (`vertical`), строкой (`horizontal`)
+ * или по сетке Ant Design (`grid`). В сетке ширину ячейки задаёт сетка по ширине окна,
+ * поэтому компонентам вроде плитки `Tile` не нужна собственная ширина.
+ */
 export interface ShellGroup {
     readonly name: string;
-    readonly orientation: 'vertical' | 'horizontal';
+    readonly orientation: 'vertical' | 'horizontal' | 'grid';
 }
 
 /** Компонент группы. Требуемые объекты проверяются до монтирования и чтения данных. */

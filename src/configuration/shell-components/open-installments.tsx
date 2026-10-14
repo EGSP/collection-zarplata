@@ -42,7 +42,7 @@ function AvailableInstallments({ object, title, empty }: InstallmentDebtsPropert
     return <DebtList title={title} object={object} rows={list.records} total={list.total} loading={list.loading} error={list.error} empty={empty} />;
 }
 
-/** Блок «Рассрочки» на главном экране и на рабочем месте продавца. */
+/** Блок «Рассрочки» на рабочем месте продавца. */
 export default function OpenInstallments() {
     return <InstallmentDebts object={Objects.document.installment} title="Рассрочки" empty="Незакрытых рассрочек нет" />;
 }
