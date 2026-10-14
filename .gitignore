@@ -10,6 +10,8 @@ collection-zarplata.settings.json
 # Только каталог данных в корне: серверный модуль src/server/data должен отслеживаться Git.
 /data/
 .worktrees/
+# Временные инструкции агента на время задачи, см. AGENTS.md
+/TEMPORARY.md
 # Реестры конфигурации создаёт npm run metadata:generate
 src/configuration/*.generated.ts
 # Собранный инструмент импорта из 1С
