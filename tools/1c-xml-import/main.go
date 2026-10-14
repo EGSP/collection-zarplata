@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/term"
 )
@@ -20,7 +21,13 @@ type arguments struct {
 	mapping   string
 	server    string
 	batchSize int
+	// localSource заменяет --xml: выгрузки ищутся в каталоге local-source рядом с исполняемым файлом.
+	localSource bool
 }
+
+// localSourceDirectory — каталог выгрузок рядом с утилитой. Git его не отслеживает: выгрузки
+// содержат персональные данные.
+const localSourceDirectory = "local-source"
 
 func parseArguments() arguments {
 	var result arguments
@@ -28,13 +35,16 @@ func parseArguments() arguments {
 	flag.StringVar(&result.mapping, "mapping", "", "путь к файлу сопоставления полей")
 	flag.StringVar(&result.server, "server", "", "адрес сервера приложения")
 	flag.IntVar(&result.batchSize, "batch-size", 100, "размер порции от 1 до 500")
+	flag.BoolVar(&result.localSource, "local-source", false, "искать выгрузки в каталоге local-source рядом с утилитой вместо --xml")
 	flag.Usage = func() {
 		fmt.Fprintln(flag.CommandLine.Output(), "Импорт справочника из XML 1С")
-		fmt.Fprintln(flag.CommandLine.Output(), "Запуск: collection-xml-import --xml <файл> --mapping <файл> --server <адрес> [--batch-size <число>]")
+		fmt.Fprintln(flag.CommandLine.Output(), "Запуск: collection-xml-import (--xml <файл> | --local-source) --mapping <файл> --server <адрес> [--batch-size <число>]")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-	if result.xml == "" || result.mapping == "" || result.server == "" || flag.NArg() > 0 {
+	// Источник задаётся ровно одним способом: при обоих неясно, какие выгрузки читать.
+	singleSource := (result.xml != "") != result.localSource
+	if !singleSource || result.mapping == "" || result.server == "" || flag.NArg() > 0 {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -64,6 +74,11 @@ func run(arguments arguments) error {
 	if err != nil {
 		return err
 	}
+	// Выгрузки выбираются до входа на сервер: без данных PIN запрашивать незачем.
+	sources, err := sourceFiles(arguments, mapping.SourceObject)
+	if err != nil {
+		return err
+	}
 	server, err := connect(arguments.server)
 	if err != nil {
 		return err
@@ -75,11 +90,6 @@ func run(arguments arguments) error {
 	if err := server.login(pin); err != nil {
 		return err
 	}
-	file, err := os.Open(arguments.xml)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
 
 	fieldNames := mapping.fieldNames()
 	items := make([]item, 0, arguments.batchSize)
@@ -91,7 +101,7 @@ func run(arguments arguments) error {
 		items = items[:0]
 		return err
 	}
-	matched, err := readObjects(file, mapping.SourceObject, func(number int, object *element) error {
+	collect := func(number int, object *element) error {
 		// Группы справочника 1С не являются записями и в приложение не переносятся.
 		if folder, _ := object.textAt("IsFolder"); folder == "true" {
 			return nil
@@ -113,9 +123,15 @@ func run(arguments arguments) error {
 			return send()
 		}
 		return nil
-	})
-	if err != nil {
-		return err
+	}
+	// Объекты одного вида могут оказаться в нескольких выгрузках; порции продолжаются через границу файлов.
+	matched := 0
+	for _, source := range sources {
+		count, err := readFile(source, mapping.SourceObject, collect)
+		if err != nil {
+			return fmt.Errorf("%s: %w", filepath.Base(source), err)
+		}
+		matched += count
 	}
 	if len(items) > 0 {
 		if err := send(); err != nil {
@@ -127,6 +143,52 @@ func run(arguments arguments) error {
 	}
 	fmt.Printf("Создано: %d, обновлено: %d\n", created, updated)
 	return nil
+}
+
+// sourceFiles возвращает выгрузки для чтения. Файл из --xml читается как есть. С --local-source
+// утилита сама отбирает в каталоге выгрузок файлы, где встречается вид объекта сопоставления:
+// какая выгрузка какие объекты содержит, извне не сообщается.
+func sourceFiles(arguments arguments, sourceObject string) ([]string, error) {
+	if !arguments.localSource {
+		return []string{arguments.xml}, nil
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("Не удалось определить каталог утилиты: %w", err)
+	}
+	directory := filepath.Join(filepath.Dir(executable), localSourceDirectory)
+	// Glob сортирует имена, поэтому выгрузки читаются в одном порядке при каждом запуске.
+	candidates, err := filepath.Glob(filepath.Join(directory, "*.xml"))
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("В каталоге %s нет XML-выгрузок", directory)
+	}
+	var found []string
+	for _, candidate := range candidates {
+		contains, err := containsObject(candidate, sourceObject)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", filepath.Base(candidate), err)
+		}
+		if contains {
+			found = append(found, candidate)
+		}
+	}
+	if len(found) == 0 {
+		return nil, fmt.Errorf("В выгрузках каталога %s нет объектов %s", directory, sourceObject)
+	}
+	return found, nil
+}
+
+// readFile открывает выгрузку и передаёт обработчику её объекты sourceObject.
+func readFile(path string, sourceObject string, handle func(number int, object *element) error) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	return readObjects(file, sourceObject, handle)
 }
 
 func main() {

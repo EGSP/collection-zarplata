@@ -14,6 +14,7 @@
 - [Права (RBAC)](docs/authorization.md)
 - [Политики записи](docs/write-policies.md)
 - [Журнал действий](docs/journal.md)
+- [Первичные данные](docs/initial-data.md)
 - [Интерфейс (SDUI)](docs/interface.md)
 - [Сборка и запуск](docs/build-and-launch.md)
 - [Инструменты разработки](docs/development-tools.md)
