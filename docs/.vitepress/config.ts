@@ -3,7 +3,8 @@
  * откуда их отдаёт сервер приложения по адресу `/docs`.
  *
  * Меню архитектуры не ведётся вручную: порядок разделов берётся из оглавления в корневом
- * ARCHITECTURE.md, а подразделы — из заголовков самих файлов. Поэтому новый раздел достаточно
+ * ARCHITECTURE.md, а подразделы — из заголовков самих файлов. Строка оглавления с отступом
+ * объявляет дочернюю страницу предыдущего раздела, например `docs/web-sdk/hooks.md`. Поэтому новый раздел достаточно
  * добавить файлом и строкой оглавления, и меню не расходится с тем, что читатель видит на GitHub.
  * Перед архитектурой в меню стоит раздел «Правила учёта».
  */
@@ -49,19 +50,27 @@ function subsectionItems(name: string): Array<DefaultTheme.SidebarItem> {
     }));
 }
 
-/** Разделы архитектуры в порядке оглавления ARCHITECTURE.md; подразделы свёрнуты под своим разделом. */
+/** Пункт меню страницы: её подразделы, затем дочерние страницы, свёрнутые под ней. */
+function pageItem(title: string, name: string, children: ReadonlyArray<DefaultTheme.SidebarItem>): DefaultTheme.SidebarItem {
+    const items = [...subsectionItems(name), ...children];
+    return { text: title, link: `/${name}`, ...(items.length === 0 ? {} : { collapsed: true, items }) };
+}
+
+/**
+ * Разделы архитектуры в порядке оглавления ARCHITECTURE.md. Строка без отступа задаёт раздел,
+ * строка с отступом — дочернюю страницу ближайшего раздела выше.
+ */
 function architectureSections(): Array<DefaultTheme.SidebarItem> {
     const contents = readFileSync(path.resolve(documentationRoot, '../ARCHITECTURE.md'), 'utf8');
-    return [...contents.matchAll(/^- \[(.+)\]\(docs\/(.+)\.md\)$/gm)].map((entry) => {
-        const title = entry[1] ?? '';
-        const name = entry[2] ?? '';
-        const subsections = subsectionItems(name);
-        return {
-            text: title,
-            link: `/${name}`,
-            ...(subsections.length === 0 ? {} : { collapsed: true, items: subsections }),
-        };
-    });
+    const sections: Array<{ title: string; name: string; children: Array<DefaultTheme.SidebarItem> }> = [];
+    for (const entry of contents.matchAll(/^( *)- \[(.+)\]\(docs\/(.+)\.md\)$/gm)) {
+        const title = entry[2] ?? '';
+        const name = entry[3] ?? '';
+        const parent = sections.at(-1);
+        if ((entry[1] ?? '').length > 0 && parent !== undefined) parent.children.push(pageItem(title, name, []));
+        else sections.push({ title, name, children: [] });
+    }
+    return sections.map((section) => pageItem(section.title, section.name, section.children));
 }
 
 /**
