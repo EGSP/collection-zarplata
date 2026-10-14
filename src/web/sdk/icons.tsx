@@ -19,6 +19,7 @@ import {
     AppstoreOutlined,
     BarChartOutlined,
     BookOutlined,
+    CalendarOutlined,
     CheckCircleOutlined,
     CloseOutlined,
     DeleteOutlined,
@@ -27,14 +28,19 @@ import {
     FilterOutlined,
     GlobalOutlined,
     HomeOutlined,
+    InboxOutlined,
+    LockOutlined,
     LogoutOutlined,
     MoreOutlined,
     PlusOutlined,
     ProfileOutlined,
     ReadOutlined,
+    RollbackOutlined,
     SaveOutlined,
     SettingOutlined,
+    ShoppingCartOutlined,
     ThunderboltOutlined,
+    UnlockOutlined,
 } from '@ant-design/icons';
 
 /** Иконки приложения по смыслу. Правила пользования описаны во вводном комментарии модуля. */
@@ -67,6 +73,20 @@ export const Icons = {
     save: SaveOutlined,
     /** Проведение документа. */
     post: CheckCircleOutlined,
+
+    // Действия продавца: у каждого свой значок, чтобы кнопки рабочего места различались с первого взгляда.
+    /** Оформление продажи. */
+    sell: ShoppingCartOutlined,
+    /** Оформление отвеса: товар откладывается для покупателя. */
+    weigh: InboxOutlined,
+    /** Оформление возврата. */
+    refund: RollbackOutlined,
+    /** Оформление рассрочки: оплата взносами по графику. */
+    installment: CalendarOutlined,
+    /** Открытие смены. */
+    openShift: UnlockOutlined,
+    /** Закрытие смены. */
+    closeShift: LockOutlined,
 
     /** Состояние записи: помечена на удаление. */
     markedDeleted: DeleteOutlined,

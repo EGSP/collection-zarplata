@@ -1,24 +1,13 @@
 import { Alert, Button, Card, Flex, Typography } from 'antd';
-import { useEffect, useState } from 'react';
-import { ActionButton, FieldDisplay, RecordLink, useListControls, useObjectView, useOpenRecord, useRecord, useRecordList } from '../../web/sdk';
+import { ActionButton, FieldDisplay, RecordLink, useListControls, useObjectView, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
-
-/** Число сотрудников с согласованным словом: «1 сотрудник», «2 сотрудника», «5 сотрудников». */
-function employeeCount(count: number): string {
-    const lastTwo = count % 100;
-    const last = count % 10;
-    if (lastTwo >= 11 && lastTwo <= 14) return `${count} сотрудников`;
-    if (last === 1) return `${count} сотрудник`;
-    if (last >= 2 && last <= 4) return `${count} сотрудника`;
-    return `${count} сотрудников`;
-}
+import { employeeCount, useCurrentShift } from './current-shift-state';
 
 /**
  * Блок «Текущая смена» над списком смен: показывает открытую смену и даёт
  * открыть новую или закрыть текущую.
  *
- * Открытой считается смена без даты закрытия. Блок находит её чтением списка смен с постоянным
- * отбором, а не отдельным действием сервера: политика смены допускает не больше одной такой записи.
+ * Открытую смену блок читает хуком `useCurrentShift`, как и рабочее место продавца.
  * Правила блок не проверяет. Доступность кнопок следует только из того, есть ли открытая смена,
  * а отказ политики, например при пересечении дат, показывает обычное уведомление с текстом сервера.
  *
@@ -28,30 +17,16 @@ function employeeCount(count: number): string {
  * Над списком смен блок убирает кнопку «Создать» и пометку удаления из меню строки: смену открывают
  * кнопкой блока, а пометку удаления политика смены отклоняет. Вне стандартного списка это
  * управление ничего не делает, поэтому блок можно поставить и в другое место.
- *
- * Блок перечитывать данные сам не должен: запись смены в окне и действие закрытия помечают
- * сохранённые ответы сервера устаревшими, и чтения блока повторяются на всех вкладках, где он стоит.
  */
 export default function CurrentShift() {
     const shifts = Objects.document.shift;
     const view = useObjectView(shifts);
     const openRecord = useOpenRecord();
-    const list = useRecordList(shifts, { permanentFilter: [{ field: 'closedAt', operator: 'equals', value: null }], pageSize: 1 });
+    const { known, error, shift: current } = useCurrentShift();
     useListControls({ hideCreate: true, hiddenRowActions: ['markDeleted', 'unmarkDeleted'] });
 
-    const current = list.records[0] ?? null;
-    // Состав лежит в табличной части, а строка списка её не содержит.
-    const { record } = useRecord(shifts, current?.guid ?? null);
-
-    // До первого ответа сервера список пуст так же, как при отсутствии открытой смены.
-    // Без этого признака блок на время загрузки сообщал бы, что смена не открыта, и разрешал её открыть.
-    const [known, setKnown] = useState(false);
-    useEffect(() => {
-        if (!list.loading && list.error === null) setKnown(true);
-    }, [list.loading, list.error]);
-
-    if (list.error !== null && !known) {
-        return <Alert type="error" showIcon title="Не удалось прочитать текущую смену" description={list.error.message} />;
+    if (error !== null && !known) {
+        return <Alert type="error" showIcon title="Не удалось прочитать текущую смену" description={error.message} />;
     }
 
     const creatable = view?.form?.actions.some((action) => action.name === 'save') === true;
@@ -70,7 +45,7 @@ export default function CurrentShift() {
                         <Typography.Text>
                             Открыта <FieldDisplay field={{ kind: 'dateTime', target: null }} value={current.date} />
                         </Typography.Text>
-                        {record !== undefined && <Typography.Text>{employeeCount(record.employees.length)}</Typography.Text>}
+                        {current.employees !== undefined && <Typography.Text>{employeeCount(current.employees)}</Typography.Text>}
                     </Flex>
                 )}
                 <Flex gap="small">
