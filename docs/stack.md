@@ -16,6 +16,7 @@ covers:
 | Бизнес-логика и валидация | Effect 4, сейчас `4.0.0-rc.118`; серверная проверка данных использует Effect Schema |
 | Интерфейс | React 19 и Ant Design 6; Refine (`@refinedev/core` 5) связывает ресурсы и операции с данными, `@refinedev/react-router` 2 подключает React Router 7 |
 | Данные и состояние клиента | TanStack Query управляет запросами и кешем, TanStack Store хранит состояние, axios отправляет HTTP-запросы; TanStack Hotkeys обрабатывает сочетания клавиш |
+| Граф модулей | React Flow (`@xyflow/react` 12) рисует интерактивный холст, dagre (`@dagrejs/dagre` 3) рассчитывает послойное размещение узлов; используются только на странице [графа модулей](development-tools.md#граф-модулей-сервера) |
 | Сборка клиента | Vite 8 |
 | Документация | Markdown в каталоге `docs`, VitePress 1 собирает сайт, Mermaid 11 отображает схемы |
 | Проверка кода | `effect-tsgo` из `@effect/tsgo` проверяет типы и диагностики Effect Language Service; установка подготавливает команду `tsc` для этой проверки |

@@ -15,6 +15,7 @@
  * можно было заменить, не затронув другой.
  */
 import {
+    ApartmentOutlined,
     AppstoreOutlined,
     BarChartOutlined,
     BookOutlined,
@@ -24,6 +25,7 @@ import {
     ExportOutlined,
     FileTextOutlined,
     FilterOutlined,
+    GlobalOutlined,
     HomeOutlined,
     LogoutOutlined,
     MoreOutlined,
@@ -31,6 +33,8 @@ import {
     ProfileOutlined,
     ReadOutlined,
     SaveOutlined,
+    SettingOutlined,
+    ThunderboltOutlined,
 } from '@ant-design/icons';
 
 /** Иконки приложения по смыслу. Правила пользования описаны во вводном комментарии модуля. */
@@ -51,6 +55,12 @@ export const Icons = {
     home: HomeOutlined,
     /** Документация приложения. */
     documentation: ReadOutlined,
+    /** Граф модулей сервера. */
+    modulesGraph: ApartmentOutlined,
+    /** Вид модуля Nest на графе модулей: глобальный, динамический, служебный модуль ядра. */
+    globalModule: GlobalOutlined,
+    dynamicModule: ThunderboltOutlined,
+    coreModule: SettingOutlined,
     /** Выход из приложения. */
     signOut: LogoutOutlined,
     /** Запись изменений формы. */
