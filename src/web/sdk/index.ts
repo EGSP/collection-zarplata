@@ -56,7 +56,7 @@ export { useRecord, type RecordQuery } from './record';
 export { defaultPageSize, useRecordList, type RecordList, type RecordListOptions } from './record-list';
 
 // Представления записей и ссылки на них.
-export { recordPresentation, recordTitle, useRecordPresentation, useReferencePresentation, type ReferencePresentation } from '../references/presentation';
+export { listRecordPresentation, recordPresentation, recordTitle, useRecordPresentation, useReferencePresentation, type ReferencePresentation } from '../references/presentation';
 export { RecordLink, type RecordLinkProperties } from '../references/reference-display';
 
 // Область окна страницы, открытие формы записи, адреса страниц объектов и собственных страниц конфигурации.
@@ -87,11 +87,15 @@ export {
     RecordFormMarks,
     RecordFormPage,
     StandardRecordForm,
+    recordFormElements,
     useRecordForm,
+    type RecordFormActionsProperties,
     type RecordFormBodyProperties,
     type RecordFormLayoutProperties,
+    type RecordFormPageProperties,
     type RecordFormPartProperties,
     type RecordFormState,
+    type RecordFormTitles,
 } from './record-form';
 
 // Иконки по смыслу: добавление, открытие, удаление и прочие; крупные пиктограммы разделов.

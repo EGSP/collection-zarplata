@@ -13,6 +13,8 @@ covers:
 | `objectPath`, `recordPath`, `newRecordPath`, `pagePath` | Адреса списка, формы записи и страницы конфигурации |
 | `ShellGroups`, `shellGroup`, `defineShellGroups` | Места платформы, собственные группы и состав групп |
 | `recordGuid`, `recordTitle`, `recordPresentation` | Идентификатор, заголовок и собственное представление записи |
+| `listRecordPresentation` | Представление записи из страницы списка с учётом представлений ссылок; для упорядочивания по представлению на клиенте |
+| `recordFormElements` | Элементы группы [стандартной формы](components.md#стандартная-форма-и-её-части) для `FieldGroup` без служебных полей новой записи |
 | `newRecordValues`, `recordValues`, `saveFields`, `newRowValues` | Начальные значения формы и строки, значения записи, данные для `save` |
 | `fieldRules`, `formFieldPaths`, `isMarkedRequired`, `validationMessage`, `serverRejectionMessage`, `tablePartValidationMessages` | Проверка полей и строк, сопоставление ошибок сервера с полями |
 | `hasInput`, `hasOpenPicker`, `hasOpenDialog` | Есть ли ввод в поле, открыт ли выбор или модальное окно |
@@ -35,5 +37,6 @@ covers:
 | `TablePartInputProperties` | Контракт замены табличной части |
 | `ListFormProperties`, `RecordFormProperties`, `NewFormProperties`, `FormPresentation` | Свойства форм объекта и место показа `page` или `dialog` ([«Формы объекта»](../metadata.md#формы-объекта)) |
 | `RecordFormHandlers`, `RecordFormController`, `RecordFormOutcome`, `RecordFormRunOptions` | Обработчики, управление и итог действия [контракта формы записи](hooks.md#контракт-формы-записи) |
-| `RecordFormState`, `RecordFormPartProperties`, `RecordFormBodyProperties`, `RecordFormLayoutProperties` | Состояние `useRecordForm` и свойства [частей формы](components.md#стандартная-форма-и-её-части) |
+| `RecordFormState`, `RecordFormPartProperties`, `RecordFormBodyProperties`, `RecordFormLayoutProperties`, `RecordFormPageProperties`, `RecordFormActionsProperties` | Состояние `useRecordForm` и свойства [частей формы](components.md#стандартная-форма-и-её-части) |
+| `RecordFormTitles` | [Подписи кнопок формы](components.md#подписи-кнопок): действия по именам, «Провести и закрыть», «Закрыть» |
 | `<Компонент>Properties` | Свойства компонента SDK, например `TileProperties` |

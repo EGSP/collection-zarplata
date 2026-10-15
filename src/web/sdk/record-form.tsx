@@ -295,22 +295,80 @@ export interface RecordFormLayoutProperties extends RecordFormPartProperties {
     readonly groups?: ReadonlyArray<FormGroup>;
 }
 
-/** Группы полей формы записи по описанию формы. Ставится внутрь `RecordFormBody`. */
+/**
+ * Группы полей формы записи по описанию формы. Ставится внутрь `RecordFormBody`.
+ *
+ * На форме новой записи служебные поля вроде номера документа и флажка «Проведён» не выводятся:
+ * их заполняет платформа при записи, и до неё поле показывало бы пустое значение, которое нельзя
+ * изменить. Группа, в которой после этого не осталось элементов, тоже не выводится.
+ */
 export function RecordFormLayout({ state, groups = state.view.groups }: RecordFormLayoutProperties) {
+    const shown = groups
+        .map((group) => ({ title: group.title, elements: recordFormElements(state, group.elements) }))
+        .filter((group) => group.elements.length > 0);
     return (
         <Flex vertical gap="middle">
-            {groups.map((group, index) => (
-                <FieldGroup key={index} title={group.title} elements={groupElements(state.view, group.elements)} record={state.record} disabled={!state.editable} traversal={state.traversal} />
+            {shown.map((group, index) => (
+                <FieldGroup key={index} title={group.title} elements={group.elements} record={state.record} disabled={!state.editable} traversal={state.traversal} />
             ))}
         </Flex>
     );
 }
 
+/**
+ * Элементы формы записи в порядке показа: поля и табличные части по именам, собственные элементы
+ * конфигурации без изменений. Служебные поля новой записи пропускаются, как в `RecordFormLayout`.
+ * Собственная форма с другой раскладкой собирает так же свои группы для `FieldGroup`:
+ *
+ * ```tsx
+ * <FieldGroup elements={recordFormElements(state, ['date', 'comment'])} traversal={state.traversal} />
+ * ```
+ */
+export function recordFormElements(state: RecordFormState, items: ReadonlyArray<string | FormElementReference>): Array<FormField | FormTablePart | FormElementReference> {
+    return groupElements(state.view, items).filter((element) => state.record !== null || !isManagedField(element));
+}
+
+/** Служебное поле: его значение заполняет платформа, а не пользователь или вычисление формы. */
+function isManagedField(element: FormField | FormTablePart | FormElementReference): boolean {
+    return !('element' in element) && !('columns' in element) && element.readOnly && element.computed === null;
+}
+
+/**
+ * Подписи кнопок формы записи вместо стандартных. Подпись меняет только показ: действие, права,
+ * сочетания клавиш и уведомления остаются прежними.
+ *
+ * Собственная форма задаёт подписи там, где стандартные не подходят по смыслу. Например,
+ * запись новой смены открывает её, а закрытие окна без записи отменяет открытие:
+ *
+ * ```tsx
+ * <RecordFormPage state={state} titles={{ actions: { save: 'Открыть' }, close: 'Отменить' }}>
+ * ```
+ */
+export interface RecordFormTitles {
+    /**
+     * Подписи действий по именам: стандартных (`save`, `post`) и собственных. Они заменяют название
+     * действия из описания формы на кнопке, в её подсказке и в названии для чтения с экрана.
+     */
+    readonly actions?: { readonly [action: string]: string };
+    /** Подпись кнопки «Провести и закрыть». */
+    readonly postAndClose?: string;
+    /** Подпись кнопки «Закрыть», которая закрывает форму без записи. */
+    readonly close?: string;
+}
+
+/** Свойства кнопок действий формы записи. */
+export interface RecordFormActionsProperties extends RecordFormPartProperties {
+    /** Подписи кнопок вместо стандартных. */
+    readonly titles?: RecordFormTitles;
+}
+
 /** Кнопки действий формы записи: «Провести и закрыть», видимые действия и «Закрыть». */
-export function RecordFormActions({ state }: RecordFormPartProperties) {
+export function RecordFormActions({ state, titles = {} }: RecordFormActionsProperties) {
     const { close } = useWindowScope();
     const { postAction, running } = state;
     const compact = (action: FormAction) => postAction !== undefined && action.standard && (action.name === 'post' || action.name === 'save');
+    const title = (action: FormAction) => titles.actions?.[action.name] ?? action.title;
+    const postAndClose = titles.postAndClose ?? 'Провести и закрыть';
     return (
         <>
             {postAction !== undefined && (
@@ -319,14 +377,14 @@ export function RecordFormActions({ state }: RecordFormPartProperties) {
                     record={state.record}
                     action={postAction.name}
                     type="primary"
-                    tooltip="Провести и закрыть (Ctrl+Enter)"
+                    tooltip={`${postAndClose} (Ctrl+Enter)`}
                     loading={running === postAction.name}
                     disabled={running !== null}
                     execute={async (input) => {
                         await state.run(postAction, input, { close: true });
                     }}
                 >
-                    Провести и закрыть
+                    {postAndClose}
                 </ActionButton>
             )}
             {state.actions.map((action) => (
@@ -337,18 +395,18 @@ export function RecordFormActions({ state }: RecordFormPartProperties) {
                     action={action.name}
                     type={postAction === undefined && action.standard && action.name === 'save' ? 'primary' : 'default'}
                     icon={compact(action) ? (action.name === 'post' ? <Icons.post /> : <Icons.save />) : undefined}
-                    aria-label={compact(action) ? action.title : undefined}
-                    tooltip={action.standard ? (action.name === 'save' ? `${action.title} (Ctrl+S)` : action.name === 'post' ? action.title : undefined) : undefined}
+                    aria-label={compact(action) ? title(action) : undefined}
+                    tooltip={action.standard ? (action.name === 'save' ? `${title(action)} (Ctrl+S)` : action.name === 'post' ? title(action) : undefined) : undefined}
                     loading={running === action.name}
                     disabled={running !== null}
                     execute={async (input) => {
                         await state.run(action, input);
                     }}
                 >
-                    {compact(action) ? '' : action.title}
+                    {compact(action) ? '' : title(action)}
                 </ActionButton>
             ))}
-            <Button onClick={close}>Закрыть</Button>
+            <Button onClick={close}>{titles.close ?? 'Закрыть'}</Button>
         </>
     );
 }
@@ -364,11 +422,17 @@ export function RecordFormMarks({ state }: RecordFormPartProperties) {
     );
 }
 
+/** Свойства каркаса страницы формы записи. */
+export interface RecordFormPageProperties extends RecordFormBodyProperties {
+    /** Подписи кнопок вместо стандартных; их получает `RecordFormActions`. */
+    readonly titles?: RecordFormTitles;
+}
+
 /**
  * Каркас страницы формы записи: заголовок по представлению записи, отметки, кнопки действий
  * и тело формы с содержимым `children`. Стандартная форма выводит в нём `RecordFormLayout`.
  */
-export function RecordFormPage({ state, children }: RecordFormBodyProperties) {
+export function RecordFormPage({ state, titles, children }: RecordFormPageProperties) {
     // Представление читается по записанному состоянию: несохранённый выбор ссылки запись ещё не называет.
     const presentation = useRecordPresentation(state.object, state.record);
     return (
@@ -376,7 +440,7 @@ export function RecordFormPage({ state, children }: RecordFormBodyProperties) {
             title={recordTitle(state.object, state.record === null ? null : presentation.text)}
             windowTitle={state.record === null ? `${state.object.title} (новый)` : presentation.text}
             marks={<RecordFormMarks state={state} />}
-            actions={<RecordFormActions state={state} />}
+            actions={<RecordFormActions state={state} {...(titles === undefined ? {} : { titles })} />}
         >
             <RecordFormBody state={state}>{children}</RecordFormBody>
         </Page>
