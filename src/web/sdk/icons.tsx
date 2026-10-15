@@ -22,6 +22,7 @@ import {
     CalendarOutlined,
     CheckCircleOutlined,
     CloseOutlined,
+    CreditCardOutlined,
     DeleteOutlined,
     ExportOutlined,
     FileTextOutlined,
@@ -32,6 +33,7 @@ import {
     LockOutlined,
     LogoutOutlined,
     MoreOutlined,
+    PartitionOutlined,
     PlusOutlined,
     ProfileOutlined,
     ReadOutlined,
@@ -41,6 +43,7 @@ import {
     ShoppingCartOutlined,
     ThunderboltOutlined,
     UnlockOutlined,
+    WalletOutlined,
 } from '@ant-design/icons';
 
 /** Иконки приложения по смыслу. Правила пользования описаны во вводном комментарии модуля. */
@@ -53,6 +56,11 @@ export const Icons = {
     delete: DeleteOutlined,
     /** Исключение элемента из набора без удаления данных: условия из отбора. */
     remove: CloseOutlined,
+    /**
+     * Удаление строки табличной части. Крестик, а не корзина: строка убирается из несохранённой
+     * формы, и до записи её удаление ничего не стирает.
+     */
+    removeRow: CloseOutlined,
     /** Отбор списка. */
     filter: FilterOutlined,
     /** Меню остальных действий с элементом. */
@@ -83,6 +91,15 @@ export const Icons = {
     refund: RollbackOutlined,
     /** Оформление рассрочки: оплата взносами по графику. */
     installment: CalendarOutlined,
+    // Способы оплаты: переключатель способа показывает значок рядом с названием.
+    /** Оплата наличными. */
+    cashPayment: WalletOutlined,
+    /** Безналичная оплата: картой или переводом. */
+    cashlessPayment: CreditCardOutlined,
+    /** Часть оплаты, на которую оформляется рассрочка. */
+    installmentPayment: CalendarOutlined,
+    /** Сложная оплата: несколько оплат разными способами. */
+    complexPayment: PartitionOutlined,
     /** Открытие смены. */
     openShift: UnlockOutlined,
     /** Закрытие смены. */

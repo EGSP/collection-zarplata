@@ -9,8 +9,8 @@
  * и импорт реестра из SDK замкнул бы модули в кольцо.
  */
 import { formElements } from '../../configuration/form-elements.generated';
-import { isFormComponentDefinition } from '../../server/metadata/form-elements';
-import type { FormElementComponent } from '../sdk';
+import { isFormComponentDefinition, type FormComponentDefinition } from '../../server/metadata/form-elements';
+import type { FieldInputMark, FormElementComponent } from '../sdk';
 
 /** Элемент формы в реестре клиента. */
 export interface FormElementModule {
@@ -20,6 +20,27 @@ export interface FormElementModule {
     readonly declaration: object;
     /** Компонент элемента: экспорт по умолчанию файла компонента. */
     readonly component: FormElementComponent;
+}
+
+/**
+ * Виды мест подключения, которые объявляет файл. Если объявления в экспорте нет, вид не выводится,
+ * и компонент не проверяется: такую конфигурацию сервер не запустит.
+ */
+type DeclaredPlacement<Declaration> = Extract<Declaration[keyof Declaration], FormComponentDefinition>['~placement'];
+
+/**
+ * Компонент, который подходит местам подключения. Элемент на месте поля ввода обязан поддержать
+ * обе компоновки поля, поэтому собирается функцией `fieldInput` SDK; остальным подходит любой компонент.
+ */
+type ComponentFor<Placement> = [Extract<Placement, 'field'>] extends [never] ? FormElementComponent : FormElementComponent & FieldInputMark;
+
+/**
+ * Создаёт запись реестра. Компилятор сверяет компонент с местами подключения в объявлении:
+ * обычный компонент, объявленный на месте поля ввода, не пройдёт проверку типов, потому что
+ * не поддерживает fluid-компоновку.
+ */
+export function formElementModule<Declaration extends object>(file: string, declaration: Declaration, component: ComponentFor<DeclaredPlacement<Declaration>>): FormElementModule {
+    return { file, declaration, component: component as FormElementComponent };
 }
 
 /**

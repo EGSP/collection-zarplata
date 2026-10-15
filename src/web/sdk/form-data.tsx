@@ -35,6 +35,12 @@ export type EnteredValue<Value> = Value extends ReadonlyArray<infer Row> ? Reado
  */
 export type FormElementComponent = ComponentType<never>;
 
+/** Настройки изменения значения элементом формы (`FormData.setValue`). */
+export interface SetValueOptions {
+    /** Проверять ли значение сразу после изменения. По умолчанию проверяется. */
+    readonly validate?: boolean;
+}
+
 /**
  * Данные формы записи типа `Record` с действиями `Action`. По ссылке на объект конфигурации запись
  * и имена действий получают точные типы.
@@ -67,10 +73,16 @@ export interface FormData<Record extends RecordData = RecordData, Action extends
      * новое. Так меняют значение, которое зависит от прежнего, например добавляют строку табличной
      * части: значение из `useFormValue` элемент получает с отрисовкой, и при двух изменениях подряд
      * второе, вычисленное по нему, отменило бы первое.
+     *
+     * После изменения форма проверяет значение и показывает ошибки под полем. Параметр
+     * `{ validate: false }` откладывает проверку до ввода пользователя или записи: так элемент
+     * ставит пустую строку для заполнения, и ошибки «Заполните поле» не появляются раньше,
+     * чем пользователь начал её заполнять.
      */
     readonly setValue: <Field extends FieldName<Record>>(
         field: Field,
         value: EnteredValue<Record[Field]> | ((current: EnteredValue<Record[Field]>) => EnteredValue<Record[Field]>),
+        options?: SetValueOptions,
     ) => void;
     /**
      * Выполняет действие формы так же, как его кнопка: сначала записывает несохранённые изменения,
@@ -142,7 +154,7 @@ export function FormDataProvider({ object, view, saved, readOnly, restrictions, 
             view,
             saved,
             readOnly,
-            setValue: (field, entered) => {
+            setValue: (field, entered, options) => {
                 if (readOnly || restrictions?.isFieldReadOnly(field) === true) return;
                 const editable = view.fields.some((candidate) => candidate.name === field && !candidate.readOnly) || view.tableParts.some((part) => part.name === field);
                 if (!editable) throw new Error(`Поля «${field}» нет среди редактируемых полей формы «${object.title}»`);
@@ -151,6 +163,11 @@ export function FormDataProvider({ object, view, saved, readOnly, restrictions, 
                 // Программное изменение форма Ant Design изменением пользователя не считает
                 // и сама ни о нём не сообщает, ни значение не проверяет.
                 changed.current();
+                if (options?.validate === false) {
+                    // Прежние ошибки относились к заменённому значению и сами не исчезают.
+                    form.setFields([{ name: field, errors: [] }]);
+                    return;
+                }
                 // Об ошибке проверки сообщает само поле; отклонённый промис здесь только повторил бы её в консоли.
                 form.validateFields([field], { recursive: true }).catch(() => undefined);
             },

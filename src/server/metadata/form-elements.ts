@@ -25,8 +25,25 @@ export type FormComponentAttachment<Object extends ObjectReference = ObjectRefer
     | { readonly override: FormComponentOverride<Object>; readonly insert?: never }
     | { readonly insert: FormComponentInsert<Object>; readonly override?: never };
 
-/** Объявление компонента с одним или несколькими местами подключения на формах. */
-export class FormComponentDefinition<Name extends string = string> {
+/**
+ * Вид места подключения: `field` — на месте поля ввода, `tablePart` — на месте табличной части,
+ * `group` — блоком в группе. От вида зависит контракт компонента: элемент на месте поля обязан
+ * поддержать обе компоновки поля, и реестр клиента проверяет это по виду при сборке.
+ */
+export type FormComponentPlacement = 'field' | 'tablePart' | 'group';
+
+/** Вид места подключения по его объявлению. */
+type PlacementOf<Attachment> = Attachment extends { readonly override: { readonly field: string } } ? 'field'
+    : Attachment extends { readonly override: { readonly tablePart: string } } ? 'tablePart' : 'group';
+
+/**
+ * Объявление компонента с одним или несколькими местами подключения на формах. `Placement` —
+ * виды его мест; значение у этого параметра только в типах, во время выполнения виды берутся
+ * из `attachments`.
+ */
+export class FormComponentDefinition<Name extends string = string, Placement extends FormComponentPlacement = FormComponentPlacement> {
+    /** Виды мест подключения для проверки типов; во время выполнения поля нет. */
+    declare readonly '~placement': Placement;
     constructor(readonly name: Name, readonly attachments: ReadonlyArray<FormComponentAttachment>) {}
 }
 
@@ -35,13 +52,13 @@ type AttachmentObject<Attachment> = Attachment extends { readonly override: { re
     ? Object : Attachment extends { readonly insert: { readonly object: infer Object extends ObjectReference } } ? Object : ObjectReference;
 
 /** Объявляет компонент с одним подключением. Типы проверяют имена полей; сервер проверяет места и конфликты. */
-export function defineFormComponent<const Name extends string, const Object extends ObjectReference>(
-    definition: { readonly name: Name } & FormComponentAttachment<Object>,
-): FormComponentDefinition<Name>;
+export function defineFormComponent<const Name extends string, const Attachment extends FormComponentAttachment>(
+    definition: { readonly name: Name } & Attachment & FormComponentAttachment<AttachmentObject<Attachment>>,
+): FormComponentDefinition<Name, PlacementOf<Attachment>>;
 /** Объявляет несколько подключений; имена полей проверяются отдельно для объекта каждого места. */
 export function defineFormComponent<const Name extends string, const Attachments extends ReadonlyArray<FormComponentAttachment>>(
     definition: { readonly name: Name; readonly attachments: Attachments & { readonly [Index in keyof Attachments]: FormComponentAttachment<AttachmentObject<Attachments[Index]>> } },
-): FormComponentDefinition<Name>;
+): FormComponentDefinition<Name, PlacementOf<Attachments[number]>>;
 export function defineFormComponent(
     definition: { readonly name: string } & (FormComponentAttachment | { readonly attachments: ReadonlyArray<FormComponentAttachment> }),
 ): FormComponentDefinition {

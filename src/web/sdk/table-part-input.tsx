@@ -7,7 +7,7 @@ import type { ComponentType, Ref } from 'react';
 import type { FormTablePart } from '../../server/ui/descriptions';
 import type { InputHandle } from '../widgets/widget';
 import { validationMessage } from '../widgets/validation';
-import { TablePart } from './table-part';
+import { TablePart, TablePartTitle, type TablePartOptions } from './table-part';
 import { useFormElement } from './form-data';
 
 /**
@@ -41,11 +41,12 @@ export function tablePartValidationMessages(part: FormTablePart, value: unknown)
  * Связывает компонент замены с формой платформы: подпись, строки, проверка и ошибки принадлежат
  * форме. Компоненту конфигурации не нужно обращаться к форме Ant Design напрямую.
  */
-export function TablePartInput({ part, ...properties }: Omit<TablePartInputProperties, 'value' | 'onChange'>) {
+export function TablePartInput({ part, options, ...properties }: Omit<TablePartInputProperties, 'value' | 'onChange'> & { readonly options?: TablePartOptions | undefined }) {
     const Input = useFormElement(part.inputElement) as ComponentType<TablePartInputProperties> | undefined;
-    if (Input === undefined) return <TablePart part={part} {...properties} />;
+    // Настройки вида относятся к стандартной таблице: элемент на месте части выводит строки сам.
+    if (Input === undefined) return <TablePart part={part} {...options} {...properties} />;
     return (
-        <Form.Item name={part.name} label={part.title} rules={[{
+        <Form.Item name={part.name} label={<TablePartTitle>{part.title}</TablePartTitle>} rules={[{
             validator: (_rule, value: unknown) => {
                 const messages = tablePartValidationMessages(part, value ?? []);
                 return messages.length === 0 ? Promise.resolve() : Promise.reject(new Error(messages.join('; ')));

@@ -356,22 +356,45 @@ export interface RecordFormTitles {
     readonly close?: string;
 }
 
+/**
+ * Какие кнопки действий показывает форма записи. Скрытая кнопка убирает только кнопку: действие
+ * остаётся доступным собственной кнопке формы и сочетаниям клавиш.
+ *
+ * Собственная форма скрывает стандартные кнопки, когда выводит своё главное действие сама.
+ * Например, новая продажа оставляет только «Закрыть», а проводит её крупная кнопка «Продать»
+ * под оплатами:
+ *
+ * ```tsx
+ * <RecordFormPage state={state} buttons={{ actions: [], postAndClose: false }}>
+ * ```
+ */
+export interface RecordFormButtons {
+    /** Имена действий, кнопки которых выводятся. По умолчанию выводятся кнопки всех видимых действий. */
+    readonly actions?: ReadonlyArray<string>;
+    /** Выводить ли кнопку «Провести и закрыть». По умолчанию выводится, если документ можно провести. */
+    readonly postAndClose?: boolean;
+}
+
 /** Свойства кнопок действий формы записи. */
 export interface RecordFormActionsProperties extends RecordFormPartProperties {
     /** Подписи кнопок вместо стандартных. */
     readonly titles?: RecordFormTitles;
+    /** Какие кнопки действий выводятся. «Закрыть» выводится всегда. */
+    readonly buttons?: RecordFormButtons;
 }
 
 /** Кнопки действий формы записи: «Провести и закрыть», видимые действия и «Закрыть». */
-export function RecordFormActions({ state, titles = {} }: RecordFormActionsProperties) {
+export function RecordFormActions({ state, titles = {}, buttons = {} }: RecordFormActionsProperties) {
     const { close } = useWindowScope();
     const { postAction, running } = state;
-    const compact = (action: FormAction) => postAction !== undefined && action.standard && (action.name === 'post' || action.name === 'save');
+    // Рядом с «Провести и закрыть» проведение и запись сжаты до значков; без неё они подписаны.
+    const compact = (action: FormAction) => postAction !== undefined && buttons.postAndClose !== false && action.standard && (action.name === 'post' || action.name === 'save');
     const title = (action: FormAction) => titles.actions?.[action.name] ?? action.title;
     const postAndClose = titles.postAndClose ?? 'Провести и закрыть';
+    const shown = state.actions.filter((action) => buttons.actions?.includes(action.name) ?? true);
     return (
         <>
-            {postAction !== undefined && (
+            {postAction !== undefined && buttons.postAndClose !== false && (
                 <ActionButton
                     object={state.object}
                     record={state.record}
@@ -387,7 +410,7 @@ export function RecordFormActions({ state, titles = {} }: RecordFormActionsPrope
                     {postAndClose}
                 </ActionButton>
             )}
-            {state.actions.map((action) => (
+            {shown.map((action) => (
                 <ActionButton
                     key={action.name}
                     object={state.object}
@@ -426,13 +449,15 @@ export function RecordFormMarks({ state }: RecordFormPartProperties) {
 export interface RecordFormPageProperties extends RecordFormBodyProperties {
     /** Подписи кнопок вместо стандартных; их получает `RecordFormActions`. */
     readonly titles?: RecordFormTitles;
+    /** Какие кнопки действий выводятся; их получает `RecordFormActions`. */
+    readonly buttons?: RecordFormButtons;
 }
 
 /**
  * Каркас страницы формы записи: заголовок по представлению записи, отметки, кнопки действий
  * и тело формы с содержимым `children`. Стандартная форма выводит в нём `RecordFormLayout`.
  */
-export function RecordFormPage({ state, titles, children }: RecordFormPageProperties) {
+export function RecordFormPage({ state, titles, buttons, children }: RecordFormPageProperties) {
     // Представление читается по записанному состоянию: несохранённый выбор ссылки запись ещё не называет.
     const presentation = useRecordPresentation(state.object, state.record);
     return (
@@ -440,7 +465,7 @@ export function RecordFormPage({ state, titles, children }: RecordFormPageProper
             title={recordTitle(state.object, state.record === null ? null : presentation.text)}
             windowTitle={state.record === null ? `${state.object.title} (новый)` : presentation.text}
             marks={<RecordFormMarks state={state} />}
-            actions={<RecordFormActions state={state} {...(titles === undefined ? {} : { titles })} />}
+            actions={<RecordFormActions state={state} {...(titles === undefined ? {} : { titles })} {...(buttons === undefined ? {} : { buttons })} />}
         >
             <RecordFormBody state={state}>{children}</RecordFormBody>
         </Page>

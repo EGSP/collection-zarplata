@@ -1,17 +1,30 @@
 import { Flex, Typography } from 'antd';
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { RecordOf } from '../../server/metadata/index';
-import { FieldInput, newRowValues, TablePart, useFormValue, type EnteredValue, type TablePartInputProperties } from '../../web/sdk';
+import { FieldInput, newRowValues, TablePart, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
 import type { Sale } from '../documents/sale.document';
 import { Objects } from '../objects.generated';
+import { PaymentMethodInput } from './payment-method-input';
 
 /** Строка оплаты на форме: до записи любая ячейка может быть не заполнена. */
 type PaymentLine = EnteredValue<RecordOf<typeof Sale>['payments']>[number];
 
+/**
+ * Наибольшая ширина оплат. Оплата — это несколько коротких значений, и растянутые на всю форму
+ * поля читаются хуже: сумма оказывается далеко от способа.
+ */
+const paymentsWidth = 960;
+
+/**
+ * Ширины колонок таблицы оплат. Способ выбирается кнопками со значками, и колонка вмещает их все;
+ * сумме хватает трети прежней ширины, а остальное получает «Куда оплачено».
+ */
+const columnWidths = { method: 360, amount: 150 };
+
 /** Поле с подписью над ним. Подпись и ошибки самой части показывает форма. */
-function Labelled({ title, children }: { readonly title: string; readonly children: ReactNode }) {
+function Labelled({ title, flex = '1 1 280px', onBlur, children }: { readonly title: string; readonly flex?: string; readonly onBlur?: () => void; readonly children: ReactNode }) {
     return (
-        <Flex vertical gap={4} style={{ flex: '1 1 280px', minWidth: 0 }}>
+        <Flex vertical gap={4} style={{ flex, minWidth: 0 }} {...(onBlur === undefined ? {} : { onBlur })}>
             <Typography.Text type="secondary">{title}</Typography.Text>
             {children}
         </Flex>
@@ -31,8 +44,17 @@ function Labelled({ title, children }: { readonly title: string; readonly childr
  * снова следует за ней. При открытии записанной продажи оплата не меняется: сумма продажи
  * в этот момент не изменяется.
  *
+ * Пустую сумму простой оплаты элемент заполняет суммой продажи: при изменении товаров, при смене
+ * способа и когда продавец уходит из пустого поля. Сразу при стирании сумма не подставляется,
+ * иначе она возвращалась бы посреди ввода нового значения. При сложной оплате пустые суммы
+ * остаются пустыми: какую часть внести каким способом, решает продавец.
+ *
  * Простым считается способ, который есть среди способов строки оплаты. Продажа без способа,
  * записанная до появления оплат, показывает таблицу.
+ *
+ * В таблице способ строки выбирается кнопками со значками. Первая строка сложной оплаты пустая,
+ * а каждая следующая получает сумму, которую осталось оплатить: продавцу не нужно считать
+ * остаток самому. Состояние оплаты выводит поле «Способ оплаты» справа от своих кнопок.
  */
 export default function SalePayments({ part, value, onChange, disabled, ref, id, onPrevious }: TablePartInputProperties<PaymentLine>) {
     const sales = Objects.document.sale;
@@ -52,21 +74,44 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
         return next.amount === null && next.receiver === null ? [] : [next];
     };
 
-    const previousSaleAmount = useRef(saleAmount);
+    const previous = useRef({ saleAmount, mode });
     useEffect(() => {
-        const before = previousSaleAmount.current;
-        previousSaleAmount.current = saleAmount;
-        if (!simple || disabled === true || before === saleAmount || rows.length > 1) return;
+        const before = previous.current;
+        previous.current = { saleAmount, mode };
+        if (!simple || disabled === true || rows.length > 1) return;
+        if (before.saleAmount === saleAmount && before.mode === mode) return;
+        const current = row?.amount ?? null;
         // Сумма, которую продавец ввёл сам, отличается от прежней суммы продажи и за новой не следует.
-        if ((row?.amount ?? 0) !== before) return;
-        onChange?.(single({ amount: saleAmount > 0 ? saleAmount : null }));
-        // Эффект отвечает только на изменение суммы продажи: остальные значения он читает текущими.
-    }, [saleAmount]);
+        if (current !== null && current !== before.saleAmount) return;
+        const next = saleAmount > 0 ? saleAmount : null;
+        if (current !== next) onChange?.(single({ amount: next }));
+        // Эффект отвечает только на изменение суммы продажи и способа: остальные значения он читает текущими.
+    }, [saleAmount, mode]);
 
-    if (!simple) return <TablePart showTitle={false} part={part} disabled={disabled} ref={ref} onPrevious={onPrevious} />;
+    /** Пустую сумму продавец оставил: подставляется сумма продажи. */
+    const fillEmptyAmount = () => {
+        if (disabled !== true && (row?.amount ?? null) === null && saleAmount > 0) onChange?.(single({ amount: saleAmount }));
+    };
+
+    const paid = rows.reduce((total, payment) => total + (payment.amount ?? 0), 0);
+    const remaining = saleAmount - paid;
+
+    if (!simple) {
+        const options: TablePartOptions = {
+            columnWidths,
+            columnInputs: { method: PaymentMethodInput },
+            addTitle: 'Оплата',
+            newRow: () => ({ ...newRowValues(part), amount: rows.length > 0 && remaining > 0 ? remaining : null }),
+        };
+        return (
+            <div style={{ maxWidth: paymentsWidth }}>
+                <TablePart showTitle={false} part={part} disabled={disabled} ref={ref} onPrevious={onPrevious} {...options} />
+            </div>
+        );
+    }
     return (
-        <Flex gap="middle" wrap>
-            <Labelled title={amount.title}>
+        <Flex gap="middle" wrap style={{ maxWidth: paymentsWidth }}>
+            <Labelled title={amount.title} flex={`0 0 ${columnWidths.amount}px`} onBlur={fillEmptyAmount}>
                 <FieldInput field={amount} value={row?.amount ?? null} disabled={disabled} ref={ref} id={id}
                     onChange={(entered) => onChange?.(single({ amount: typeof entered === 'number' ? entered : null }))} />
             </Labelled>

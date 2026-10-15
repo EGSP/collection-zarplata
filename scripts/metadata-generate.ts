@@ -185,6 +185,11 @@ interface ClientRegistry {
     readonly typeName: string;
     readonly listName: string;
     readonly comment: string;
+    /**
+     * Функция того же модуля, которая создаёт запись и сверяет компонент с объявлением. Без неё
+     * запись пишется литералом объекта, и компонент не проверяется.
+     */
+    readonly moduleFunction?: string;
 }
 
 const pageRegistry: ClientRegistry = {
@@ -199,13 +204,17 @@ const formElementRegistry: ClientRegistry = {
     typeName: 'FormElementModule',
     listName: 'formElements',
     comment: 'Элементы формы в порядке путей файлов. Компонент — экспорт по умолчанию файла компонента.',
+    // Элемент на месте поля ввода обязан поддержать обе компоновки поля: это проверяет функция записи.
+    moduleFunction: 'formElementModule',
 };
 
 /** Текст реестра компонентов для клиента: объявление и компонент каждой страницы или элемента формы. */
 function renderClientRegistry(registry: ClientRegistry, parts: ReadonlyArray<ComponentPartFiles>): string {
     return [
         ...header,
-        `import type { ${registry.typeName} } from '${registry.typeImport}';`,
+        registry.moduleFunction === undefined
+            ? `import type { ${registry.typeName} } from '${registry.typeImport}';`
+            : `import { ${registry.moduleFunction}, type ${registry.typeName} } from '${registry.typeImport}';`,
         ...parts.flatMap((part, index) => [
             `import * as declaration${index} from '${clientImport(part.declaration)}';`,
             `import Component${index} from '${clientImport(part.component)}';`,
@@ -213,7 +222,9 @@ function renderClientRegistry(registry: ClientRegistry, parts: ReadonlyArray<Com
         '',
         `/** ${registry.comment} */`,
         `export const ${registry.listName}: ReadonlyArray<${registry.typeName}> = [`,
-        ...parts.map((part, index) => `    { file: '${part.declaration}', declaration: declaration${index}, component: Component${index} },`),
+        ...parts.map((part, index) => registry.moduleFunction === undefined
+            ? `    { file: '${part.declaration}', declaration: declaration${index}, component: Component${index} },`
+            : `    ${registry.moduleFunction}('${part.declaration}', declaration${index}, Component${index}),`),
         '];',
         '',
     ].join('\n');

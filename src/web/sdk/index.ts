@@ -70,12 +70,13 @@ export { FieldDisplay, FieldInput, compositeInputs, hasInput } from '../widgets/
 export { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage, validationMessage } from '../widgets/validation';
 export type { CompositeInputModes, CompositeInputProperties, DisplayProperties, FieldValues, InputHandle, InputProperties, WidgetField } from '../widgets/widget';
 export { FieldGroup, type FieldGroupProperties } from './field-group';
-export { FormDataProvider, useFormData, useFormRestrictions, useFormValue, type EnteredValue, type FormData, type FormDataProviderProperties, type FormElementComponent } from './form-data';
+export { FluidField, fieldInput, type FieldInputComponent, type FieldInputLayouts, type FieldInputMark, type FieldLayout, type FluidFieldProperties, type FluidInputProperties, type LaidOutInputProperties } from './field-layout';
+export { FormDataProvider, useFormData, useFormRestrictions, useFormValue, type EnteredValue, type FormData, type FormDataProviderProperties, type FormElementComponent, type SetValueOptions } from './form-data';
 export { useFormRestrictionRegistry, type FormRestrictionRegistry, type FormRestrictions } from './form-restrictions';
 export { useFieldTraversal, type FieldTraversal } from './field-traversal';
 export { hasOpenDialog, hasOpenPicker } from './keyboard';
 export { newRecordValues, newRowValues, recordValues, saveFields, type FormValues } from './record-values';
-export { TablePart, type TablePartProperties } from './table-part';
+export { TablePart, TablePartTitle, type TablePartOptions, type TablePartProperties } from './table-part';
 
 // Формы объекта: свойства форм, контракт формы записи с областью окна и части стандартной формы записи.
 export type { FormPresentation, ListFormProperties, NewFormProperties, RecordFormProperties } from './object-form-properties';
@@ -91,6 +92,7 @@ export {
     useRecordForm,
     type RecordFormActionsProperties,
     type RecordFormBodyProperties,
+    type RecordFormButtons,
     type RecordFormLayoutProperties,
     type RecordFormPageProperties,
     type RecordFormPartProperties,
