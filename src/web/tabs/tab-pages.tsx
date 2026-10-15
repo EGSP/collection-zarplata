@@ -80,6 +80,7 @@ const TabPage = memo(function TabPage({ id, path, search, active }: TabPagePrope
                         <Route path={`${pageSegment}/:name`} element={<ConfigurationPage />} />
                         <Route path=":kind/:name" element={<ObjectPage />} />
                         <Route path=":kind/:name/:guid" element={<RecordPage />} />
+                        <Route path=":kind/:name/:guid/:draft" element={<RecordPage />} />
                         <Route path="*" element={<NotFoundPage />} />
                     </Routes>
                 </RecordDialogHost>

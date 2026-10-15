@@ -88,6 +88,11 @@ export interface RecordFormController {
      * Возвращает результат действия; если действие не выполнено, завершается ошибкой.
      */
     readonly run: (action: FormAction, input?: RecordFormActionInput, options?: RecordFormRunOptions) => Promise<unknown>;
+    /**
+     * Показывает запись, прочитанную формой заново после изменения вне её: делает её записанным
+     * состоянием и передаёт обработчику `show`.
+     */
+    readonly show: (record: RecordData) => void;
 }
 
 /** То, что область окна передаёт форме записи через контекст. */
@@ -188,5 +193,5 @@ export function useRecordFormContract(handlers: RecordFormHandlers): RecordFormC
     };
 
     const isRunning = useCallback(() => executing.current, []);
-    return { record, running, isRunning, run };
+    return { record, running, isRunning, run, show: accept };
 }

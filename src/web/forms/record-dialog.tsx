@@ -32,6 +32,8 @@ interface OpenedDialog {
     readonly guid: string | null;
     /** Значения новой записи от открывшего окно кода. */
     readonly initial: FormValues | undefined;
+    /** Ширина окна от открывшего его кода; без неё обычная. */
+    readonly width: number | undefined;
 }
 
 let nextDialogId = 1;
@@ -52,12 +54,12 @@ export function RecordDialogHost({ children }: { readonly children: ReactNode })
     const waiting = useRef(new Map<number, (written: string | null) => void>());
 
     const open = useCallback<OpenRecordDialog>(
-        (object, guid, initial) =>
+        (object, guid, initial, width) =>
             new Promise((resolve) => {
                 const id = nextDialogId++;
                 waiting.current.set(id, resolve);
                 // Объект мог прийти описанием или ссылкой с типами: окну нужны только вид и имя.
-                setDialogs((previous) => [...previous, { id, guid, initial, object: { kind: object.kind, name: object.name } }]);
+                setDialogs((previous) => [...previous, { id, guid, initial, width, object: { kind: object.kind, name: object.name } }]);
             }),
         [],
     );
@@ -121,7 +123,7 @@ function RecordDialog({ dialog, onFinish }: RecordDialogProperties) {
             onRecordWritten={remember}
             unsavedChangesWarning="На форме есть несохранённые изменения. Если закрыть окно, они будут потеряны."
         >
-            <RecordDialogWindow onHeader={setHeader} onFooter={setFooter}>
+            <RecordDialogWindow width={dialog.width} onHeader={setHeader} onFooter={setFooter}>
                 <RecordDialogHost>
                     <RecordDialogContent object={dialog.object} guid={dialog.guid} initial={dialog.initial} />
                 </RecordDialogHost>
@@ -131,13 +133,14 @@ function RecordDialog({ dialog, onFinish }: RecordDialogProperties) {
 }
 
 interface RecordDialogWindowProperties {
+    readonly width: number | undefined;
     readonly onHeader: (element: HTMLElement | null) => void;
     readonly onFooter: (element: HTMLElement | null) => void;
     readonly children: ReactNode;
 }
 
 /** Модальное окно Ant Design с пустыми шапкой и нижней частью: их заполняет каркас страницы. */
-function RecordDialogWindow({ onHeader, onFooter, children }: RecordDialogWindowProperties) {
+function RecordDialogWindow({ width, onHeader, onFooter, children }: RecordDialogWindowProperties) {
     const { token } = theme.useToken();
     const scope = useWindowScope();
     const layer = useContext(RecordDialogLayerContext);
@@ -148,7 +151,9 @@ function RecordDialogWindow({ onHeader, onFooter, children }: RecordDialogWindow
             // на вкладку показано с введёнными значениями.
             open={scope.active}
             getContainer={layer ?? document.body}
-            width={720}
+            // Окно не шире области, в которой показано: окно вкладки занимает только её страницу,
+            // и ширина от окна браузера увела бы его край за пределы страницы.
+            width={width === undefined ? 720 : `min(${width}px, calc(100% - 32px))`}
             // Esc обрабатывает форма: она отличает закрытие списка выбора от закрытия окна.
             // Со встроенной обработкой подтверждение спрашивалось бы дважды.
             keyboard={false}

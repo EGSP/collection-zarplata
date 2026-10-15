@@ -88,6 +88,11 @@ export interface FluidFieldProperties {
      * своей ширины, например переключателем, занимает только её, и рядом остаётся место.
      */
     readonly block?: boolean | undefined;
+    /**
+     * Поле шириной `free`: значение занимает ширину своего представления, а не остаток места.
+     * Место в строке группы при этом остаётся не уже обычного.
+     */
+    readonly free?: boolean | undefined;
 }
 
 /**
@@ -95,9 +100,9 @@ export interface FluidFieldProperties {
  * служит разделителем. Значение, которое само не является элементом ввода Ant Design, например
  * переключатель, ставится в `Space.Addon`: тогда у него та же рамка, что у сегмента названия.
  */
-export function FluidField({ label, required = false, block = true, children }: FluidFieldProperties) {
+export function FluidField({ label, required = false, block = true, free = false, children }: FluidFieldProperties) {
     return (
-        <Space.Compact block={block}>
+        <Space.Compact block={block} {...(free ? { style: { width: 'max-content', minWidth: '100%', maxWidth: '100%' } } : {})}>
             <Space.Addon style={{ whiteSpace: 'nowrap' }}>
                 <Typography.Text type="secondary">{label}</Typography.Text>
                 {required && <Typography.Text type="danger"> *</Typography.Text>}
@@ -105,7 +110,7 @@ export function FluidField({ label, required = false, block = true, children }: 
             {/* Значение занимает остаток ширины и может сжиматься: без этого длинное представление
                 ссылки растянуло бы поле шире места в группе. Стыковку с сегментом элементы Ant Design
                 получают от `Space.Compact` через контекст, поэтому обёртка её не нарушает. */}
-            {block ? <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', flex: 1, minWidth: 0 }}>{children}</div> : children}
+            {block ? <div style={{ display: 'grid', gridTemplateColumns: free ? 'max-content' : 'minmax(0, 1fr)', flex: 1, minWidth: 0 }}>{children}</div> : children}
         </Space.Compact>
     );
 }

@@ -58,8 +58,12 @@ export interface RecordFormState {
     readonly run: (action: FormAction, input?: RecordFormActionInput, options?: RecordFormRunOptions) => Promise<unknown>;
     /** Выполняет действие по имени для элемента формы: имя ищется среди действий с правом пользователя. */
     readonly runByName: (name: string, input: FormValues | null) => Promise<unknown>;
+    /** Перечитывает запись с сервера и показывает её на форме (`FormData.reload`). У новой записи ничего не делает. */
+    readonly reloadRecord: () => Promise<void>;
     /** Отмечает несохранённые изменения. Вызывается, когда значение изменил пользователь или элемент формы. */
     readonly markChanged: () => void;
+    /** Есть ли на форме несохранённые изменения. По нему форма решает, можно ли перечитать запись без потери ввода. */
+    readonly hasChanges: () => boolean;
     /** Корневой элемент формы: по нему форма отличает окно, в котором показана, от окна поверх себя. */
     readonly root: RefObject<HTMLDivElement | null>;
     /** Перехват нажатий корневого элемента: обход полей по Enter и Esc в открытом списке выбора. */
@@ -141,7 +145,9 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
                 if (first !== undefined) form.scrollToField(first.name, { focus: true, block: 'center' });
                 return null;
             }
-            const fields = saveFields(view, saved, entered);
+            // Новая запись записывается поверх значений, которые передал открывший форму: среди них
+            // могут быть поля, скрытые на форме, например основание продажи из отвеса.
+            const fields = saveFields(view, saved ?? given ?? null, entered);
             try {
                 const record: RecordData = await performAction({
                     object,
@@ -208,6 +214,11 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
         return action === undefined ? Promise.reject(new Error(`Действия «${name}» нет среди действий формы «${object.title}»`)) : controller.run(action, input);
     };
 
+    const reloadRecord = async (): Promise<void> => {
+        if (reload === null || saved === null) return;
+        controller.show(await reload());
+    };
+
     const keyboardAction = (name: string, close = false) => {
         if (hasOpenDialog(root.current) || controller.isRunning()) return;
         const action = view.actions.find((candidate) => candidate.standard && candidate.name === name && isVisible(candidate));
@@ -255,9 +266,11 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
         postAction,
         run: controller.run,
         runByName,
+        reloadRecord,
         markChanged: () => {
             changed.current = true;
         },
+        hasChanges: () => changed.current,
         root,
         onKeyDownCapture: (event) => {
             if (event.key === 'Escape' && hasOpenPicker(event.target)) pickerEvents.current.add(event.nativeEvent);
@@ -295,6 +308,7 @@ export function RecordFormBody({ state, children }: RecordFormBodyProperties) {
                     restrictions={state.restrictions}
                     elements={elements}
                     onAction={state.runByName}
+                    onReload={state.reloadRecord}
                     onChange={state.markChanged}
                 >
                     {children}

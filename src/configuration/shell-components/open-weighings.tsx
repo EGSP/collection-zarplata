@@ -3,8 +3,8 @@ import { Objects } from '../objects.generated';
 import { DebtList } from './debt-list';
 
 /**
- * Блок «Отвесы» на рабочем месте продавца: незакрытые отвесы с ФИО покупателя
- * и остатком. Без права читать отвесы блока нет: проверка стоит здесь, потому что страница
+ * Блок «Отвесы» на рабочем месте продавца: незакрытые отвесы с ФИО покупателя. Остаток
+ * не выводится: стоимость товаров отвеса не вводится, её заполняют в продаже. Без права читать отвесы блока нет: проверка стоит здесь, потому что страница
  * рабочего места выводит блок сама, без перечня требуемых объектов.
  */
 export default function OpenWeighings() {
@@ -24,5 +24,5 @@ function AvailableWeighings() {
         sort: [{ field: 'date', direction: 'ascending' }],
         pageSize: 100,
     });
-    return <DebtList title="Отвесы" object={weighings} rows={list.records} total={list.total} loading={list.loading} error={list.error} empty="Незакрытых отвесов нет" />;
+    return <DebtList title="Отвесы" object={weighings} rows={list.records} total={list.total} loading={list.loading} error={list.error} empty="Незакрытых отвесов нет" showBalance={false} />;
 }

@@ -3,9 +3,9 @@ import type { ComponentType } from 'react';
 import { ActionButton, FieldDisplay, Icons, Page, RecordLink, useObjectView, useOpenRecord, type PerformTarget } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { employeeCount, useCurrentShift, type OpenShiftState } from '../shell-components/current-shift-state';
-import OpenInstallments from '../shell-components/open-installments';
 import OpenSaleInstallments from '../shell-components/open-sale-installments';
 import OpenWeighings from '../shell-components/open-weighings';
+import RecentSales from '../shell-components/recent-sales';
 
 /** Может ли пользователь создавать записи объекта: сервер оставляет действие `save` только при праве записи. */
 function useCreatable(object: PerformTarget): boolean {
@@ -116,7 +116,9 @@ function ClosedShift() {
 
 /**
  * Активное состояние: смена открыта. Сверху шапка смены и тайлы действий, под разделительной
- * линией информационный блок: незакрытые рассрочки обоих видов и отвесы, те же, что на главном экране.
+ * линией информационный блок: фид последних продаж, незакрытые рассрочки по продажам и отвесы.
+ * Фид показывает продавцу, что уже оформлено. Блок «Рассрочки» остаётся только на главном экране:
+ * продавцу на рабочем месте он не нужен.
  * Рассрочку по продаже продавец оформляет из продажи, поэтому отдельного тайла у неё нет.
  */
 function OpenShiftWorkplace({ shift }: { readonly shift: OpenShiftState }) {
@@ -134,7 +136,7 @@ function OpenShiftWorkplace({ shift }: { readonly shift: OpenShiftState }) {
                 страницы стандартная линия Ant Design почти не видна. */}
             <Divider style={{ margin: 0, borderBlockStartWidth: 2, borderColor: token.colorBorder }} />
             <Flex gap="middle" align="flex-start" wrap>
-                <OpenInstallments />
+                <RecentSales />
                 <OpenSaleInstallments />
                 <OpenWeighings />
             </Flex>

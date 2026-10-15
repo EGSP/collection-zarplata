@@ -238,6 +238,7 @@ function describeFields(
             variants,
             // Настройка конфигурации может только отключить текстовый ввод, выведенный из вариантов.
             inputMode: variants === null ? fieldInputModes[state.kind] : state.inputMode ?? compositeInputMode(variants),
+            ...(state.width === null ? {} : { width: state.width }),
         };
         checkBounds(description, location, problems);
         if (description.suggestions != null) {

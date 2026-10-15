@@ -48,8 +48,9 @@ export interface TablePartOptions {
      */
     readonly initialRow?: boolean | undefined;
     /**
-     * Значения новой строки вместо значений по умолчанию колонок. Вызывается при каждом добавлении,
-     * поэтому может предложить значение от текущих строк, например остаток суммы.
+     * Значения новой строки поверх значений по умолчанию колонок: незаданные колонки получают
+     * значения по умолчанию. Вызывается при каждом добавлении, поэтому может предложить значение
+     * от текущих строк, например остаток суммы.
      */
     readonly newRow?: (() => Record<string, unknown>) | undefined;
     /** Колонки, суммы которых выводятся последней строкой «Итого». */
@@ -60,6 +61,23 @@ export interface TablePartOptions {
      * Описание части не меняется, поэтому другие документы с теми же колонками его не замечают.
      */
     readonly columnOrder?: ReadonlyArray<string> | undefined;
+    /**
+     * Колонки, которые таблица не выводит. Значения скрытых колонок остаются в строках и
+     * записываются вместе с ними; обязательной скрытой колонке значение задаёт `newRow`.
+     * Так документ показывает только нужные ему колонки общей части: например, отвес не выводит
+     * стоимость товара, которую заполняют уже в продаже. Описание части не меняется.
+     */
+    readonly hiddenColumns?: ReadonlyArray<string> | undefined;
+    /**
+     * Колонки, которые таблица показывает только для чтения, хотя по описанию части они изменяемы.
+     * Например, состояние товара в записанном отвесе меняют кнопки формы, а не ввод в ячейке.
+     */
+    readonly readOnlyColumns?: ReadonlyArray<string> | undefined;
+    /**
+     * Строки нельзя добавлять и удалять: кнопки добавления и удаления строк не выводятся,
+     * а значения в ячейках изменять можно. Так записанный документ сохраняет состав строк.
+     */
+    readonly fixedRows?: boolean | undefined;
 }
 
 /** Свойства табличной части. */
@@ -92,10 +110,13 @@ interface Row {
  * строки целиком.
  */
 export function TablePart(properties: TablePartProperties) {
-    const part = orderedPart(properties.part, properties.columnOrder);
+    const part = shownPart(orderedPart(properties.part, properties.columnOrder), properties.hiddenColumns, properties.readOnlyColumns);
+    // Значения новой строки собираются по всем колонкам, в том числе скрытым: их тоже записывает сервер.
+    // Ими пользуются и кнопка добавления, и начальная строка.
+    const newRow = () => ({ ...newRowValues(properties.part), ...properties.newRow?.() });
     return (
         <Form.List name={part.name}>
-            {(rows, { add, remove }) => <RowTable {...properties} part={part} rows={rows} add={() => add(properties.newRow?.() ?? newRowValues(part))} remove={remove} />}
+            {(rows, { add, remove }) => <RowTable {...properties} part={part} newRow={newRow} rows={rows} add={() => add(newRow())} remove={remove} />}
         </Form.List>
     );
 }
@@ -109,6 +130,20 @@ function orderedPart(part: FormTablePart, order: ReadonlyArray<string> | undefin
     };
     // Сортировка устойчивая: колонки, не названные в порядке, сохраняют порядок описания.
     return { ...part, columns: [...part.columns].sort((left, right) => position(left.name) - position(right.name)) };
+}
+
+/**
+ * Часть без колонок `hidden` и с колонками `readOnly`, отмеченными только для чтения.
+ * Без таких колонок возвращается та же часть.
+ */
+function shownPart(part: FormTablePart, hidden: ReadonlyArray<string> | undefined, readOnly: ReadonlyArray<string> | undefined): FormTablePart {
+    if ((hidden === undefined || hidden.length === 0) && (readOnly === undefined || readOnly.length === 0)) return part;
+    return {
+        ...part,
+        columns: part.columns
+            .filter((column) => hidden?.includes(column.name) !== true)
+            .map((column) => (readOnly?.includes(column.name) === true ? { ...column, readOnly: true } : column)),
+    };
 }
 
 /** Название табличной части над её строками. Одно на все таблицы, чтобы названия выглядели одинаково. */
@@ -126,7 +161,7 @@ interface RowTableProperties extends TablePartProperties {
  * Фокус ячеек хранится по устойчивому ключу строки, поэтому удаление строки не сдвигает
  * ссылки на поля остальных строк. Новая строка получает фокус после регистрации её полей.
  */
-function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnWidths, columnShares, columnInputs, addTitle = 'Добавить строку', initialRow = false, newRow, totals = [] }: RowTableProperties) {
+function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnWidths, columnShares, columnInputs, addTitle = 'Добавить строку', initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false }: RowTableProperties) {
     const form = Form.useFormInstance();
     const watched: unknown = Form.useWatch(part.name, { form, preserve: true });
     const values = (Array.isArray(watched) ? watched : form.getFieldValue(part.name) ?? []) as Record<string, unknown>[];
@@ -142,7 +177,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
         if (row !== undefined && column !== undefined) cells.focus(cellName(row, column.name));
     };
     const addRow = () => {
-        if (disabled || inputColumns.length === 0 || pendingRow.current !== null) return;
+        if (disabled || fixedRows || inputColumns.length === 0 || pendingRow.current !== null) return;
         pendingRow.current = rows.length;
         add();
     };
@@ -170,9 +205,16 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     // Ширина нужна только для долей остатка: без них таблица за размером не следит.
     const container = useRef<HTMLDivElement>(null);
     const tableWidth = useElementWidth(container, columnWidths !== undefined && columnShares !== undefined);
-    const width = columnWidth(part, columnWidths, columnShares, !disabled, tableWidth);
+    // Колонка удаления строки есть, только если строки можно удалять.
+    const removable = !disabled && !fixedRows;
+    const width = columnWidth(part, columnWidths, columnShares, removable, tableWidth);
     const columns: NonNullable<TableProps<Row>['columns']> = [
-        { key: 'lineNumber', title: '№', width: serviceColumnWidth, render: (_value, _row, index) => index + 1 },
+        {
+            key: 'lineNumber', title: '№', width: serviceColumnWidth,
+            // Скрытые колонки регистрируются невидимыми полями: форма отдаёт при записи только
+            // зарегистрированные поля, и без них значения скрытых колонок не дошли бы до сервера.
+            render: (_value, row, index) => <>{index + 1}{hiddenColumns.map((name) => <Form.Item key={name} name={[row.name, name]} hidden noStyle />)}</>,
+        },
         ...part.columns.map((column) => {
             const columnWidth = width(column.name);
             return {
@@ -204,7 +246,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
             };
         }),
     ];
-    if (!disabled) columns.push({
+    if (removable) columns.push({
         key: 'remove', width: serviceColumnWidth,
         render: (_value, row) => <Button type="text" icon={<Icons.removeRow />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
     });
@@ -213,14 +255,14 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
             {showTitle && <TablePartTitle>{part.title}</TablePartTitle>}
             <Table<Row> size="small" style={{ width: '100%' }} rowKey="key" columns={columns} dataSource={[...rows]} pagination={false}
                 {...(columnWidths === undefined ? {} : { tableLayout: 'fixed' as const })}
-                {...(totals.length === 0 || rows.length === 0 ? {} : { summary: () => <TotalsRow part={part} values={values} totals={totals} removable={!disabled} /> })}
+                {...(totals.length === 0 || rows.length === 0 ? {} : { summary: () => <TotalsRow part={part} values={values} totals={totals} removable={removable} /> })}
                 expandable={expanded.length === 0 ? {} : {
                 expandedRowKeys: [...expandedKeys],
                 onExpandedRowsChange: setExpandedKeys,
                 rowExpandable: (row) => expanded.some((column) => typeof values[row.name]?.[column.name] === 'string'),
                 expandedRowRender: (row) => expandedKeys.includes(row.key) ? <Flex vertical gap="small">{expanded.filter((column) => typeof values[row.name]?.[column.name] === 'string').map((column) => <RecordTablePart key={column.name} object={column.target!} guid={String(values[row.name]?.[column.name])} part={column.expandedTablePart!} />)}</Flex> : null,
             }} locale={{ emptyText: 'Строк нет' }} />
-            {!disabled && <Button icon={<Icons.add />} onClick={addRow}>{addTitle}</Button>}
+            {!disabled && !fixedRows && <Button icon={<Icons.add />} onClick={addRow}>{addTitle}</Button>}
         </Flex>
     );
 }

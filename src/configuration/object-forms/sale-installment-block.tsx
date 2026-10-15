@@ -79,7 +79,8 @@ export function SaleInstallmentBlock({ terms, onChange, shift, disabled, problem
                     label: <Flex gap={6} align="center"><type.icon />{type.value}</Flex>,
                 }))}
             />
-            <FluidField label="Покупатель" required>
+            {/* Ширина free, как у поля «Покупатель» в описаниях документов: ФИО не обрезается. */}
+            <FluidField label="Покупатель" required free>
                 <FieldInput field={personField} value={terms.person} disabled={disabled} onChange={(person) => onChange({ ...terms, person: typeof person === 'string' ? person : null })} />
             </FluidField>
             <Flex vertical gap="small">

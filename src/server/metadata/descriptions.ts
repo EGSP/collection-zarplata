@@ -72,6 +72,15 @@ export interface ObjectReferenceValue extends ObjectTarget {
  */
 export type InputMode = 'fluent' | 'solid';
 
+/**
+ * Ширина поля ввода на форме:
+ * - `standard` — обычная ширина колонки формы;
+ * - `long` — длиннее обычной, для значений, которые обычно длиннее колонки;
+ * - `free` — растягивается, пока не поместится представление значения, но не уже обычной.
+ *   Подходит ссылке, представление которой длинное и не должно обрезаться, например ФИО покупателя.
+ */
+export type FieldWidth = 'standard' | 'long' | 'free';
+
 /** Значение простого варианта составного поля: тип варианта и значение в формате поля этого вида. */
 export interface CompositeScalarValue<Type extends Exclude<CompositeType, 'reference'>, Value> {
     readonly type: Type;
@@ -149,6 +158,8 @@ export interface FieldDescription {
      * не вычисляет. Отсутствует у полей, собранных вне `commit()`: им ввод не нужен.
      */
     readonly inputMode?: InputMode;
+    /** Ширина поля ввода на форме из конфигурации. Отсутствует либо `null`, если конфигурация её не задала. */
+    readonly width?: FieldWidth | null;
 }
 
 /** Табличная часть: список строк внутри объекта. В записи она представлена массивом строк. */

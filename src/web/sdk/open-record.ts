@@ -14,7 +14,7 @@
 import { createContext, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router';
 import type { RecordOpeningMode } from '../../server/ui/descriptions';
-import { newRecordPath, recordPath } from '../common/paths';
+import { newRecordDraftPath, newRecordPath, recordPath } from '../common/paths';
 import { findObjectView, useMetadata } from '../data-provider/metadata';
 import type { PerformTarget } from '../data-provider/perform';
 import type { FormValues } from './record-values';
@@ -28,14 +28,47 @@ import type { FormValues } from './record-values';
  * которую в нём записали, либо `null`, если окно закрыто без записи.
  *
  * Режим окна доступен только на странице, показанной в области окна; вне её вызов завершается ошибкой.
+ *
+ * `options` задают значения новой записи и ширину модального окна.
  */
-export type OpenRecord = (object: PerformTarget, guid: string | null, mode?: RecordOpeningMode) => Promise<string | null>;
+export type OpenRecord = (object: PerformTarget, guid: string | null, mode?: RecordOpeningMode, options?: OpenRecordOptions) => Promise<string | null>;
+
+/** Настройки формы, открытой в модальном окне. */
+export interface OpenRecordOptions {
+    /**
+     * Значения новой записи поверх значений по умолчанию, например основание и товары продажи
+     * из отвеса. Записываются и значения полей, которых на форме нет. У существующей записи
+     * значения не учитываются.
+     *
+     * Вкладка со значениями открывается по адресу черновика (`newRecordDraftPath`): значения
+     * остаются в памяти клиента под ключом из адреса. После перезагрузки страницы их нет,
+     * и по такому адресу открывается пустая форма новой записи.
+     */
+    readonly initial?: FormValues | undefined;
+    /**
+     * Ширина модального окна в пикселях вместо обычных 720. Нужна широкой форме, например продаже
+     * с таблицей товаров. Окно не шире области, в которой показано. Вкладка ширину не учитывает.
+     */
+    readonly width?: number | undefined;
+}
 
 /**
  * Команда области окна, которая показывает форму записи в модальном окне и возвращает итог его работы.
  * `initial` — значения новой записи поверх значений по умолчанию; у существующей записи не учитываются.
+ * `width` — ширина окна вместо обычной.
  */
-export type OpenRecordDialog = (object: PerformTarget, guid: string | null, initial?: FormValues) => Promise<string | null>;
+export type OpenRecordDialog = (object: PerformTarget, guid: string | null, initial?: FormValues, width?: number) => Promise<string | null>;
+
+/** Значения черновиков новых записей по ключам из адресов вкладок. */
+const drafts = new Map<string, FormValues>();
+
+/**
+ * Значения черновика по ключу из адреса вкладки. Ключ не удаляется при чтении: страница вкладки
+ * может смонтироваться заново, а значений немного.
+ */
+export function draftValues(key: string): FormValues | undefined {
+    return drafts.get(key);
+}
 
 /** Команда ближайшей области окна, способной показать модальное окно с формой. Вне такой области `null`. */
 export const RecordDialogContext = createContext<OpenRecordDialog | null>(null);
@@ -46,14 +79,20 @@ export function useOpenRecord(): OpenRecord {
     const openDialog = useContext(RecordDialogContext);
     const metadata = useMetadata().data;
     return useCallback(
-        async (object, guid, mode) => {
+        async (object, guid, mode, options) => {
             const creationMode = findObjectView(metadata, object)?.form?.creationMode ?? 'tab';
             if ((mode ?? (guid === null ? creationMode : 'tab')) === 'tab') {
+                if (guid === null && options?.initial !== undefined) {
+                    const key = crypto.randomUUID();
+                    drafts.set(key, options.initial);
+                    await navigate(newRecordDraftPath(object, key));
+                    return null;
+                }
                 await navigate(guid === null ? newRecordPath(object) : recordPath(object, guid));
                 return null;
             }
             if (openDialog === null) throw new Error('Окно с формой записи открывается только со страницы, показанной в области окна');
-            return openDialog(object, guid);
+            return openDialog(object, guid, options?.initial, options?.width);
         },
         [metadata, navigate, openDialog],
     );

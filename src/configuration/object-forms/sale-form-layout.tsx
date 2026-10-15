@@ -11,7 +11,8 @@ import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecordForm, t
  * его заполняют реже остальных колонок, и при вводе строки он не прерывает путь от названия
  * к стоимости. «Проведено в 1С» выбирается переключателем «Да» / «Нет». Сумма продажи
  * выводится строкой «Итого» под колонкой итогов строк, а не отдельным полем под таблицей.
- * Новая продажа сразу показывает пустую строку товара.
+ * Новая продажа сразу показывает пустую строку товара. Номер строки отвеса не выводится: его
+ * заполняет форма отвеса, когда открывает продажу из него, а продавцу он не нужен.
  */
 const goodsOptions: TablePartOptions = {
     columnWidths: { code: 110, postedIn1C: 130, cost: 120, discount: 110, total: 120 },
@@ -21,6 +22,7 @@ const goodsOptions: TablePartOptions = {
     addTitle: 'Товар',
     initialRow: true,
     totals: ['total'],
+    hiddenColumns: ['weighingLine'],
 };
 
 /** Отступы разделителя между частями продажи: поля над ним уже оставляют место снизу. */
@@ -95,7 +97,8 @@ const isEntered = (line: GoodsLine) => typeof line.name === 'string' && line.nam
  * Порядок частей и их состав берутся из групп описания формы, поэтому новое поле группы
  * появится на форме без правки раскладки.
  *
- * Элементы шапки выводятся отдельным блоком, и только у продажи с основанием: подстановка
+ * Элементы шапки выводятся отдельным блоком, и только у продажи с основанием, в том числе у новой
+ * продажи, которую открыл отвес: подстановка
  * открытой смены ничего не показывает, а её пустое место в раскладке раздвигало бы шапку.
  * Смонтированными они остаются всегда.
  *
@@ -122,6 +125,7 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
     const paymentShown = Array.isArray(goods) && goods.some((line: GoodsLine) => isEntered(line));
     const payments: unknown = Form.useWatch('payments', { form: state.form, preserve: true });
     const shift: unknown = Form.useWatch('shift', { form: state.form, preserve: true });
+    const basis: unknown = Form.useWatch('basis', { form: state.form, preserve: true });
     const [terms, setTerms] = useState<SaleInstallmentTerms>(emptyInstallmentTerms);
     // Ошибки блока рассрочки показываются после первой попытки продать, а не сразу при его появлении.
     const [termsChecked, setTermsChecked] = useState(false);
@@ -143,7 +147,7 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
         <RecordFormPage state={state} {...(state.record === null ? { buttons: newSaleButtons } : {})}>
             <Card size="small">
                 <FieldGroup elements={recordFormElements(state, header.filter((item) => !isElement(item)))} layout="fluid" {...common} />
-                <div hidden={(state.record?.['basis'] ?? null) === null}>
+                <div hidden={(basis ?? state.record?.['basis'] ?? null) === null}>
                     <FieldGroup elements={recordFormElements(state, header.filter(isElement))} />
                 </div>
                 <Divider style={dividerStyle} />

@@ -15,7 +15,7 @@ import { PhysicalPersons } from './physical-persons.catalog.js';
  */
 const employees = catalog('employees')
     .title('Сотрудники')
-    .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').required())
+    .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').required().width('free'))
     .presentation('person');
 
 /**

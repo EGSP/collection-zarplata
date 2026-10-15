@@ -4,7 +4,7 @@ import type { RecordOf } from '../../server/metadata/index';
 import { FieldInput, newRowValues, TablePart, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
 import type { Sale } from '../documents/sale.document';
 import { Objects } from '../objects.generated';
-import { PaymentMethodIcons } from './payment-method-input';
+import { PaymentMethodIcons, PaymentMethodIconsWithoutInstallment } from './payment-method-input';
 
 /** Строка оплаты на форме: до записи любая ячейка может быть не заполнена. */
 type PaymentLine = EnteredValue<RecordOf<typeof Sale>['payments']>[number];
@@ -58,7 +58,8 @@ function Labelled({ title, flex = '1 1 280px', onBlur, children }: { readonly ti
  * Простым считается способ, который есть среди способов строки оплаты. Продажа без способа,
  * записанная до появления оплат, показывает таблицу.
  *
- * В таблице способ строки выбирается кнопками из одних значков, название способа в подсказке. Первая строка сложной оплаты пустая,
+ * В таблице способ строки выбирается кнопками из одних значков, название способа в подсказке.
+ * Способ «Рассрочка» выбирается не больше чем в одной строке: в остальных он недоступен. Первая строка сложной оплаты пустая,
  * а каждая следующая получает сумму, которую осталось оплатить: продавцу не нужно считать
  * остаток самому.
  */
@@ -103,9 +104,11 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
     const remaining = saleAmount - paid;
 
     if (!simple) {
+        // У продажи не больше одной оплаты рассрочкой: когда она есть, в остальных строках способ недоступен.
+        const installmentTaken = rows.some((payment) => payment.method === installmentMethod);
         const options: TablePartOptions = {
             columnWidths,
-            columnInputs: { method: PaymentMethodIcons },
+            columnInputs: { method: installmentTaken ? PaymentMethodIconsWithoutInstallment : PaymentMethodIcons },
             addTitle: 'Оплата',
             newRow: () => ({ ...newRowValues(part), amount: rows.length > 0 && remaining > 0 ? remaining : null }),
         };

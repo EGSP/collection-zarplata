@@ -5,9 +5,10 @@
  * «Поступления денег» по способам, а сумму оплат способом «Рассрочка» в регистр «Рассрочки
  * по продажам»: на неё оформляются рассрочки по продаже.
  *
- * Продажа может быть оформлена из отвеса действием «Продажа» отвеса. Тогда она ссылается на него
- * как на основание, но остаётся самостоятельным документом: товары в неё скопированы, и её
- * изменение отвес не меняет.
+ * Продажа может быть оформлена из отвеса: форма отвеса открывает новую продажу с отвесом
+ * в основании и выбранными товарами. Строка такого товара хранит номер строки отвеса. Кроме них
+ * в продаже могут быть и другие товары. Отвес продажа меняет сама при проведении: её строки
+ * переводятся в состояние «Продано» в той же транзакции.
  */
 import { Effect } from 'effect';
 import { ActionDispatcher } from '../../server/data/action-context.js';
@@ -52,7 +53,9 @@ const sale = document('sale')
     .field('amount', (field) => field.money().title('Сумма').required().computed(formula.sum('goods', 'total')))
     .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, installmentMethod, complexPayment]).initial(cash).required())
     .field('paid', (field) => field.money().title('Оплачено').required().computed(formula.sum('payments', 'amount')))
-    .tablePart('goods', (part) => part.title('Товары').include(Goods))
+    // Строка отвеса заполнена у товара, взятого из отвеса-основания: по ней проведение отмечает товар проданным.
+    .tablePart('goods', (part) => part.title('Товары').include(Goods)
+        .field('weighingLine', (field) => field.number().title('Строка отвеса').integer().minimum(1)))
     .tablePart('payments', (part) => part.title('Оплаты').include(paymentColumns([...paymentMethods, installmentMethod])))
     .listTableParts(['goods']);
 
@@ -74,11 +77,13 @@ const installmentAmount = (record: SaleRecord) => record.payments.filter(byInsta
  * одну: у продажи с нулевой суммой оплат нет, потому что сумма оплаты больше нуля.
  *
  * Способ «Рассрочка» допустим у строки сложной оплаты и у единственной оплаты продажи со способом
- * «Рассрочка». У такой строки «Куда оплачено» пусто: деньги по ней не приняты и придут взносами
+ * «Рассрочка». Таких строк у продажи не больше одной. У такой строки «Куда оплачено» пусто: деньги по ней не приняты и придут взносами
  * рассрочки.
  */
 const checkPayments = (record: SaleRecord) => {
     const mode = record.paymentMode;
+    // Рассрочка по продаже оформляется на одну сумму, поэтому оплата рассрочкой у продажи одна.
+    if (record.payments.filter(byInstallment).length > 1) return rejected(`У продажи не больше одной оплаты способом «${installmentMethod}»`);
     for (const [index, payment] of record.payments.entries()) {
         if (!byInstallment(payment)) continue;
         const place = `Строка оплаты ${index + 1}`;
@@ -108,6 +113,97 @@ const salePayments: Policy<SaleRecord> = {
     name: 'sale-payments',
     save: ({ proposedRecord }) => checkPayments(proposedRecord),
     post: ({ document }) => checkPayments(document),
+};
+
+/**
+ * Проверяет сумму продажи (раздел «Правила учёта»): продажа с нулевой суммой допустима, только если
+ * у какого-нибудь товара указана скидка. Иначе ноль означает, что стоимость не заполнили, например
+ * у товара, перенесённого из отвеса: отвес стоимость не хранит.
+ */
+const checkAmount = (record: SaleRecord) => {
+    if (record.amount !== 0) return Effect.void;
+    if (record.goods.some((line) => (line.discount ?? 0) > 0)) return Effect.void;
+    return rejected('Сумма продажи равна нулю: укажите стоимость товаров. Нулевая сумма допустима только со скидкой');
+};
+
+/**
+ * Правило суммы действует при любой записи, а не только при проведении, по той же причине, что
+ * и правила оплат: продавец видит ошибку сразу, пока оформляет продажу.
+ */
+const saleAmount: Policy<SaleRecord> = {
+    name: 'sale-amount',
+    save: ({ proposedRecord }) => checkAmount(proposedRecord),
+    post: ({ document }) => checkAmount(document),
+};
+
+/** Состояние строки отвеса, из которого товар можно продать. Совпадает со значением в описании отвеса. */
+const held = 'В отвесе';
+
+/**
+ * Отвес вызывается по имени: файл отвеса импортирует продажу, и тип отвеса здесь выводился бы
+ * через тип продажи.
+ */
+const weighingTarget = { kind: 'document', name: 'weighing' };
+
+/** Номера строк отвеса, из которых взяты товары продажи. */
+const weighingLines = (record: SaleRecord) => record.goods.flatMap((line) => line.weighingLine ?? []);
+
+/**
+ * Проверяет связь товаров продажи со строками отвеса (раздел «Правила учёта»). Номер строки
+ * отвеса допустим только у продажи с основанием, каждая строка отвеса продаётся один раз,
+ * и строка должна быть «В отвесе» либо уже проданной этой же продажей: так повторное проведение
+ * продажи проходит проверку.
+ *
+ * Проверка стоит и при записи: продавец узнает о проданном раньше товаре до проведения. При
+ * проведении отвес проверяет строки ещё раз в своём действии.
+ */
+const checkWeighingLines = (record: SaleRecord) => Effect.gen(function* () {
+    const numbers = weighingLines(record);
+    if (numbers.length === 0) return;
+    // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
+    const basis = record.basis ?? null;
+    if (basis === null) return yield* rejected('Строка отвеса указана у товара продажи без отвеса-основания');
+    if (new Set(numbers).size !== numbers.length) return yield* rejected('Строка отвеса указана у нескольких товаров продажи');
+    const dispatcher = yield* ActionDispatcher;
+    const weighing = (yield* dispatcher.execute({ target: weighingTarget, action: 'get', payload: { guid: basis } })) as {
+        readonly goods: ReadonlyArray<{ readonly name: string; readonly state: string; readonly sale: string | null }>;
+    };
+    for (const number of numbers) {
+        const line = weighing.goods[number - 1];
+        if (line === undefined) return yield* rejected(`В отвесе нет строки ${number}`);
+        if (line.state !== held && line.sale !== record.guid) return yield* rejected(`Товар «${line.name}» уже не в отвесе: его состояние «${line.state}»`);
+    }
+});
+
+/**
+ * Отмечает строки отвеса-основания проданными этой продажей или снимает отметку. Действие отвеса
+ * получает полный перечень строк продажи: строки, которые продажа больше не содержит, оно
+ * возвращает в отвес. Поэтому отмена проведения передаёт пустой перечень.
+ */
+const applyToWeighing = (record: SaleRecord, lines: ReadonlyArray<number>) => Effect.gen(function* () {
+    const basis = record.basis ?? null;
+    if (basis === null) return;
+    const dispatcher = yield* ActionDispatcher;
+    yield* dispatcher.execute({
+        target: weighingTarget, action: 'applySale',
+        payload: { weighing: basis, sale: record.guid, lines: lines.map((lineNumber) => ({ lineNumber })) },
+    });
+});
+
+/**
+ * Продажа из отвеса меняет отвес сама: при проведении её строки становятся «Продано» и ссылаются
+ * на продажу, при отмене проведения возвращаются «В отвесе». Изменение выполняется в транзакции
+ * проведения: если проведение не состоится, отвес не изменится. Отвес меняет его действие
+ * `applySale`, поэтому пользователю нужно право и на него.
+ */
+const saleWeighing: Policy<SaleRecord> = {
+    name: 'sale-weighing',
+    save: ({ proposedRecord }) => checkWeighingLines(proposedRecord),
+    post: ({ document }) => Effect.gen(function* () {
+        yield* checkWeighingLines(document);
+        yield* applyToWeighing(document, weighingLines(document));
+    }),
+    unpost: ({ document }) => applyToWeighing(document, []),
 };
 
 const target = { kind: 'document', name: 'sale' };
@@ -151,6 +247,8 @@ export const Sale = sale
         .hide('basis')
         .hide('posted'))
     .policy(salePayments)
+    .policy(saleAmount)
+    .policy(saleWeighing)
     .action('createInstallment', (action) => action
         .title('Оформить рассрочку')
         .input((input) => input.field('sale', (field) => field.reference(sale).title('Продажа').required()))
@@ -190,8 +288,8 @@ export const Sale = sale
         .input((input) => input
             .field('sale', (field) => field.reference(sale).title('Продажа').required())
             .field('type', (field) => field.string().title('Тип рассрочки').choices(installmentTypes).required())
-            .field('person', (field) => field.reference(PhysicalPersons).title('Покупатель').required())
-            .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник')))
+            .field('person', (field) => field.reference(PhysicalPersons).title('Покупатель').required().width('free'))
+            .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник').width('long')))
         .handle((input) => Effect.gen(function* () {
             const dispatcher = yield* ActionDispatcher;
             const record = (yield* dispatcher.execute({ target, action: 'get', payload: { guid: input.sale } })) as SaleRecord;

@@ -35,8 +35,11 @@ const paletteColor = (token: GlobalToken, palette: MethodPalette): string => tok
  * на нём белые: светлая заливка с цветным текстом сливалась с остальными вариантами.
  * Обход с клавиатуры ставит фокус на выбранный вариант, а без выбора на первый; стрелки
  * переключают варианты, как у группы переключателей.
+ *
+ * Способы из `unavailable` показаны, но недоступны для выбора, если не выбраны в этом поле: так
+ * строка оплаты не получит способ, который уже занят другой строкой.
  */
-export function PaymentMethodInput({ field, value, onChange, disabled, id, ref, iconsOnly = false }: InputProperties<unknown> & { readonly iconsOnly?: boolean }) {
+export function PaymentMethodInput({ field, value, onChange, disabled, id, ref, iconsOnly = false, unavailable = [] }: InputProperties<unknown> & { readonly iconsOnly?: boolean; readonly unavailable?: ReadonlyArray<string> }) {
     const { token } = theme.useToken();
     const root = useRef<HTMLDivElement>(null);
     useImperativeHandle(ref, () => ({
@@ -50,6 +53,7 @@ export function PaymentMethodInput({ field, value, onChange, disabled, id, ref, 
         const description = methods[method];
         return {
             value: method,
+            disabled: method !== value && unavailable.includes(method),
             label: iconsOnly && description !== undefined ? (
                 <Tooltip title={method}>
                     <span aria-label={method} style={disabled === true || method === value ? {} : { color: paletteColor(token, description.palette) }}><description.icon /></span>
@@ -86,4 +90,14 @@ export function PaymentMethodInput({ field, value, onChange, disabled, id, ref, 
 /** Способ строки оплаты одними значками: для узкой колонки таблицы оплат. */
 export function PaymentMethodIcons(properties: InputProperties<unknown>) {
     return <PaymentMethodInput {...properties} iconsOnly />;
+}
+
+/**
+ * Способ строки оплаты одними значками, когда другая строка уже оплачена рассрочкой: у продажи
+ * не больше одной оплаты способом «Рассрочка», поэтому в остальных строках он недоступен.
+ * Отдельный компонент, а не свойство: колонка таблицы получает компонент поля ввода, и его тип
+ * должен оставаться постоянным, иначе ячейки создавались бы заново при каждой отрисовке.
+ */
+export function PaymentMethodIconsWithoutInstallment(properties: InputProperties<unknown>) {
+    return <PaymentMethodInput {...properties} iconsOnly unavailable={['Рассрочка']} />;
 }

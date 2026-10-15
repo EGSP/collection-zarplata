@@ -22,7 +22,7 @@ export const roles = [
         // Закрытие смены проводит её вложенным действием: одного права на закрытие недостаточно.
         .grant(Rights.document.shift.read, Rights.document.shift.write, Rights.document.shift.post, Rights.document.shift.actions.close)
         .grant(Rights.document.sale.read, Rights.document.sale.write, Rights.document.sale.post, Rights.document.sale.actions.createInstallment, Rights.document.sale.actions.sellWithInstallment,
-            Rights.document.weighing.read, Rights.document.weighing.write, Rights.document.weighing.post, Rights.document.weighing.actions.sell,
+            Rights.document.weighing.read, Rights.document.weighing.write, Rights.document.weighing.post, Rights.document.weighing.actions.applySale,
             Rights.document.refund.read, Rights.document.refund.write, Rights.document.refund.post,
             Rights.document.installment.read, Rights.document.installment.write, Rights.document.installment.post, Rights.document.installment.actions.pay,
             // Рассрочку по продаже создаёт действие продажи вложенной записью: одного права на действие недостаточно.

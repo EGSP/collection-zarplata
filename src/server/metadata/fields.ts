@@ -7,7 +7,7 @@
  * объявить один раз в базовом классе и сохранить тип подкласса со всеми его методами.
  */
 import type { Formula } from '../../common/formulas.js';
-import type { CompositeReferenceValue, CompositeType, FieldKind, ObjectTarget, RecorderValue, ObjectReferenceValue } from './descriptions.js';
+import type { CompositeReferenceValue, CompositeType, FieldKind, FieldWidth, ObjectTarget, RecorderValue, ObjectReferenceValue } from './descriptions.js';
 
 /**
  * Цель ссылки: билдер справочника или документа либо функция, которая его возвращает.
@@ -39,6 +39,8 @@ export interface FieldState {
     readonly variants: ReadonlyArray<AnyFieldBuilder> | null;
     /** Способ ввода, заданный конфигурацией составному полю; `null` оставляет способ, выведенный из вариантов. */
     readonly inputMode: 'solid' | null;
+    /** Ширина поля ввода на форме; `null` оставляет обычную. */
+    readonly width: FieldWidth | null;
 }
 
 /** Метка обязательного поля в типе билдера. Существует только на уровне типов. */
@@ -67,6 +69,14 @@ export abstract class FieldBuilder<Value> {
     /** Поле должно быть заполнено: в типе записи оно теряет `null`, а схема проверки требует значение. */
     required(): this & RequiredField {
         return this.with({ required: true }) as this & RequiredField;
+    }
+
+    /**
+     * Ширина поля ввода на форме: `long` длиннее обычной, `free` растягивается под представление
+     * значения, но не уже обычной. Форма может задать полю другую ширину (`FieldGroup.widths`).
+     */
+    width(width: FieldWidth): this {
+        return this.with({ width });
     }
 
     /** Создаёт билдер того же подкласса, чтобы после вызова остались методы конкретного вида поля. */
@@ -232,6 +242,7 @@ function initialState(kind: FieldKind): FieldState {
         expandedTablePart: null,
         variants: null,
         inputMode: null,
+        width: null,
     };
 }
 

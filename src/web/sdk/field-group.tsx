@@ -1,6 +1,7 @@
 import { Card, ConfigProvider, Flex, Form, Space, theme } from 'antd';
 import type { ComponentType } from 'react';
-import type { FormElementReference, FormField, FormTablePart } from '../../server/ui/descriptions';
+import type { CSSProperties } from 'react';
+import type { FieldWidth, FormElementReference, FormField, FormTablePart } from '../../server/ui/descriptions';
 import type { RecordData } from '../data-provider/records';
 import { FieldDisplay, FieldInput } from '../widgets/registry';
 import { fieldRules, isMarkedRequired } from '../widgets/validation';
@@ -37,7 +38,30 @@ export interface FieldGroupProperties {
      * например переключателем и пояснением рядом, не переносит его на следующую строку.
      */
     readonly fullWidth?: ReadonlyArray<string>;
+    /**
+     * Ширина полей ввода по именам вместо заданной в конфигурации (`FieldBuilder.width`):
+     * `standard`, `long` или `free`. Так форма меняет ширину поля, не трогая описание объекта.
+     */
+    readonly widths?: { readonly [field: string]: FieldWidth };
 }
+
+/** Обычная ширина поля: столько занимает колонка формы. */
+const standardWidth = 280;
+
+/**
+ * Размер поля в строке группы по его ширине. Поля стоят в строку с переносом и не растягиваются
+ * на свободное место: обычное поле всегда обычной ширины, длинное вдвое шире, свободное шире
+ * обычного ровно настолько, насколько длиннее представление значения, но не шире группы.
+ * На узкой форме обычное и длинное поле сжимаются до её ширины.
+ */
+function widthStyle(width: FieldWidth): CSSProperties {
+    if (width === 'long') return { flex: `0 1 ${standardWidth * 2}px`, minWidth: 0 };
+    if (width === 'free') return { flex: '0 1 auto', minWidth: standardWidth, maxWidth: '100%' };
+    return { flex: `0 1 ${standardWidth}px`, minWidth: 0 };
+}
+
+/** Поле, табличная часть или элемент на всю ширину группы. */
+const fullRow: CSSProperties = { flex: '1 1 100%' };
 
 /**
  * Группа полей формы с подписями и ошибками проверки.
@@ -47,31 +71,36 @@ export interface FieldGroupProperties {
  * из описания поля, поэтому ввод проверяется так же, как на стандартной форме, а ошибки сервера
  * экран ставит на поля средствами формы Ant Design по тем же именам.
  *
- * Поля шапки стоят в несколько колонок, табличная часть занимает всю ширину группы.
+ * Поля шапки стоят в строку с переносом, ширину каждого задаёт его вид ширины (`widths`
+ * группы либо ширина из конфигурации); по умолчанию ширина обычная. Табличная часть занимает всю ширину группы.
  *
  * Собственные элементы конфигурации группа берёт у поставщика данных формы (`FormDataProvider`).
  * Элемент, названный в группе, занимает всю её ширину и свойств не получает. Элемент, назначенный
  * полю, встаёт на место поля ввода и получает его свойства; подпись, проверку и обход с клавиатуры
  * поле сохраняет. Без поставщика поле выводится виджетом своего вида, а элемент группы пропускается.
  */
-export function FieldGroup({ title = null, elements, record = null, disabled = false, traversal, tablePartOptions, layout = 'stacked', fullWidth = [] }: FieldGroupProperties) {
+export function FieldGroup({ title = null, elements, record = null, disabled = false, traversal, tablePartOptions, layout = 'stacked', fullWidth = [], widths = {} }: FieldGroupProperties) {
     const { token } = theme.useToken();
     const content = (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', columnGap: token.marginLG }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: token.marginLG }}>
             {elements.map((element) => {
                 if ('element' in element) {
                     return (
-                        <div key={`element/${element.element}`} style={{ gridColumn: '1 / -1', marginBottom: token.marginLG }}>
+                        <div key={`element/${element.element}`} style={{ ...fullRow, marginBottom: token.marginLG }}>
                             <ElementBlock name={element.element} />
                         </div>
                     );
                 }
                 if (!('columns' in element)) {
-                    const item = <FieldItem key={element.name} field={element} record={record} traversal={traversal} layout={layout} />;
-                    return fullWidth.includes(element.name) ? <div key={element.name} style={{ gridColumn: '1 / -1' }}>{item}</div> : item;
+                    const width = widths[element.name] ?? element.width ?? 'standard';
+                    return (
+                        <div key={element.name} style={fullWidth.includes(element.name) ? fullRow : widthStyle(width)}>
+                            <FieldItem field={element} record={record} traversal={traversal} layout={layout} free={width === 'free'} />
+                        </div>
+                    );
                 }
                 return (
-                    <div key={element.name} style={{ gridColumn: '1 / -1', marginBottom: token.marginLG }}>
+                    <div key={element.name} style={{ ...fullRow, marginBottom: token.marginLG }}>
                         <TablePartItem part={element} disabled={disabled} traversal={traversal} options={tablePartOptions?.[element.name]} />
                     </div>
                 );
@@ -91,6 +120,8 @@ interface FieldItemProperties {
     readonly record: RecordData | null;
     readonly traversal: FieldTraversal | undefined;
     readonly layout: FieldLayout;
+    /** Поле шириной `free`: значение не растягивается на место группы, а занимает ширину своего представления. */
+    readonly free: boolean;
 }
 
 interface TablePartItemProperties {
@@ -143,7 +174,7 @@ function ElementBlock({ name }: { readonly name: string }) {
  * получает компоновку, название и обязательность и выводит сегмент сам (`fieldInput`).
  * Составное поле пока выводится с подписью над полем: его виджет состоит из нескольких частей.
  */
-function FieldItem({ field, record, traversal, layout: groupLayout }: FieldItemProperties) {
+function FieldItem({ field, record, traversal, layout: groupLayout, free }: FieldItemProperties) {
     const { token } = theme.useToken();
     // На месте поля ввода элемент получает свойства поля ввода: значение и обработчик изменения
     // ему передаёт элемент формы Ant Design, как и виджету. Реестр элементов принимает на месте
@@ -160,7 +191,8 @@ function FieldItem({ field, record, traversal, layout: groupLayout }: FieldItemP
             return (
                 <Form.Item {...(field.computed ? { name: field.name } : {})}>
                     <FluidField label={field.title}>
-                        <Space.Addon style={{ flex: 1, background: 'transparent' }}>{display}</Space.Addon>
+                        {/* Высота как у поля ввода: без неё значение только для чтения ниже соседних полей. */}
+                        <Space.Addon style={{ flex: 1, background: 'transparent', minHeight: token.controlHeight, display: 'flex', alignItems: 'center' }}>{display}</Space.Addon>
                     </FluidField>
                 </Form.Item>
             );
@@ -179,7 +211,7 @@ function FieldItem({ field, record, traversal, layout: groupLayout }: FieldItemP
             <ConfigProvider {...(restricted ? { componentDisabled: true } : {})}>
                 <Form.Item name={field.name} {...(fluid ? {} : { label: field.title })} required={required} rules={fieldRules(field)}>
                     {/* Обход останавливается на имени, у которого есть ссылка, поэтому недоступное поле её не получает. */}
-                    <LaidOutInput field={field} override={Override} layout={layout} label={field.title} required={required} ref={restricted ? undefined : traversal?.register(field.name)} />
+                    <LaidOutInput field={field} override={Override} layout={layout} label={field.title} required={required} free={free} ref={restricted ? undefined : traversal?.register(field.name)} />
                 </Form.Item>
             </ConfigProvider>
         </div>
@@ -191,18 +223,25 @@ interface LaidOutInputProperties extends InputProperties<unknown> {
     readonly layout: FieldLayout;
     readonly label: string;
     readonly required: boolean;
+    readonly free: boolean;
 }
 
 /**
  * Поле ввода в выбранной компоновке. Значение и обработчик изменения передаёт элемент формы
  * Ant Design, поэтому компонент пропускает их к полю без изменений.
  */
-function LaidOutInput({ override: Override, layout, label, required, ...properties }: LaidOutInputProperties) {
+function LaidOutInput({ override: Override, layout, label, required, free, ...properties }: LaidOutInputProperties) {
     if (Override !== undefined) return <Override {...properties} layout={layout} label={label} required={required} />;
-    if (layout === 'stacked') return <FieldInput {...properties} />;
+    if (layout === 'stacked') return free ? <div style={freeInputStyle}><FieldInput {...properties} /></div> : <FieldInput {...properties} />;
     return (
-        <FluidField label={label} required={required}>
+        <FluidField label={label} required={required} free={free}>
             <FieldInput {...properties} />
         </FluidField>
     );
 }
+
+/**
+ * Обёртка поля шириной `free`: ширина по содержимому, но не меньше места поля в группе. Поле ввода
+ * внутри растягивается на ширину обёртки, поэтому оно получает ширину своего представления.
+ */
+const freeInputStyle: CSSProperties = { display: 'grid', width: 'max-content', minWidth: '100%', maxWidth: '100%' };

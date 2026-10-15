@@ -62,8 +62,8 @@ const head = <const Name extends InstallmentName>(name: Name, title: string) => 
     .title(title)
     .field('type', (field) => field.string().title('Тип').choices(installmentTypes))
     .field('shift', (field) => field.reference(Shift).title('Смена').required())
-    .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо'))
-    .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник'));
+    .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').width('free'))
+    .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник').width('long'));
 
 type HeadBuilder<Name extends InstallmentName> = ReturnType<typeof head<Name>>;
 type HeadFields = HeadBuilder<InstallmentName>['~fields'];

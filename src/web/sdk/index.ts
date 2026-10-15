@@ -52,7 +52,7 @@ export { ApiError } from '../common/api';
 export { useAction, type ActionCall } from '../data-provider/actions';
 export type { ListCondition } from '../data-provider/data-provider';
 export { recordGuid, type RecordData } from '../data-provider/records';
-export { useRecord, type RecordQuery } from './record';
+export { useRecord, useRecords, type RecordQuery, type RecordsQuery } from './record';
 export { defaultPageSize, useRecordList, type RecordList, type RecordListOptions } from './record-list';
 
 // Представления записей и ссылки на них.

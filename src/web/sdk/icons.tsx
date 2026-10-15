@@ -43,6 +43,7 @@ import {
     SettingOutlined,
     ShopOutlined,
     ShoppingCartOutlined,
+    SkinOutlined,
     ThunderboltOutlined,
     UnlockOutlined,
     WalletOutlined,
@@ -89,6 +90,8 @@ export const Icons = {
     sell: ShoppingCartOutlined,
     /** Оформление отвеса: товар откладывается для покупателя. */
     weigh: InboxOutlined,
+    /** Вывешивание товара из отвеса обратно в зал: значок одежды. */
+    hang: SkinOutlined,
     /** Оформление возврата. */
     refund: RollbackOutlined,
     /** Оформление рассрочки: оплата взносами по графику. */

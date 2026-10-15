@@ -78,6 +78,7 @@ function formField(field: FieldDescription, title: string = field.title, inputEl
         expandedTablePart: field.expandedTablePart ?? null,
         variants: field.variants?.map((variant) => formField(variant, title)) ?? null,
         ...(field.inputMode === undefined ? {} : { inputMode: field.inputMode }),
+        ...(field.width == null ? {} : { width: field.width }),
         rules: validationRules(field),
     };
 }

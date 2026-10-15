@@ -21,6 +21,7 @@ covers:
 | `actionApplies`, `actionSuccessMessage` | Применимость действия к записи и текст успешного выполнения |
 | `defaultPageSize` | Размер страницы списка по умолчанию |
 | `ApiError` | Отказ API: статус, сообщение, поля и право |
+| `fieldInput`, `FluidField` | Сборка собственного поля ввода для обеих [компоновок](components.md#компоновка-полей) и обёртка поля с подписью в сегменте |
 | `Icons`, `Pictograms` | [Реестры значков](../web-sdk.md#иконки-и-пиктограммы) |
 
 `hasOpenDialog` принимает корневой элемент экрана и не учитывает окно, в котором показан сам экран. Иначе форма в модальном окне сочла бы себя перекрытой собственным окном и отключила бы сочетания клавиш.
@@ -33,10 +34,15 @@ covers:
 | `ObjectReference`, `FieldName`, `RecordCondition`, `RecordSort` и связанные | [Ссылки на объекты](../web-sdk.md#типизация-объектов) с точными типами записи и действий |
 | `ObjectTarget`, `PerformTarget`, `ListCondition` | Объект и условия запроса |
 | `RecordData`, `FormValues` | Запись общего типа и значения формы |
+| `RecordQuery`, `RecordsQuery` | Результат [`useRecord`](hooks.md#чтение-данных) и [`useRecords`](hooks.md#чтение-данных): записи, `loading` и `error` |
 | `InputProperties`, `DisplayProperties`, `CompositeInputModes` и связанные | Контракт поля ввода и отображения |
 | `TablePartInputProperties` | Контракт замены табличной части |
 | `ListFormProperties`, `RecordFormProperties`, `NewFormProperties`, `FormPresentation` | Свойства форм объекта и место показа `page` или `dialog` ([«Формы объекта»](../metadata.md#формы-объекта)) |
 | `RecordFormHandlers`, `RecordFormController`, `RecordFormOutcome`, `RecordFormRunOptions` | Обработчики, управление и итог действия [контракта формы записи](hooks.md#контракт-формы-записи) |
 | `RecordFormState`, `RecordFormPartProperties`, `RecordFormBodyProperties`, `RecordFormLayoutProperties`, `RecordFormPageProperties`, `RecordFormActionsProperties` | Состояние `useRecordForm` и свойства [частей формы](components.md#стандартная-форма-и-её-части) |
-| `RecordFormTitles` | [Подписи кнопок формы](components.md#подписи-кнопок): действия по именам, «Провести и закрыть», «Закрыть» |
+| `RecordFormTitles`, `RecordFormButtons` | [Подписи](components.md#подписи-кнопок) и [набор кнопок](components.md#набор-кнопок) формы: действия по именам, «Провести и закрыть», «Закрыть» |
+| `RecordFormOptions`, `RecordFormActionInput` | Настройки [`useRecordForm`](hooks.md#userecordform) (`beforeSave`) и входные данные `run`: значения либо функция от записанной записи |
+| `SetValueOptions` | Параметры `FormData.setValue`: `validate: false` откладывает проверку ([«Данные формы»](hooks.md#данные-формы)) |
+| `FieldLayout`, `FieldInputComponent`, `FieldInputLayouts`, `FieldInputMark`, `FluidInputProperties`, `LaidOutInputProperties` | [Компоновка полей](components.md#компоновка-полей) и контракт собственного поля ввода |
+| `TablePartOptions` | [Настройки вида табличной части](components.md#табличная-часть) |
 | `<Компонент>Properties` | Свойства компонента SDK, например `TileProperties` |
