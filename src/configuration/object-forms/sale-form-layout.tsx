@@ -1,8 +1,9 @@
 import { Button, Card, Divider, Flex, Form } from 'antd';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PostedIn1CSwitch } from './posted-in-1c-switch';
 import { emptyInstallmentTerms, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
-import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecordForm, type FormElementReference, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { Objects } from '../objects.generated';
+import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecord, useRecordForm, type FormElementReference, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Вид таблицы товаров. Код и стоимость короткие, поэтому их колонки вдвое уже, чем досталось бы
@@ -127,6 +128,12 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
     const shift: unknown = Form.useWatch('shift', { form: state.form, preserve: true });
     const basis: unknown = Form.useWatch('basis', { form: state.form, preserve: true });
     const [terms, setTerms] = useState<SaleInstallmentTerms>(emptyInstallmentTerms);
+    // Покупатель рассрочки по умолчанию — покупатель отвеса-основания: продавец уже ввёл его в отвесе.
+    // Подставляется, только пока покупатель не выбран, поэтому выбор продавца не перезаписывается.
+    const weighingPerson = useRecord(Objects.document.weighing, typeof basis === 'string' ? basis : null).record?.person ?? null;
+    useEffect(() => {
+        if (weighingPerson !== null) setTerms((previous) => previous.person === null ? { ...previous, person: weighingPerson } : previous);
+    }, [weighingPerson]);
     // Ошибки блока рассрочки показываются после первой попытки продать, а не сразу при его появлении.
     const [termsChecked, setTermsChecked] = useState(false);
     const isNew = state.record === null;

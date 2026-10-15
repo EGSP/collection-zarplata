@@ -276,11 +276,15 @@ export const Sale = sale
                 limit: 1,
             }));
             if (shift === undefined) return yield* rejected('Нет открытой смены: откройте смену, чтобы оформить рассрочку');
-            // Рассрочка создаётся непроведённой: тип, физическое лицо и ответственного продавец
-            // заполняет в ней сам, и до проведения итог регистра она не уменьшает.
+            // Физическое лицо берётся из отвеса-основания: покупателя продавец уже ввёл в отвесе.
+            // Необязательное поле, не переданное в запросе, приходит как `undefined`, а не `null`.
+            const basis = record.basis ?? null;
+            const person = basis === null ? null : ((yield* dispatcher.execute({ target: weighingTarget, action: 'get', payload: { guid: basis } })) as { readonly person: string }).person;
+            // Рассрочка создаётся непроведённой: тип и ответственного продавец заполняет в ней сам,
+            // а физическое лицо, если продажа не из отвеса. До проведения итог регистра она не уменьшает.
             return yield* dispatcher.execute({
                 target: { kind: 'document', name: 'saleInstallment' }, action: 'save',
-                payload: { fields: { date: new Date().toISOString(), sale: record.guid, shift: shift.guid, amount, payments: [] } },
+                payload: { fields: { date: new Date().toISOString(), sale: record.guid, shift: shift.guid, amount, payments: [], person } },
             });
         })))
     .action('sellWithInstallment', (action) => action

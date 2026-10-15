@@ -117,9 +117,8 @@ function ClosedShift() {
 /**
  * Активное состояние: смена открыта. Сверху шапка смены и тайлы действий, под разделительной
  * линией информационный блок: фид последних продаж, незакрытые рассрочки по продажам и отвесы.
- * Фид показывает продавцу, что уже оформлено. Блок «Рассрочки» остаётся только на главном экране:
- * продавцу на рабочем месте он не нужен.
- * Рассрочку по продаже продавец оформляет из продажи, поэтому отдельного тайла у неё нет.
+ * Фид показывает продавцу, что уже оформлено.
+ * Рассрочку продавец оформляет из продажи, поэтому отдельного тайла у неё нет.
  */
 function OpenShiftWorkplace({ shift }: { readonly shift: OpenShiftState }) {
     const { token } = theme.useToken();
@@ -130,7 +129,6 @@ function OpenShiftWorkplace({ shift }: { readonly shift: OpenShiftState }) {
                 <ActionTile title="Продажа" description="Продажа товара с оплатой наличными, безналичными или сложной оплатой." action="Продать" icon={Icons.sell} object={Objects.document.sale} />
                 <ActionTile title="Отвес" description="Товар откладывается для покупателя до продажи или вывешивания." action="Отложить товар" icon={Icons.weigh} object={Objects.document.weighing} />
                 <ActionTile title="Возврат" description="Возврат товара по проведённой продаже." action="Оформить возврат" icon={Icons.refund} object={Objects.document.refund} />
-                <ActionTile title="Рассрочка" description="Продажа товара с оплатой взносами вместо разовой оплаты." action="Продать в рассрочку" icon={Icons.installment} object={Objects.document.installment} />
             </Row>
             {/* Линия делит экран на действия и справки. Цвет рамки, а не разделителя: на сером фоне
                 страницы стандартная линия Ant Design почти не видна. */}

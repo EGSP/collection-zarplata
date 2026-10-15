@@ -13,7 +13,6 @@ import { PaymentReceivers } from './catalogs/payment-receivers.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { SampleDelegate } from './catalogs/sample-delegate.catalog.js';
 import { Sample } from './catalogs/sample.catalog.js';
-import { Installment } from './documents/installment.document.js';
 import { PeriodClosing } from './documents/period-closing.document.js';
 import { Refund } from './documents/refund.document.js';
 import { SaleInstallment } from './documents/sale-installment.document.js';
@@ -37,7 +36,7 @@ export const applicationShell = shell()
     .subsystem('sales', (subsystem) => subsystem
         .title('Продажи')
         .group('Рабочие места', [SellerWorkplace])
-        .group('Документы', [Sale, Weighing, Refund, Installment, SaleInstallment])
+        .group('Документы', [Sale, Weighing, Refund, SaleInstallment])
         .group('Регистры', [Sales, CustomerSettlements, MoneyReceipts, SaleInstallments])
         .group('Справочники', [Discounts, PaymentReceivers]))
     .subsystem('masterData', (subsystem) => subsystem

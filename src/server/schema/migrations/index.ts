@@ -2,6 +2,7 @@ import { journalColumns } from './20260929_journal_columns.js';
 import { removeCatalogCode } from './20261007_remove_catalog_code.js';
 import { externalRecordReference } from './20261007_external_record_reference.js';
 import { installmentPaymentColumns } from './20261012_installment_payment_columns.js';
+import { removeInstallment } from './20261015_remove_installment.js';
 import type { SchemaStructure } from '../structure.js';
 
 /** Разрешённые изменения и SQL-команды миграции, построенные по снимку конкретной базы. */
@@ -33,4 +34,4 @@ export interface SchemaMigration {
  * Реестр миграций. Добавляйте сюда импорт нового файла и его значение в порядке `id`.
  * Статический импорт включает миграции и в исполняемый файл без доступа к исходникам.
  */
-export const migrations: readonly SchemaMigration[] = [journalColumns, externalRecordReference, removeCatalogCode, installmentPaymentColumns];
+export const migrations: readonly SchemaMigration[] = [journalColumns, externalRecordReference, removeCatalogCode, installmentPaymentColumns, removeInstallment];
