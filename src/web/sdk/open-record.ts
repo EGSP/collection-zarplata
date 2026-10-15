@@ -17,6 +17,7 @@ import type { RecordOpeningMode } from '../../server/ui/descriptions';
 import { newRecordPath, recordPath } from '../common/paths';
 import { findObjectView, useMetadata } from '../data-provider/metadata';
 import type { PerformTarget } from '../data-provider/perform';
+import type { FormValues } from './record-values';
 
 /**
  * Открывает форму записи объекта. `guid`, равный `null`, открывает форму новой записи.
@@ -30,8 +31,11 @@ import type { PerformTarget } from '../data-provider/perform';
  */
 export type OpenRecord = (object: PerformTarget, guid: string | null, mode?: RecordOpeningMode) => Promise<string | null>;
 
-/** Команда области окна, которая показывает форму записи в модальном окне и возвращает итог его работы. */
-export type OpenRecordDialog = (object: PerformTarget, guid: string | null) => Promise<string | null>;
+/**
+ * Команда области окна, которая показывает форму записи в модальном окне и возвращает итог его работы.
+ * `initial` — значения новой записи поверх значений по умолчанию; у существующей записи не учитываются.
+ */
+export type OpenRecordDialog = (object: PerformTarget, guid: string | null, initial?: FormValues) => Promise<string | null>;
 
 /** Команда ближайшей области окна, способной показать модальное окно с формой. Вне такой области `null`. */
 export const RecordDialogContext = createContext<OpenRecordDialog | null>(null);

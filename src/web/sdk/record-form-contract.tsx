@@ -56,6 +56,17 @@ export interface RecordFormHandlers {
     readonly show: (record: RecordData) => void;
 }
 
+/**
+ * Входные данные действия формы: значения либо функция, которая строит их по записанной записи.
+ * Функция нужна новой записи: её `guid`, который требуется собственному действию, появляется
+ * только после записи, которую `run` выполняет перед действием.
+ *
+ * ```ts
+ * state.run(sell, (saved) => ({ sale: saved['guid'], person }));
+ * ```
+ */
+export type RecordFormActionInput = FormValues | ((record: RecordData) => FormValues) | null;
+
 /** Параметры выполнения действия формы. */
 export interface RecordFormRunOptions {
     /** Закрыть область после успешного действия. При ошибке область остаётся открытой. */
@@ -76,7 +87,7 @@ export interface RecordFormController {
      * к записанной записи. Об изменённой и созданной записи хук сообщает области окна сам.
      * Возвращает результат действия; если действие не выполнено, завершается ошибкой.
      */
-    readonly run: (action: FormAction, input?: FormValues | null, options?: RecordFormRunOptions) => Promise<unknown>;
+    readonly run: (action: FormAction, input?: RecordFormActionInput, options?: RecordFormRunOptions) => Promise<unknown>;
 }
 
 /** То, что область окна передаёт форме записи через контекст. */
@@ -134,7 +145,7 @@ export function useRecordFormContract(handlers: RecordFormHandlers): RecordFormC
         current.current.show(next);
     };
 
-    const run = async (action: FormAction, input: FormValues | null = null, options: RecordFormRunOptions = {}): Promise<unknown> => {
+    const run = async (action: FormAction, input: RecordFormActionInput = null, options: RecordFormRunOptions = {}): Promise<unknown> => {
         if (executing.current) throw new Error('Действие уже выполняется');
         executing.current = true;
         const created = recordRef.current === null;
@@ -155,7 +166,7 @@ export function useRecordFormContract(handlers: RecordFormHandlers): RecordFormC
             if (isSave) {
                 result = saved;
             } else {
-                const outcome = await current.current.perform(action, input, saved);
+                const outcome = await current.current.perform(action, typeof input === 'function' ? input(saved) : input, saved);
                 written = true;
                 if (outcome.record !== null) accept(outcome.record);
                 result = outcome.result;

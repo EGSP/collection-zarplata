@@ -1,4 +1,4 @@
-import { ConfigProvider, Flex, Segmented, theme, type GlobalToken } from 'antd';
+import { ConfigProvider, Flex, Segmented, Tooltip, theme, type GlobalToken } from 'antd';
 import { useImperativeHandle, useRef, type ComponentType } from 'react';
 import { Icons, type InputProperties } from '../../web/sdk';
 
@@ -28,12 +28,15 @@ const paletteColor = (token: GlobalToken, palette: MethodPalette): string => tok
  * и продавец выбирает их одним нажатием, видя все сразу. Варианты берутся из допустимых
  * значений поля, поэтому одно поле подходит и способу оплаты продажи, и способу строки оплаты.
  *
+ * С `iconsOnly` варианты показаны одними значками, а название способа видно в подсказке: так поле
+ * помещается в узкую колонку таблицы оплат.
+ *
  * Значок каждого способа окрашен в его цвет. Выбранный способ залит этим цветом, а текст и значок
  * на нём белые: светлая заливка с цветным текстом сливалась с остальными вариантами.
  * Обход с клавиатуры ставит фокус на выбранный вариант, а без выбора на первый; стрелки
  * переключают варианты, как у группы переключателей.
  */
-export function PaymentMethodInput({ field, value, onChange, disabled, id, ref }: InputProperties<unknown>) {
+export function PaymentMethodInput({ field, value, onChange, disabled, id, ref, iconsOnly = false }: InputProperties<unknown> & { readonly iconsOnly?: boolean }) {
     const { token } = theme.useToken();
     const root = useRef<HTMLDivElement>(null);
     useImperativeHandle(ref, () => ({
@@ -47,7 +50,11 @@ export function PaymentMethodInput({ field, value, onChange, disabled, id, ref }
         const description = methods[method];
         return {
             value: method,
-            label: (
+            label: iconsOnly && description !== undefined ? (
+                <Tooltip title={method}>
+                    <span aria-label={method} style={disabled === true || method === value ? {} : { color: paletteColor(token, description.palette) }}><description.icon /></span>
+                </Tooltip>
+            ) : (
                 <Flex gap={6} align="center">
                     {description !== undefined && <span style={disabled === true || method === value ? {} : { color: paletteColor(token, description.palette) }}><description.icon /></span>}
                     {method}
@@ -74,4 +81,9 @@ export function PaymentMethodInput({ field, value, onChange, disabled, id, ref }
             />
         </ConfigProvider>
     );
+}
+
+/** Способ строки оплаты одними значками: для узкой колонки таблицы оплат. */
+export function PaymentMethodIcons(properties: InputProperties<unknown>) {
+    return <PaymentMethodInput {...properties} iconsOnly />;
 }

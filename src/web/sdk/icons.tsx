@@ -17,6 +17,7 @@
 import {
     ApartmentOutlined,
     AppstoreOutlined,
+    BankOutlined,
     BarChartOutlined,
     BookOutlined,
     CalendarOutlined,
@@ -40,6 +41,7 @@ import {
     RollbackOutlined,
     SaveOutlined,
     SettingOutlined,
+    ShopOutlined,
     ShoppingCartOutlined,
     ThunderboltOutlined,
     UnlockOutlined,
@@ -100,6 +102,11 @@ export const Icons = {
     installmentPayment: CalendarOutlined,
     /** Сложная оплата: несколько оплат разными способами. */
     complexPayment: PartitionOutlined,
+    // Типы рассрочки: кто ведёт долг покупателя.
+    /** Собственная рассрочка: долг ведёт магазин. */
+    ownInstallment: ShopOutlined,
+    /** Банковская рассрочка: долг ведёт банк. */
+    bankInstallment: BankOutlined,
     /** Открытие смены. */
     openShift: UnlockOutlined,
     /** Закрытие смены. */

@@ -80,7 +80,7 @@ export { TablePart, TablePartTitle, type TablePartOptions, type TablePartPropert
 
 // Формы объекта: свойства форм, контракт формы записи с областью окна и части стандартной формы записи.
 export type { FormPresentation, ListFormProperties, NewFormProperties, RecordFormProperties } from './object-form-properties';
-export { useRecordFormContract, type RecordFormController, type RecordFormHandlers, type RecordFormOutcome, type RecordFormRunOptions } from './record-form-contract';
+export { useRecordFormContract, type RecordFormActionInput, type RecordFormController, type RecordFormHandlers, type RecordFormOutcome, type RecordFormRunOptions } from './record-form-contract';
 export {
     RecordFormActions,
     RecordFormBody,
@@ -94,6 +94,7 @@ export {
     type RecordFormBodyProperties,
     type RecordFormButtons,
     type RecordFormLayoutProperties,
+    type RecordFormOptions,
     type RecordFormPageProperties,
     type RecordFormPartProperties,
     type RecordFormState,

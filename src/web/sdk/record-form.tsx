@@ -29,7 +29,7 @@ import { Icons } from './icons';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
 import type { NewFormProperties, RecordFormProperties } from './object-form-properties';
 import { Page } from './page';
-import { useRecordFormContract, useRecordFormHost, type RecordFormRunOptions } from './record-form-contract';
+import { useRecordFormContract, useRecordFormHost, type RecordFormActionInput, type RecordFormRunOptions } from './record-form-contract';
 import { newRecordValues, recordValues, saveFields, type FormValues } from './record-values';
 
 /** Состояние формы записи: то, что хук `useRecordForm` передаёт частям раскладки. */
@@ -55,7 +55,7 @@ export interface RecordFormState {
     /** Видимое стандартное проведение; по нему выводится кнопка «Провести и закрыть». */
     readonly postAction: FormAction | undefined;
     /** Выполняет действие формы с записью несохранённых изменений перед ним (`RecordFormController.run`). */
-    readonly run: (action: FormAction, input?: FormValues | null, options?: RecordFormRunOptions) => Promise<unknown>;
+    readonly run: (action: FormAction, input?: RecordFormActionInput, options?: RecordFormRunOptions) => Promise<unknown>;
     /** Выполняет действие по имени для элемента формы: имя ищется среди действий с правом пользователя. */
     readonly runByName: (name: string, input: FormValues | null) => Promise<unknown>;
     /** Отмечает несохранённые изменения. Вызывается, когда значение изменил пользователь или элемент формы. */
@@ -64,6 +64,17 @@ export interface RecordFormState {
     readonly root: RefObject<HTMLDivElement | null>;
     /** Перехват нажатий корневого элемента: обход полей по Enter и Esc в открытом списке выбора. */
     readonly onKeyDownCapture: (event: KeyboardEvent<HTMLElement>) => void;
+}
+
+/** Настройки поведения формы записи. */
+export interface RecordFormOptions {
+    /**
+     * Готовит значения перед записью: получает все значения формы и возвращает исправленные либо
+     * `undefined`, если менять нечего. Исправленные значения форма показывает и записывает, поэтому
+     * пользователь видит то же, что сохранено. Так форма продажи превращает сложную оплату из одной
+     * строки в простую.
+     */
+    readonly beforeSave?: ((values: FormValues) => FormValues | undefined) | undefined;
 }
 
 /**
@@ -86,15 +97,17 @@ export interface RecordFormState {
  * Область может оставаться смонтированной, пока скрыта, поэтому сочетания клавиш действуют только
  * в активной. Не действуют они и в форме, поверх которой открыто модальное окно.
  */
-export function useRecordForm(properties: RecordFormProperties | NewFormProperties): RecordFormState {
+export function useRecordForm(properties: RecordFormProperties | NewFormProperties, options: RecordFormOptions = {}): RecordFormState {
     const { object, view } = properties;
     const initial = 'record' in properties ? properties.record : null;
+    const given = 'initial' in properties ? properties.initial : undefined;
     const reload = 'reload' in properties ? properties.reload : null;
     const [form] = Form.useForm<FormValues>();
     const scope = useWindowScope();
     const performAction = useAction();
     // Начальные значения вычисляются один раз: у новой записи в них входит текущее время.
-    const [initialValues] = useState(() => (initial === null ? newRecordValues(view) : recordValues(view, initial)));
+    // Значения, переданные открывшим форму, стоят поверх значений по умолчанию.
+    const [initialValues] = useState(() => (initial === null ? { ...newRecordValues(view), ...given } : recordValues(view, initial)));
     const changed = useRef(false);
     const root = useRef<HTMLDivElement>(null);
     // Виджет может закрыть выбор до глобального обработчика Escape. Сохраняем состояние до события.
@@ -118,6 +131,8 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
             changed.current = false;
         },
         save: async (saved) => {
+            const prepared = options.beforeSave?.(form.getFieldsValue(true) as FormValues);
+            if (prepared !== undefined) form.setFieldsValue(prepared);
             let entered: FormValues;
             try {
                 entered = await form.validateFields();

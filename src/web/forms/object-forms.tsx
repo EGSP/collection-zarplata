@@ -16,7 +16,7 @@ import { objectForms } from '../../configuration/object-forms.generated';
 import type { ObjectFormKind } from '../../server/metadata/object-forms';
 import type { PerformTarget } from '../data-provider/perform';
 import { ObjectList } from '../lists/object-list';
-import { StandardRecordForm, type FormPresentation, type FormView, type ObjectView, type RecordData } from '../sdk';
+import { StandardRecordForm, type FormPresentation, type FormValues, type FormView, type ObjectView, type RecordData } from '../sdk';
 import { RecordFormHostContext, type RecordFormHostValue } from '../sdk/record-form-contract';
 import { formElementComponent } from './form-elements';
 import type { ObjectFormPropertiesByKind } from './object-form-module';
@@ -55,18 +55,20 @@ interface ObjectRecordFormProperties {
     /** Повторное чтение записи; у формы новой записи `null`. */
     readonly reload: (() => Promise<RecordData>) | null;
     readonly presentation: FormPresentation;
+    /** Значения новой записи от того, кто открыл форму; у существующей записи не учитываются. */
+    readonly initial?: FormValues | undefined;
 }
 
 /**
  * Форма записи или новой записи объекта в контексте формы записи. Вид формы определяется записью:
  * без записи открывается форма новой записи.
  */
-export function ObjectRecordForm({ object, view, record, reload, presentation }: ObjectRecordFormProperties) {
+export function ObjectRecordForm({ object, view, record, reload, presentation, initial }: ObjectRecordFormProperties) {
     if (record === null || reload === null) {
         const New = objectFormComponent(object, 'new', StandardRecordForm);
         return (
             <RecordFormHost object={object} record={null}>
-                <New object={object} view={view} presentation={presentation} />
+                <New object={object} view={view} presentation={presentation} initial={initial} />
             </RecordFormHost>
         );
     }

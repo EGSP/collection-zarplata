@@ -19,7 +19,7 @@
 import { Button, Modal, theme } from 'antd';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NotFoundPage } from '../common/not-found';
-import { useObjectView, useWindowScope, type PerformTarget } from '../sdk';
+import { useObjectView, useWindowScope, type FormValues, type PerformTarget } from '../sdk';
 import { RecordDialogContext, type OpenRecordDialog } from '../sdk/open-record';
 import { WindowScopeProvider } from '../window/window-scope';
 import { ExistingRecordForm } from './existing-record-form';
@@ -30,6 +30,8 @@ interface OpenedDialog {
     readonly object: PerformTarget;
     /** `guid` открытой записи; у формы новой записи `null`. */
     readonly guid: string | null;
+    /** Значения новой записи от открывшего окно кода. */
+    readonly initial: FormValues | undefined;
 }
 
 let nextDialogId = 1;
@@ -50,12 +52,12 @@ export function RecordDialogHost({ children }: { readonly children: ReactNode })
     const waiting = useRef(new Map<number, (written: string | null) => void>());
 
     const open = useCallback<OpenRecordDialog>(
-        (object, guid) =>
+        (object, guid, initial) =>
             new Promise((resolve) => {
                 const id = nextDialogId++;
                 waiting.current.set(id, resolve);
                 // Объект мог прийти описанием или ссылкой с типами: окну нужны только вид и имя.
-                setDialogs((previous) => [...previous, { id, guid, object: { kind: object.kind, name: object.name } }]);
+                setDialogs((previous) => [...previous, { id, guid, initial, object: { kind: object.kind, name: object.name } }]);
             }),
         [],
     );
@@ -121,7 +123,7 @@ function RecordDialog({ dialog, onFinish }: RecordDialogProperties) {
         >
             <RecordDialogWindow onHeader={setHeader} onFooter={setFooter}>
                 <RecordDialogHost>
-                    <RecordDialogContent object={dialog.object} guid={dialog.guid} />
+                    <RecordDialogContent object={dialog.object} guid={dialog.guid} initial={dialog.initial} />
                 </RecordDialogHost>
             </RecordDialogWindow>
         </WindowScopeProvider>
@@ -176,7 +178,7 @@ function RecordDialogWindow({ onHeader, onFooter, children }: RecordDialogWindow
  * и новой записи без права записи вызывающий код открывать не должен; если это случилось, окно
  * отвечает так же, как адрес вкладки.
  */
-function RecordDialogContent({ object: target, guid }: { readonly object: PerformTarget; readonly guid: string | null }) {
+function RecordDialogContent({ object: target, guid, initial }: { readonly object: PerformTarget; readonly guid: string | null; readonly initial: FormValues | undefined }) {
     const object = useObjectView(target);
     const { close } = useWindowScope();
     if (object === undefined || object.form === null) return <NotFoundPage />;
@@ -196,5 +198,5 @@ function RecordDialogContent({ object: target, guid }: { readonly object: Perfor
         );
     }
     if (!object.form.actions.some((action) => action.name === 'save')) return <NotFoundPage />;
-    return <ObjectRecordForm object={object} view={object.form} record={null} reload={null} presentation="dialog" />;
+    return <ObjectRecordForm object={object} view={object.form} record={null} reload={null} presentation="dialog" initial={initial} />;
 }

@@ -4,10 +4,16 @@ import type { RecordOf } from '../../server/metadata/index';
 import { FieldInput, newRowValues, TablePart, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
 import type { Sale } from '../documents/sale.document';
 import { Objects } from '../objects.generated';
-import { PaymentMethodInput } from './payment-method-input';
+import { PaymentMethodIcons } from './payment-method-input';
 
 /** Строка оплаты на форме: до записи любая ячейка может быть не заполнена. */
 type PaymentLine = EnteredValue<RecordOf<typeof Sale>['payments']>[number];
+
+/**
+ * Способ оплаты, по которому деньги не приняты. Совпадает с `installmentMethod` из `payments.ts`;
+ * константа оттуда не импортируется, потому что это серверный модуль, а компонент собирается в клиент.
+ */
+const installmentMethod = 'Рассрочка';
 
 /**
  * Наибольшая ширина оплат. Оплата — это несколько коротких значений, и растянутые на всю форму
@@ -16,10 +22,10 @@ type PaymentLine = EnteredValue<RecordOf<typeof Sale>['payments']>[number];
 const paymentsWidth = 960;
 
 /**
- * Ширины колонок таблицы оплат. Способ выбирается кнопками со значками, и колонка вмещает их все;
- * сумме хватает трети прежней ширины, а остальное получает «Куда оплачено».
+ * Ширины колонок таблицы оплат. Способ выбирается кнопками из одних значков, и колонке хватает
+ * их ширины; сумме хватает трети прежней ширины, а остальное получает «Куда оплачено».
  */
-const columnWidths = { method: 360, amount: 150 };
+const columnWidths = { method: 150, amount: 150 };
 
 /** Поле с подписью над ним. Подпись и ошибки самой части показывает форма. */
 function Labelled({ title, flex = '1 1 280px', onBlur, children }: { readonly title: string; readonly flex?: string; readonly onBlur?: () => void; readonly children: ReactNode }) {
@@ -52,9 +58,9 @@ function Labelled({ title, flex = '1 1 280px', onBlur, children }: { readonly ti
  * Простым считается способ, который есть среди способов строки оплаты. Продажа без способа,
  * записанная до появления оплат, показывает таблицу.
  *
- * В таблице способ строки выбирается кнопками со значками. Первая строка сложной оплаты пустая,
+ * В таблице способ строки выбирается кнопками из одних значков, название способа в подсказке. Первая строка сложной оплаты пустая,
  * а каждая следующая получает сумму, которую осталось оплатить: продавцу не нужно считать
- * остаток самому. Состояние оплаты выводит поле «Способ оплаты» справа от своих кнопок.
+ * остаток самому.
  */
 export default function SalePayments({ part, value, onChange, disabled, ref, id, onPrevious }: TablePartInputProperties<PaymentLine>) {
     const sales = Objects.document.sale;
@@ -99,7 +105,7 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
     if (!simple) {
         const options: TablePartOptions = {
             columnWidths,
-            columnInputs: { method: PaymentMethodInput },
+            columnInputs: { method: PaymentMethodIcons },
             addTitle: 'Оплата',
             newRow: () => ({ ...newRowValues(part), amount: rows.length > 0 && remaining > 0 ? remaining : null }),
         };
@@ -115,10 +121,13 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
                 <FieldInput field={amount} value={row?.amount ?? null} disabled={disabled} ref={ref} id={id}
                     onChange={(entered) => onChange?.(single({ amount: typeof entered === 'number' ? entered : null }))} />
             </Labelled>
-            <Labelled title={receiver.title}>
-                <FieldInput field={receiver} value={row?.receiver ?? null} disabled={disabled}
-                    onChange={(entered) => onChange?.(single({ receiver: (entered ?? null) as PaymentLine['receiver'] }))} />
-            </Labelled>
+            {/* По оплате способом «Рассрочка» деньги не приняты, и «Куда оплачено» у неё не заполняется. */}
+            {mode !== installmentMethod && (
+                <Labelled title={receiver.title}>
+                    <FieldInput field={receiver} value={row?.receiver ?? null} disabled={disabled}
+                        onChange={(entered) => onChange?.(single({ receiver: (entered ?? null) as PaymentLine['receiver'] }))} />
+                </Labelled>
+            )}
         </Flex>
     );
 }

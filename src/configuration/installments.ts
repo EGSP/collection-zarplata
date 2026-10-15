@@ -43,7 +43,13 @@ import { MoneyReceipts } from './registers/money-receipts.register.js';
 type InstallmentName = 'installment' | 'saleInstallment';
 
 /** Рассрочка, за которую отвечает магазин: у неё обязателен ответственный сотрудник. */
-const ownInstallment = 'Собственная';
+export const ownInstallment = 'Собственная';
+
+/**
+ * Типы рассрочки: банковская оформляется через банк, собственную магазин ведёт сам. Объявлены
+ * отдельно: тот же выбор запрашивает действие продажи «Продать с рассрочкой».
+ */
+export const installmentTypes = ['Банковская', ownInstallment];
 
 /**
  * Начало шапки: поля до суммы. Сумму объявляет документ, потому что считается она по-разному:
@@ -54,7 +60,7 @@ const ownInstallment = 'Собственная';
  */
 const head = <const Name extends InstallmentName>(name: Name, title: string) => document(name)
     .title(title)
-    .field('type', (field) => field.string().title('Тип').choices(['Банковская', ownInstallment]))
+    .field('type', (field) => field.string().title('Тип').choices(installmentTypes))
     .field('shift', (field) => field.reference(Shift).title('Смена').required())
     .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо'))
     .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник'));

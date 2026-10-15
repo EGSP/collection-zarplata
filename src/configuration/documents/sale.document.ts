@@ -15,7 +15,10 @@ import { DataPolicyError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
 import { document, formula, movements, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
+import { Employees } from '../catalogs/employees.catalog.js';
+import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
+import { installmentTypes } from '../installments.js';
 import { rubles } from '../money.js';
 import { cash, installmentMethod, paymentColumns, paymentMethods } from '../payments.js';
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
@@ -37,7 +40,8 @@ const complexPayment = 'Сложная';
  * любом способе.
  *
  * Строка оплаты допускает способ «Рассрочка»: деньги по ней не приняты, на её сумму оформляется
- * рассрочка по продаже. Способом оплаты всей продажи «Рассрочка» быть не может.
+ * рассрочка по продаже. Способ оплаты всей продажи «Рассрочка» простой: у продажи одна оплата
+ * этим способом на всю сумму.
  */
 const sale = document('sale')
     .title('Продажа')
@@ -46,7 +50,7 @@ const sale = document('sale')
     // Тип результата указан явно: иначе тип продажи выводился бы через тип отвеса и обратно.
     .field('basis', (field) => field.reference((): ObjectTarget => Weighing).title('Основание'))
     .field('amount', (field) => field.money().title('Сумма').required().computed(formula.sum('goods', 'total')))
-    .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, complexPayment]).initial(cash).required())
+    .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, installmentMethod, complexPayment]).initial(cash).required())
     .field('paid', (field) => field.money().title('Оплачено').required().computed(formula.sum('payments', 'amount')))
     .tablePart('goods', (part) => part.title('Товары').include(Goods))
     .tablePart('payments', (part) => part.title('Оплаты').include(paymentColumns([...paymentMethods, installmentMethod])))
@@ -69,15 +73,16 @@ const installmentAmount = (record: SaleRecord) => record.payments.filter(byInsta
  * появления оплат, это поле пусто. Простой способ допускает не больше одной оплаты, а не ровно
  * одну: у продажи с нулевой суммой оплат нет, потому что сумма оплаты больше нуля.
  *
- * Способ «Рассрочка» закрывает только часть сложной оплаты. У такой строки «Куда оплачено» пусто:
- * деньги по ней не приняты и придут взносами рассрочки.
+ * Способ «Рассрочка» допустим у строки сложной оплаты и у единственной оплаты продажи со способом
+ * «Рассрочка». У такой строки «Куда оплачено» пусто: деньги по ней не приняты и придут взносами
+ * рассрочки.
  */
 const checkPayments = (record: SaleRecord) => {
     const mode = record.paymentMode;
     for (const [index, payment] of record.payments.entries()) {
         if (!byInstallment(payment)) continue;
         const place = `Строка оплаты ${index + 1}`;
-        if (mode !== complexPayment) return rejected(`${place}: способ «${installmentMethod}» допустим только при способе оплаты продажи «${complexPayment}»`);
+        if (mode !== complexPayment && mode !== installmentMethod) return rejected(`${place}: способ «${installmentMethod}» допустим только при способе оплаты продажи «${installmentMethod}» или «${complexPayment}»`);
         // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
         if ((payment.receiver ?? null) !== null) return rejected(`${place}: у оплаты способом «${installmentMethod}» «Куда оплачено» не заполняется`);
     }
@@ -108,6 +113,12 @@ const salePayments: Policy<SaleRecord> = {
 const target = { kind: 'document', name: 'sale' };
 
 /**
+ * Рассрочка по продаже вызывается по имени: её документ ссылается на продажу, и импорт его
+ * из файла продажи замкнул бы файлы в кольцо.
+ */
+const installmentTarget = { kind: 'document', name: 'saleInstallment' };
+
+/**
  * Основание на форме скрыто и показано элементом `SaleBasis` ссылкой: его заполняет только
  * действие отвеса, и поле ввода позволило бы привязать продажу к чужому отвесу. Флажок «Проведён»
  * скрыт: проведение показывает отметка в заголовке формы.
@@ -120,7 +131,13 @@ const target = { kind: 'document', name: 'sale' };
  * элемент скрывает: её окно потребовало бы выбрать продажу.
  *
  * Рассрочку создаёт действие на сервере, а не форма новой рассрочки: сумма берётся из итога
- * регистра в той же транзакции, и форма не может подставить устаревшую. Рассрочка записывается
+ * регистра в той же транзакции, и форма не может подставить устаревшую.
+ *
+ * Действие «Продать с рассрочкой» проводит продажу и сразу оформляет и проводит рассрочку по ней
+ * на сумму оплат способом «Рассрочка» с типом, покупателем и ответственным из входных данных.
+ * Всё выполняется в одной транзакции: если рассрочка не проведётся, например без ответственного
+ * у собственной рассрочки, проведение продажи тоже отменится. Права нужны те же, что у вложенных
+ * действий: проведение продажи, запись и проведение рассрочки по продаже. Рассрочка записывается
  * вложенным `save`, а оно проверяется по правам того же пользователя, поэтому пользователю нужны
  * права на действие, на чтение продажи и на запись рассрочки по продаже.
  */
@@ -167,6 +184,35 @@ export const Sale = sale
                 target: { kind: 'document', name: 'saleInstallment' }, action: 'save',
                 payload: { fields: { date: new Date().toISOString(), sale: record.guid, shift: shift.guid, amount, payments: [] } },
             });
+        })))
+    .action('sellWithInstallment', (action) => action
+        .title('Продать с рассрочкой')
+        .input((input) => input
+            .field('sale', (field) => field.reference(sale).title('Продажа').required())
+            .field('type', (field) => field.string().title('Тип рассрочки').choices(installmentTypes).required())
+            .field('person', (field) => field.reference(PhysicalPersons).title('Покупатель').required())
+            .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник')))
+        .handle((input) => Effect.gen(function* () {
+            const dispatcher = yield* ActionDispatcher;
+            const record = (yield* dispatcher.execute({ target, action: 'get', payload: { guid: input.sale } })) as SaleRecord;
+            const amount = installmentAmount(record);
+            if (amount <= 0) return yield* rejected(`В продаже нет оплаты способом «${installmentMethod}»: проведите её без рассрочки`);
+            // Продажа проводится первой: рассрочка оформляется на итог регистра, который пишет её проведение.
+            const posted = yield* dispatcher.execute({ target, action: 'post', payload: { guid: record.guid } });
+            // Рассрочка относится к смене продажи: её оформляют в момент продажи, и выдаёт долг та же смена.
+            const installment = (yield* dispatcher.execute({
+                target: installmentTarget, action: 'save',
+                payload: {
+                    fields: {
+                        date: new Date().toISOString(), sale: record.guid, shift: record.shift, amount, payments: [],
+                        type: input.type, person: input.person,
+                        // Необязательное поле, не переданное в запросе, приходит в действие как `undefined`, а запись принимает `null`.
+                        responsibleEmployee: input.responsibleEmployee ?? null,
+                    },
+                },
+            })) as { readonly guid: string };
+            yield* dispatcher.execute({ target: installmentTarget, action: 'post', payload: { guid: installment.guid } });
+            return posted;
         })))
     // Проведение объявлено последним: его обработчик ссылается на регистр «Продажи», а тот читает
     // продажу в тексте отказа. У последнего вызова цепочки компилятор берёт тип результата без

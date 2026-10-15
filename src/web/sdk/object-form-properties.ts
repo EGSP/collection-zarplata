@@ -5,6 +5,7 @@
  */
 import type { FormView, ObjectView } from '../../server/ui/descriptions';
 import type { RecordData } from '../data-provider/records';
+import type { FormValues } from './record-values';
 
 /**
  * Место показа формы: `page` — вкладка с собственным адресом, `dialog` — модальное окно поверх
@@ -24,6 +25,11 @@ export interface NewFormProperties {
     /** Описание формы: поля, группы и действия, доступные пользователю. */
     readonly view: FormView;
     readonly presentation: FormPresentation;
+    /**
+     * Значения новой записи от того, кто открыл форму, поверх значений по умолчанию. Например,
+     * поле ссылки передаёт введённый текст наименованием записи, которую создаёт из поля.
+     */
+    readonly initial?: FormValues | undefined;
 }
 
 /** Свойства формы существующей записи. */
