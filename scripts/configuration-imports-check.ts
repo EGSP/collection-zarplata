@@ -1,14 +1,14 @@
 /**
  * Проверка импортов клиентских файлов конфигурации: `npm run typecheck` запускает её перед проверкой типов.
  *
- * Страница и элемент формы собираются в клиент, но лежат вне `src/web`, рядом с серверными файлами
+ * Страница, элемент формы и форма объекта собираются в клиент, но лежат вне `src/web`, рядом с серверными файлами
  * объектов. Компилятор не умеет запрещать импорты по каталогам, поэтому границу проверяет этот скрипт:
  *
  * - из клиента компонент импортирует только web SDK. Остальные модули `src/web` внутренние и могут
  *   меняться без оглядки на конфигурацию;
  * - из серверного кода и файлов объектов компонент импортирует только типы. Импорт значения
  *   включил бы в сборку клиента билдеры, Effect и обработчики действий;
- * - объявление страницы или элемента формы импортирует значения из модуля своего объявления
+ * - объявление страницы, элемента формы или формы объекта импортирует значения из модуля своего объявления
  *   и нейтральных ссылок objects.generated: файл объявления попадает и в сервер, и в клиент.
  *
  * Скрипт разбирает импорты регулярным выражением, а не компилятором: ему нужны только путь
@@ -25,7 +25,7 @@ const configurationDirectory = path.join(sourceDirectory, 'configuration');
 /** Точка входа web SDK: единственный модуль клиента, доступный компоненту конфигурации. */
 const sdkModule = 'web/sdk';
 /** Сгенерированные файлы клиента в каталоге конфигурации: их компонент импортирует как значения. */
-const clientGeneratedModules = ['configuration/objects.generated', 'configuration/pages.generated', 'configuration/form-elements.generated'];
+const clientGeneratedModules = ['configuration/objects.generated', 'configuration/pages.generated', 'configuration/form-elements.generated', 'configuration/object-forms.generated'];
 
 /**
  * Вид объявления: шаблон его файлов, название в сообщениях в родительном падеже и модуль билдера —
@@ -40,6 +40,7 @@ interface DeclarationKind {
 const declarationKinds: ReadonlyArray<DeclarationKind> = [
     { pattern: '**/*.page.ts', title: 'страницы', builderModule: 'server/ui/pages' },
     { pattern: '**/*.form-element.ts', title: 'элемента формы', builderModule: 'server/metadata/form-elements' },
+    { pattern: '**/*.object-form.ts', title: 'формы объекта', builderModule: 'server/metadata/object-forms' },
 ];
 
 /**

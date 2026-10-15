@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router';
 import { NotFoundPage } from '../common/not-found';
 import { useMetadata, useObjectView } from '../data-provider/metadata';
-import { ObjectList } from '../lists/object-list';
+import { ObjectListForm } from '../forms/object-forms';
 import { ShellGroups } from '../sdk/shell-groups';
 import { ShellGroupContent } from '../sdk/shell-group-content';
 
@@ -29,5 +29,5 @@ export function ObjectPage() {
     const { kind, name } = useParams();
     const object = useObjectView(kind === undefined || name === undefined ? null : { kind, name });
     if (object === undefined) return <NotFoundPage />;
-    return <ObjectList object={object} />;
+    return <ObjectListForm object={object} />;
 }

@@ -39,6 +39,7 @@ export type * from './descriptions.js';
 export { FieldFactory, type FieldMap, type FieldsRecord, type ReferenceTarget } from './fields.js';
 export { defineFormComponent, FormComponentDefinition, isFormComponentDefinition } from './form-elements.js';
 export { Metadata } from './metadata.effect.js';
+export { defineObjectForm, isObjectFormDefinition, ObjectFormDefinition, type ObjectFormKind } from './object-forms.js';
 export { MetadataError, type MetadataProblem } from './metadata.errors.js';
 export { loadConfiguration, type ConfigurationModule } from './registry.js';
 export { actionInputSchema, fieldSchema, fieldsSchema, inputSchema } from './schema.js';

@@ -4,7 +4,7 @@ import { NotFoundPage } from '../common/not-found';
 import { newRecordSegment } from '../common/paths';
 import { objectPath, useObjectView } from '../sdk';
 import { ExistingRecordForm } from './existing-record-form';
-import { RecordForm } from './record-form';
+import { ObjectRecordForm } from './object-forms';
 
 /**
  * Страница вкладки с формой записи: `/вид/имя/new` открывает форму новой записи, `/вид/имя/<guid>`
@@ -31,6 +31,7 @@ export function RecordPage() {
                 object={object}
                 view={object.form}
                 guid={guid}
+                presentation="page"
                 failureAction={
                     <Link to={objectPath(object)}>
                         <Button type="primary">Вернуться в список</Button>
@@ -40,5 +41,5 @@ export function RecordPage() {
         );
     }
     if (!object.form.actions.some((action) => action.name === 'save')) return <NotFoundPage />;
-    return <RecordForm key={key} object={object} view={object.form} record={null} reload={null} />;
+    return <ObjectRecordForm key={key} object={object} view={object.form} record={null} reload={null} presentation="page" />;
 }

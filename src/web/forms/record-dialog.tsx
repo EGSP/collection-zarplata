@@ -2,7 +2,8 @@
  * Модальное окно с формой записи: вторая реализация области окна после вкладки.
  *
  * Окно открывает команда открытия записи SDK в режиме окна. Форма внутри та же, что во вкладке:
- * она обращается к ближайшей области и не знает, что показана в окне. Заголовок и кнопки формы
+ * она обращается к ближайшей области, а место показа получает свойством `presentation` и может
+ * вывести в окне другую раскладку. Заголовок и кнопки формы
  * каркас страницы выводит в рамку области: в шапку и нижнюю часть окна.
  *
  * Адреса у окна нет: вкладки выводятся из адреса, и адрес окна открыл бы вкладку. Поэтому окно
@@ -22,7 +23,7 @@ import { useObjectView, useWindowScope, type PerformTarget } from '../sdk';
 import { RecordDialogContext, type OpenRecordDialog } from '../sdk/open-record';
 import { WindowScopeProvider } from '../window/window-scope';
 import { ExistingRecordForm } from './existing-record-form';
-import { RecordForm } from './record-form';
+import { ObjectRecordForm } from './object-forms';
 
 interface OpenedDialog {
     readonly id: number;
@@ -185,6 +186,7 @@ function RecordDialogContent({ object: target, guid }: { readonly object: Perfor
                 object={object}
                 view={object.form}
                 guid={guid}
+                presentation="dialog"
                 failureAction={
                     <Button type="primary" onClick={close}>
                         Закрыть
@@ -194,5 +196,5 @@ function RecordDialogContent({ object: target, guid }: { readonly object: Perfor
         );
     }
     if (!object.form.actions.some((action) => action.name === 'save')) return <NotFoundPage />;
-    return <RecordForm object={object} view={object.form} record={null} reload={null} />;
+    return <ObjectRecordForm object={object} view={object.form} record={null} reload={null} presentation="dialog" />;
 }

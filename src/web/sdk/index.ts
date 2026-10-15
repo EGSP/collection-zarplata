@@ -77,6 +77,23 @@ export { hasOpenDialog, hasOpenPicker } from './keyboard';
 export { newRecordValues, newRowValues, recordValues, saveFields, type FormValues } from './record-values';
 export { TablePart, type TablePartProperties } from './table-part';
 
+// Формы объекта: свойства форм, контракт формы записи с областью окна и части стандартной формы записи.
+export type { FormPresentation, ListFormProperties, NewFormProperties, RecordFormProperties } from './object-form-properties';
+export { useRecordFormContract, type RecordFormController, type RecordFormHandlers, type RecordFormOutcome, type RecordFormRunOptions } from './record-form-contract';
+export {
+    RecordFormActions,
+    RecordFormBody,
+    RecordFormLayout,
+    RecordFormMarks,
+    RecordFormPage,
+    StandardRecordForm,
+    useRecordForm,
+    type RecordFormBodyProperties,
+    type RecordFormLayoutProperties,
+    type RecordFormPartProperties,
+    type RecordFormState,
+} from './record-form';
+
 // Иконки по смыслу: добавление, открытие, удаление и прочие; крупные пиктограммы разделов.
 export { Icons, type IconName } from './icons';
 export { Pictograms, type PictogramName } from './pictograms';
