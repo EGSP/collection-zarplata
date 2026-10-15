@@ -1,6 +1,7 @@
 ---
 covers:
   - src/web/sdk/index.ts
+  - src/web/sdk/object-form-properties.ts
 ---
 
 # Функции и типы Web SDK
@@ -32,4 +33,7 @@ covers:
 | `RecordData`, `FormValues` | Запись общего типа и значения формы |
 | `InputProperties`, `DisplayProperties`, `CompositeInputModes` и связанные | Контракт поля ввода и отображения |
 | `TablePartInputProperties` | Контракт замены табличной части |
+| `ListFormProperties`, `RecordFormProperties`, `NewFormProperties`, `FormPresentation` | Свойства форм объекта и место показа `page` или `dialog` ([«Формы объекта»](../metadata.md#формы-объекта)) |
+| `RecordFormHandlers`, `RecordFormController`, `RecordFormOutcome`, `RecordFormRunOptions` | Обработчики, управление и итог действия [контракта формы записи](hooks.md#контракт-формы-записи) |
+| `RecordFormState`, `RecordFormPartProperties`, `RecordFormBodyProperties`, `RecordFormLayoutProperties` | Состояние `useRecordForm` и свойства [частей формы](components.md#стандартная-форма-и-её-части) |
 | `<Компонент>Properties` | Свойства компонента SDK, например `TileProperties` |
