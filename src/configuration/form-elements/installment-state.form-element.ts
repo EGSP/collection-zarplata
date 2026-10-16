@@ -1,5 +1,5 @@
 /**
- * Объявление элемента форм рассрочки и рассрочки по продаже: показывает состояние, принимает
+ * Объявление элемента формы рассрочки по продаже: показывает состояние, принимает
  * взнос, закрывает рассрочку и управляет доступностью формы. Компонент лежит в соседнем файле
  * `installment-state.form-element-component.tsx`.
  */
@@ -10,7 +10,6 @@ import { Objects } from '../objects.generated.js';
 export const InstallmentState = defineFormComponent({
     name: 'installmentState',
     attachments: [
-        { insert: { object: Objects.document.installment, group: 'Рассрочка', after: 'person' } },
         { insert: { object: Objects.document.saleInstallment, group: 'Рассрочка', after: 'person' } },
     ],
 });

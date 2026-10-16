@@ -20,6 +20,7 @@ import type {
     FieldDescription,
     FieldKind,
     FormOverride,
+    LookupDescription,
     ObjectDescription,
     ObjectKind,
     ObjectTarget,
@@ -31,7 +32,7 @@ import { checkName } from './names.js';
 import { formHiddenStandardFields, standardFields } from './standard-fields.js';
 
 /** Стандартные действия платформы: собственное действие не может называться так же. */
-const standardActions: ReadonlySet<string> = new Set(['import', 'list', 'get', 'save', 'delete', 'markDeleted', 'unmarkDeleted', 'post', 'unpost', 'totals']);
+const standardActions: ReadonlySet<string> = new Set(['import', 'list', 'get', 'save', 'delete', 'markDeleted', 'unmarkDeleted', 'post', 'unpost', 'totals', 'lookup']);
 
 /** Названия видов объектов для сообщений об ошибках. */
 const kindTitles: { readonly [Kind in ObjectKind]: string } = {
@@ -238,6 +239,7 @@ function describeFields(
             variants,
             // Настройка конфигурации может только отключить текстовый ввод, выведенный из вариантов.
             inputMode: variants === null ? fieldInputModes[state.kind] : state.inputMode ?? compositeInputMode(variants),
+            ...(state.width === null ? {} : { width: state.width }),
         };
         checkBounds(description, location, problems);
         if (description.suggestions != null) {
@@ -377,6 +379,26 @@ function describePresentation(
 }
 
 /**
+ * Описание подбора. Подбор задаётся только справочнику и документу: на записи только этих
+ * объектов ссылаются поля. Колонка не вычисляется: значение строки даёт функция поиска,
+ * и формулу считать не из чего.
+ */
+function describeLookup(state: ObjectState, problems: Problems, configuration: ReadonlyArray<ObjectBuilder>): LookupDescription | null {
+    if (state.lookup === null) return null;
+    const location = 'подбор';
+    // Тип билдера даёт lookup(...) только справочнику и документу, но состояние может прийти и без проверки типов.
+    if (state.kind !== 'catalog' && state.kind !== 'document') problems.add(location, 'подбор допустим только у справочника и документа');
+    if (state.lookup.columns.length === 0) problems.add(location, 'нет ни одной колонки');
+    if (state.lookup.search === null) problems.add(location, 'не задана функция поиска: вызовите search(...)');
+    const columns = describeFields(state.lookup.columns, `${location}, `, problems, configuration);
+    for (const column of columns) {
+        if (column.name === 'guid') problems.add(`${location}, поле guid`, 'имя занято идентификатором записи строки');
+        if (column.computed != null) problems.add(`${location}, поле ${column.name}`, 'колонка подбора не вычисляется: значение возвращает функция поиска');
+    }
+    return { columns, search: state.lookup.search ?? (() => undefined) };
+}
+
+/**
  * Замораживает описание целиком, включая вложенные массивы и объекты. `Object.freeze` действует
  * только на один уровень, а описание читают многие модули платформы. Функции (обработчики
  * и политики) не замораживаются: `typeof` у них `function`, а не `object`.
@@ -498,6 +520,8 @@ function validateObject(
 
     if (state.form !== null) checkForm(state.form, fields, fieldNames, partNames, formElements, problems);
 
+    const lookup = describeLookup(state, problems, configuration);
+
     for (const name of state.listTableParts) if (!partNames.has(name)) problems.add('список', 'Нет табличной части «' + name + '»');
     for (const part of state.presentationParts) {
         if ('text' in part) continue;
@@ -554,6 +578,7 @@ function validateObject(
         constraints,
         presentationParts: state.presentationParts,
         listTableParts: state.listTableParts,
+        lookup,
     };
     return { problems: problems.items, description };
 }

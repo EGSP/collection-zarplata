@@ -4,20 +4,23 @@
  * Скрипт находит в `src/configuration` файлы объектов `*.{catalog,document,register,information-register}.ts`
  * и файлы частей с компонентами React. Такая часть состоит из объявления и компонента: у страницы
  * это `*.page.ts` и `*.page-component.tsx`, у элемента формы — `*.form-element.ts`
- * и `*.form-element-component.tsx`. По ним скрипт пишет четыре файла:
+ * и `*.form-element-component.tsx`, у собственной формы объекта — `*.object-form.ts`
+ * и `*.object-form-component.tsx`. По ним скрипт пишет пять файлов:
  *
- * - `configuration.generated.ts` — реестр сервера: модули объектов, модули объявлений страниц
- *   и элементов формы и объект прав `Rights`, построенный из модулей объектов и страниц;
+ * - `configuration.generated.ts` — реестр сервера: модули объектов, модули объявлений страниц,
+ *   элементов формы и форм объектов и объект прав `Rights`, построенный из модулей объектов и страниц;
  * - `objects.generated.ts` — ссылки на объекты для клиента: по ним хуки и компоненты web SDK
  *   проверяют имена полей и действий при компиляции;
  * - `pages.generated.ts` — реестр страниц для клиента: объявление и компонент каждой страницы;
- * - `form-elements.generated.ts` — реестр элементов формы для клиента в том же виде.
+ * - `form-elements.generated.ts` — реестр элементов формы для клиента в том же виде;
+ * - `object-forms.generated.ts` — реестр форм объектов для клиента. Каждая запись создаётся вызовом
+ *   `objectFormModule`, чтобы компилятор сверил свойства компонента с видом формы в объявлении.
  *
  * Ссылки на объекты и реестры компонентов лежат в разных файлах. Реестр импортирует компоненты,
  * а компоненты импортируют ссылки на объекты: в одном файле получился бы циклический импорт,
  * и при загрузке компонента ссылки могли бы быть ещё не определены.
  *
- * Объекты, страницы и элементы обнаруживаются на этапе сборки, а не при запуске: в собранном
+ * Объекты, страницы, элементы и формы обнаруживаются на этапе сборки, а не при запуске: в собранном
  * исполняемом файле нет исходников `.ts`, по которым можно было бы искать файлы. Поэтому они
  * добавляются файлами, а реестры обновляются командой, а не правкой вручную.
  *
@@ -53,7 +56,13 @@ const formElementKind: ComponentPartKind = {
     title: 'элемента формы',
 };
 
-/** Страница или элемент формы: пути файла объявления и файла компонента относительно каталога конфигурации. */
+const objectFormKind: ComponentPartKind = {
+    declarationSuffix: '.object-form.ts',
+    componentSuffix: '.object-form-component.tsx',
+    title: 'формы объекта',
+};
+
+/** Страница, элемент формы или форма объекта: пути файла объявления и файла компонента относительно каталога конфигурации. */
 interface ComponentPartFiles {
     readonly declaration: string;
     readonly component: string;
@@ -94,7 +103,8 @@ const header = [
     '// изменения пропадут при следующей генерации. Чтобы добавить объект конфигурации,',
     '// создайте файл *.catalog.ts, *.document.ts, *.register.ts или *.information-register.ts в src/configuration.',
     '// Чтобы добавить страницу, создайте пару файлов *.page.ts и *.page-component.tsx,',
-    '// а чтобы добавить элемент формы — пару *.form-element.ts и *.form-element-component.tsx.',
+    '// чтобы добавить элемент формы — пару *.form-element.ts и *.form-element-component.tsx,',
+    '// а чтобы заменить форму объекта — пару *.object-form.ts и *.object-form-component.tsx.',
 ];
 
 /** Путь импорта файла для сервера: `tsc` с NodeNext требует расширение `.js`. */
@@ -108,7 +118,12 @@ function clientImport(file: string): string {
 }
 
 /** Текст реестра сервера. Порядок файлов отсортирован, чтобы повторная генерация давала тот же текст. */
-function renderServerRegistry(objects: ReadonlyArray<string>, pages: ReadonlyArray<ComponentPartFiles>, formElements: ReadonlyArray<ComponentPartFiles>): string {
+function renderServerRegistry(
+    objects: ReadonlyArray<string>,
+    pages: ReadonlyArray<ComponentPartFiles>,
+    formElements: ReadonlyArray<ComponentPartFiles>,
+    objectForms: ReadonlyArray<ComponentPartFiles>,
+): string {
     return [
         ...header,
         "import { defineRights } from '../server/authorization/rights.js';",
@@ -116,6 +131,7 @@ function renderServerRegistry(objects: ReadonlyArray<string>, pages: ReadonlyArr
         ...objects.map((file, index) => `import * as module${index} from '${serverImport(file)}';`),
         ...pages.map((page, index) => `import * as page${index} from '${serverImport(page.declaration)}';`),
         ...formElements.map((element, index) => `import * as formElement${index} from '${serverImport(element.declaration)}';`),
+        ...objectForms.map((form, index) => `import * as objectForm${index} from '${serverImport(form.declaration)}';`),
         '',
         '/** Модули объектов конфигурации в порядке путей файлов. */',
         'export const configurationModules: ReadonlyArray<ConfigurationModule> = [',
@@ -130,6 +146,11 @@ function renderServerRegistry(objects: ReadonlyArray<string>, pages: ReadonlyArr
         '/** Модули объявлений элементов формы в порядке путей файлов. */',
         'export const formElementModules: ReadonlyArray<ConfigurationModule> = [',
         ...formElements.map((element, index) => `    { file: '${element.declaration}', exports: formElement${index} },`),
+        '];',
+        '',
+        '/** Модули объявлений собственных форм объектов в порядке путей файлов. */',
+        'export const objectFormModules: ReadonlyArray<ConfigurationModule> = [',
+        ...objectForms.map((form, index) => `    { file: '${form.declaration}', exports: objectForm${index} },`),
         '];',
         '',
         '/** Права объектов, страниц и платформы. Роли указывают права этими переменными, а не строками. */',
@@ -164,6 +185,11 @@ interface ClientRegistry {
     readonly typeName: string;
     readonly listName: string;
     readonly comment: string;
+    /**
+     * Функция того же модуля, которая создаёт запись и сверяет компонент с объявлением. Без неё
+     * запись пишется литералом объекта, и компонент не проверяется.
+     */
+    readonly moduleFunction?: string;
 }
 
 const pageRegistry: ClientRegistry = {
@@ -178,13 +204,17 @@ const formElementRegistry: ClientRegistry = {
     typeName: 'FormElementModule',
     listName: 'formElements',
     comment: 'Элементы формы в порядке путей файлов. Компонент — экспорт по умолчанию файла компонента.',
+    // Элемент на месте поля ввода обязан поддержать обе компоновки поля: это проверяет функция записи.
+    moduleFunction: 'formElementModule',
 };
 
 /** Текст реестра компонентов для клиента: объявление и компонент каждой страницы или элемента формы. */
 function renderClientRegistry(registry: ClientRegistry, parts: ReadonlyArray<ComponentPartFiles>): string {
     return [
         ...header,
-        `import type { ${registry.typeName} } from '${registry.typeImport}';`,
+        registry.moduleFunction === undefined
+            ? `import type { ${registry.typeName} } from '${registry.typeImport}';`
+            : `import { ${registry.moduleFunction}, type ${registry.typeName} } from '${registry.typeImport}';`,
         ...parts.flatMap((part, index) => [
             `import * as declaration${index} from '${clientImport(part.declaration)}';`,
             `import Component${index} from '${clientImport(part.component)}';`,
@@ -192,7 +222,31 @@ function renderClientRegistry(registry: ClientRegistry, parts: ReadonlyArray<Com
         '',
         `/** ${registry.comment} */`,
         `export const ${registry.listName}: ReadonlyArray<${registry.typeName}> = [`,
-        ...parts.map((part, index) => `    { file: '${part.declaration}', declaration: declaration${index}, component: Component${index} },`),
+        ...parts.map((part, index) => registry.moduleFunction === undefined
+            ? `    { file: '${part.declaration}', declaration: declaration${index}, component: Component${index} },`
+            : `    ${registry.moduleFunction}('${part.declaration}', declaration${index}, Component${index}),`),
+        '];',
+        '',
+    ].join('\n');
+}
+
+/**
+ * Текст реестра форм объектов для клиента. В отличие от реестров страниц и элементов, запись
+ * создаёт функция `objectFormModule`: по объявлению она выводит вид формы и требует от компонента
+ * свойств этого вида. Компонент списка, объявленный формой записи, не пройдёт проверку типов.
+ */
+function renderObjectFormRegistry(parts: ReadonlyArray<ComponentPartFiles>): string {
+    return [
+        ...header,
+        "import { objectFormModule, type ObjectFormModule } from '../web/forms/object-form-module';",
+        ...parts.flatMap((part, index) => [
+            `import * as declaration${index} from '${clientImport(part.declaration)}';`,
+            `import Component${index} from '${clientImport(part.component)}';`,
+        ]),
+        '',
+        '/** Собственные формы объектов в порядке путей файлов. Компонент — экспорт по умолчанию файла компонента. */',
+        'export const objectForms: ReadonlyArray<ObjectFormModule> = [',
+        ...parts.map((part, index) => `    objectFormModule('${part.declaration}', declaration${index}, Component${index}),`),
         '];',
         '',
     ].join('\n');
@@ -217,23 +271,25 @@ function writeIfChanged(name: string, content: string): boolean {
 }
 
 /**
- * Обновляет реестры. Завершается `ConfigurationFilesError`, если нарушена парность файлов страниц
- * или элементов формы; тогда ни один файл не меняется.
+ * Обновляет реестры. Завершается `ConfigurationFilesError`, если нарушена парность файлов страниц,
+ * элементов формы или форм объектов; тогда ни один файл не меняется.
  */
 function generate(): void {
     const objects = findFiles(objectFilePattern);
     const problems: Array<string> = [];
     const pages = findComponentParts(pageKind, problems);
     const formElements = findComponentParts(formElementKind, problems);
+    const objectForms = findComponentParts(objectFormKind, problems);
     if (problems.length > 0) throw new ConfigurationFilesError(problems.join('\n'));
     const written = [
-        writeIfChanged('configuration.generated.ts', renderServerRegistry(objects, pages, formElements)),
+        writeIfChanged('configuration.generated.ts', renderServerRegistry(objects, pages, formElements, objectForms)),
         writeIfChanged('objects.generated.ts', renderObjectReferences(objects)),
         writeIfChanged('pages.generated.ts', renderClientRegistry(pageRegistry, pages)),
         writeIfChanged('form-elements.generated.ts', renderClientRegistry(formElementRegistry, formElements)),
+        writeIfChanged('object-forms.generated.ts', renderObjectFormRegistry(objectForms)),
     ];
     if (written.includes(true)) {
-        console.log(`Реестры конфигурации обновлены: файлов объектов ${objects.length}, страниц ${pages.length}, элементов формы ${formElements.length}`);
+        console.log(`Реестры конфигурации обновлены: файлов объектов ${objects.length}, страниц ${pages.length}, элементов формы ${formElements.length}, форм объектов ${objectForms.length}`);
     }
 }
 
@@ -262,7 +318,7 @@ if (process.argv.includes('--watch')) {
         clearTimeout(timer);
         timer = setTimeout(regenerate, 100);
     });
-    console.log('Слежу за файлами объектов, страниц и элементов формы конфигурации');
+    console.log('Слежу за файлами объектов, страниц, элементов формы и форм объектов конфигурации');
 } else {
     try {
         generate();

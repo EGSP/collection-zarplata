@@ -1,5 +1,5 @@
 import { Button, Flex, Typography } from 'antd';
-import { useFormValue, useFormData, useObjectView, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
+import { listRecordPresentation, useFormValue, useFormData, useObjectView, useRecordList } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /**
@@ -8,18 +8,13 @@ import { Objects } from '../objects.generated';
  */
 const employeeLimit = 500;
 
-/** Кнопка сотрудника: подпись читается как представление записи, то есть ФИО физического лица. */
-function EmployeeButton({ view, guid, selected, onToggle }: { view: ObjectView; guid: string; selected: boolean; onToggle: () => void }) {
-    const presentation = useReferencePresentation(view, guid);
-    return <Button type={selected ? 'primary' : 'default'} aria-pressed={selected} onClick={onToggle}>{presentation.text}</Button>;
-}
-
 /**
- * Набор состава смены: ФИО всех сотрудников без пометки удаления. Нажатие добавляет строку
- * сотрудника в состав, повторное нажатие удаляет её; сотрудники из состава выделены.
+ * Набор состава смены: ФИО всех сотрудников без пометки удаления по алфавиту, то есть по фамилии,
+ * с которой ФИО начинается. Нажатие добавляет строку сотрудника в состав, повторное нажатие
+ * удаляет её; сотрудники из состава выделены.
  *
- * Состав элемент читает и меняет через данные формы, поэтому он согласован с таблицей состава
- * под ним: строка, добавленная или удалённая в таблице, сразу меняет выделение, а изменение
+ * Состав элемент читает и меняет через данные формы, поэтому он согласован с таблицей состава,
+ * если форма её выводит: строка, добавленная или удалённая в таблице, сразу меняет выделение, а изменение
  * элементом считается несохранённым вводом. На закрытой смене кнопки недоступны: недоступность
  * им передаёт форма.
  */
@@ -29,7 +24,6 @@ export default function ShiftEmployees() {
     const view = useObjectView(Objects.catalog.employees);
     const employees = useRecordList(Objects.catalog.employees, {
         permanentFilter: [{ field: 'deletedAt', operator: 'equals', value: null }],
-        sort: [{ field: 'name', direction: 'ascending' }],
         pageSize: employeeLimit,
     });
     // Без права читать сотрудников сервер их описание не отдаёт, и набирать состав не из кого.
@@ -37,6 +31,11 @@ export default function ShiftEmployees() {
     if (!employees.loading && employees.records.length === 0) {
         return <Typography.Text type="secondary">В справочнике «Сотрудники» нет записей</Typography.Text>;
     }
+    // ФИО хранится в физическом лице, и сервер по нему не сортирует. Список возвращает
+    // представления ссылок своей страницы, поэтому кнопки упорядочиваются по ним на клиенте.
+    const buttons = employees.records
+        .map((employee) => ({ guid: employee.guid, text: listRecordPresentation(view, employee, employees.presentations) }))
+        .sort((left, right) => left.text.localeCompare(right.text, 'ru'));
     // Состав вычисляется от текущего значения формы, а не от `lines`: при быстрых нажатиях подряд
     // второе нажатие по составу прошлой отрисовки отменило бы первое.
     const toggle = (guid: string) => form.setValue('employees', (current) => current.some((line) => line.employee === guid)
@@ -44,15 +43,14 @@ export default function ShiftEmployees() {
         : [...current, { employee: guid }]);
     return (
         <Flex wrap gap="small">
-            {employees.records.map((employee) => (
-                <EmployeeButton
-                    key={employee.guid}
-                    view={view}
-                    guid={employee.guid}
-                    selected={lines.some((line) => line.employee === employee.guid)}
-                    onToggle={() => toggle(employee.guid)}
-                />
-            ))}
+            {buttons.map((employee) => {
+                const selected = lines.some((line) => line.employee === employee.guid);
+                return (
+                    <Button key={employee.guid} type={selected ? 'primary' : 'default'} aria-pressed={selected} onClick={() => toggle(employee.guid)}>
+                        {employee.text}
+                    </Button>
+                );
+            })}
         </Flex>
     );
 }

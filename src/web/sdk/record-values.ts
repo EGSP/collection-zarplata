@@ -76,7 +76,10 @@ export function recordValues(form: FormView, record: RecordData): FormValues {
  * существующей записи обнулила бы поля, скрытые переопределением формы. Поэтому отправляется
  * загруженная запись, в которой значения полей формы заменены введёнными. Поля, которые
  * заполняет платформа (`guid`, `deletedAt`, `number`, `posted`), сервер во входных данных пропускает.
+ *
+ * У новой записи вместо загруженной записи основой служат значения, которые передал открывший
+ * форму (`NewFormProperties.initial`): так записываются и переданные значения скрытых полей.
  */
-export function saveFields(form: FormView, saved: RecordData | null, entered: FormValues): FormValues {
+export function saveFields(form: FormView, saved: RecordData | FormValues | null, entered: FormValues): FormValues {
     return { ...saved, ...recordValues(form, entered) };
 }

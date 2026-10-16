@@ -98,7 +98,8 @@ const baseParameter = process.argv.slice(2).find((parameter) => parameter.starts
 const base = baseParameter?.slice('--base='.length) || 'main';
 
 const errors: Array<string> = [];
-const sections = globSync(`${documentationDirectory}/*.md`, { cwd: projectRoot })
+// Дочерние страницы раздела лежат в каталоге с его именем, например `docs/web-sdk/hooks.md`.
+const sections = globSync(`${documentationDirectory}/**/*.md`, { cwd: projectRoot, exclude: (name) => name === '.vitepress' })
     .map(portablePath)
     .sort()
     .map((file) => readSection(file, errors));

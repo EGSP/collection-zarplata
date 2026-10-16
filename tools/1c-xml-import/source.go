@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -107,5 +108,44 @@ func readObjects(reader io.Reader, sourceObject string, handle func(number int, 
 				}
 			}
 		}
+	}
+}
+
+// containsObject быстро проверяет, встречается ли в выгрузке открывающий тег sourceObject.
+// Поиск идёт по байтам без разбора XML, поэтому выгрузки без нужных объектов отсеиваются
+// намного быстрее полного чтения. Совпадение лишь отбирает файл: объекты затем читает readObjects.
+func containsObject(path string, sourceObject string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	tag := []byte("<" + sourceObject)
+	buffer := make([]byte, 1<<20)
+	// Конец предыдущего блока сохраняется, чтобы найти тег, разрезанный границей чтения.
+	carried := 0
+	for {
+		read, err := file.Read(buffer[carried:])
+		window := buffer[:carried+read]
+		for offset := 0; ; {
+			index := bytes.Index(window[offset:], tag)
+			if index < 0 {
+				break
+			}
+			end := offset + index + len(tag)
+			// Имя должно закончиться: иначе CatalogObject.Номенклатура совпал бы с CatalogObject.НоменклатураКонтрагентов.
+			if end < len(window) && (window[end] == '>' || window[end] == ' ' || window[end] == '\t' || window[end] == '\r' || window[end] == '\n' || window[end] == '/') {
+				return true, nil
+			}
+			offset = end
+		}
+		if err == io.EOF {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		carried = min(len(tag), len(window))
+		copy(buffer, window[len(window)-carried:])
 	}
 }

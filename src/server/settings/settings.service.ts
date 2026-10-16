@@ -1,6 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isSea } from 'node:sea';
 import { LaunchArguments, pinPattern, portValue } from './launch-arguments.js';
@@ -88,15 +88,35 @@ function readSettingsFile(directory: string): Settings {
 }
 
 /**
- * Настройки режима памяти не читают файл: у агента в новом worktree его нет. Секрет создаётся
- * при запуске, потому что токены и хеши PIN живут не дольше процесса вместе с базой.
+ * Секрет тестовой файловой базы. Хеши PIN и подписи токенов в файле переживают перезапуск,
+ * поэтому секрет тоже должен сохраняться: он лежит рядом с базой в файле `<база>.secret`
+ * и создаётся при первом запуске. Новый секрет сделал бы невозможным вход сохранённых пользователей.
  */
-function memorySettings(launch: LaunchArguments): Settings {
+function testDatabaseSecret(databasePath: string): string {
+    const secretPath = `${databasePath}.secret`;
+    try {
+        return readFileSync(secretPath, 'utf8').trim();
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const secret = randomBytes(32).toString('hex');
+    mkdirSync(path.dirname(secretPath), { recursive: true });
+    writeFileSync(secretPath, secret, { flag: 'wx' });
+    return secret;
+}
+
+/**
+ * Настройки тестовых режимов не читают файл настроек: у агента в новом worktree его нет.
+ * В режиме памяти секрет создаётся при запуске, потому что токены и хеши PIN живут не дольше
+ * процесса вместе с базой. Тестовая файловая база хранит секрет рядом с собой.
+ */
+function testSettings(launch: LaunchArguments): Settings {
+    const databasePath = launch.testDatabasePath === undefined ? undefined : path.resolve(launch.testDatabasePath);
     return {
         host: '127.0.0.1',
         port: memoryDefaultPort,
-        database: { kind: 'memory' },
-        pinHmacSecret: randomBytes(32).toString('hex'),
+        database: databasePath === undefined ? { kind: 'memory' } : { kind: 'file', path: databasePath },
+        pinHmacSecret: databasePath === undefined ? randomBytes(32).toString('hex') : testDatabaseSecret(databasePath),
         initialUsers: launch.testUsers.map((user) => ({
             name: user.roles === undefined ? 'Тестовый пользователь' : `Тестовый пользователь (${user.roles.join(', ')})`,
             pin: user.pin,
@@ -120,15 +140,15 @@ function lifetimeSeconds(variable: string, fallback: number): number {
 }
 
 function readSettings(launch: LaunchArguments): Settings {
-    if (launch.database === 'memory') return memorySettings(launch);
+    if (launch.database !== 'file') return testSettings(launch);
     return readSettingsFile(isSea() ? path.dirname(process.execPath) : process.cwd());
 }
 
 /**
  * Настройки запуска. Обычно они читаются из файла JSON рядом с исполняемым файлом или в корне
  * проекта при разработке; ошибка в файле останавливает запуск. Параметр `--database=memory`
- * запускает приложение на пустой базе в памяти без файла настроек, а `--test-pin` создаёт в ней
- * тестовых пользователей. Порт из настроек может заменить параметр `--port`: порт, который
+ * запускает приложение на пустой базе в памяти без файла настроек, `--test-database` — так же,
+ * но на базе в указанном файле, а `--test-pin` создаёт в них тестовых пользователей. Порт из настроек может заменить параметр `--port`: порт, который
  * слушает сервер, выбирает провайдер `ServerPort`. Сроки действия токенов в любом режиме задают
  * переменные окружения: короткие сроки нужны, чтобы проверить обновление токенов, не дожидаясь
  * настоящего истечения.
@@ -143,6 +163,8 @@ export class SettingsService {
     readonly pinHmacSecret: string;
     /** Первый пользователь из файла настроек либо тестовые пользователи режима памяти. */
     readonly initialUsers: ReadonlyArray<InitialUser>;
+    /** PIN тестового пользователя для автовхода; бывает только в тестовых режимах. */
+    readonly autoLoginPin: string | undefined;
     /** Срок access-токена и его cookie: `ACCESS_TOKEN_LIFETIME_SECONDS`, по умолчанию 15 минут. */
     readonly accessTokenLifetimeSeconds = lifetimeSeconds('ACCESS_TOKEN_LIFETIME_SECONDS', 15 * 60);
     /** Срок refresh-токена и его cookie: `REFRESH_TOKEN_LIFETIME_SECONDS`, по умолчанию семь дней. */
@@ -158,5 +180,13 @@ export class SettingsService {
         this.database = this.settings.database;
         this.pinHmacSecret = this.settings.pinHmacSecret;
         this.initialUsers = this.settings.initialUsers;
+        this.autoLoginPin = launch.autoLoginPin;
+        // Предупреждение видно в журнале запуска: без него вход без PIN выглядел бы как ошибка прав.
+        if (this.database.kind === 'file' && launch.database === 'test') {
+            new Logger('Settings').warn(`Тестовая база в файле ${this.database.path}: данные сохраняются между запусками`);
+        }
+        if (this.autoLoginPin !== undefined) {
+            new Logger('Settings').warn(`Включён автовход: браузер без сессии входит по PIN ${this.autoLoginPin}`);
+        }
     }
 }

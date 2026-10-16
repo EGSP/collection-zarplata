@@ -1,6 +1,6 @@
 import { Button, Input, Space, type InputRef } from 'antd';
 import { useImperativeHandle, useRef } from 'react';
-import { useFormData, type InputProperties } from '../../web/sdk';
+import { fieldInput, FluidField, useFormData, type InputProperties } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /**
@@ -12,8 +12,11 @@ import { Objects } from '../objects.generated';
  * Ввод с клавиатуры поле отдаёт обработчиком изменения, а кнопка меняет значение через данные
  * формы: так же значение любого поля изменил бы элемент, который полем ввода не является.
  * Недоступность на форме только для просмотра поле и кнопка получают от формы сами.
+ *
+ * Элемент поддерживает обе компоновки поля, как обязан любой элемент на месте поля ввода:
+ * в fluid-компоновке перед полем стоит сегмент с названием.
  */
-export default function SampleComment({ value, onChange, id, ref }: InputProperties<string>) {
+function SampleComment({ value, onChange, id, ref }: InputProperties<string>) {
     const form = useFormData(Objects.document.sample);
     const input = useRef<InputRef>(null);
     useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }), []);
@@ -31,3 +34,12 @@ export default function SampleComment({ value, onChange, id, ref }: InputPropert
         </Space.Compact>
     );
 }
+
+export default fieldInput<string>({
+    stacked: SampleComment,
+    fluid: ({ label, required, ...properties }) => (
+        <FluidField label={label} required={required}>
+            <SampleComment {...properties} />
+        </FluidField>
+    ),
+});

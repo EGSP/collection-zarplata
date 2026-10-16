@@ -11,9 +11,9 @@
  */
 import type { Formula } from '../../common/formulas.js';
 import type { ValueSuggestions } from '../metadata/descriptions.js';
-import type { DelegatedPresentation, FieldKind, FieldRole, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
+import type { DelegatedPresentation, FieldKind, FieldRole, FieldWidth, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
 
-export type { DelegatedPresentation, FieldKind, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
+export type { DelegatedPresentation, FieldKind, FieldWidth, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
 
 /**
  * Правила проверки значения поля. Клиент проверяет по ним ввод до отправки, окончательную
@@ -59,6 +59,8 @@ export interface FormField {
      */
     readonly variants?: ReadonlyArray<FormField> | null;
     /** Способ ввода: `fluent` — значение пишется текстом, `solid` — нужен собственный элемент ввода. */
+    /** Ширина поля ввода на форме из конфигурации; без неё обычная. Форма может задать другую. */
+    readonly width?: FieldWidth;
     readonly inputMode?: InputMode;
     readonly rules: ValidationRules;
     /**
@@ -245,6 +247,16 @@ export interface ObjectView {
     /** Форма объекта; у регистров `null`. */
     readonly form: FormView | null;
     readonly list: ListView;
+    /**
+     * Подбор записей: колонки таблицы в окне подбора. Строки клиент получает стандартным действием
+     * `lookup`. `null`, если объект подбора не объявил: тогда у поля ссылки нет кнопки подбора.
+     */
+    readonly lookup: LookupView | null;
+}
+
+/** Колонки окна подбора; значение колонки показывается виджетом её вида. */
+export interface LookupView {
+    readonly columns: ReadonlyArray<FormField>;
 }
 
 /**

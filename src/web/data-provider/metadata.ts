@@ -8,7 +8,7 @@
  */
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { useSelector } from '@tanstack/react-store';
-import type { MetadataResponse, ObjectView } from '../../server/ui/descriptions';
+import type { MetadataResponse, ObjectView, PageView } from '../../server/ui/descriptions';
 import { sessionStatus } from '../authentication/session';
 import { request } from '../common/api';
 import type { PerformTarget } from './perform';
@@ -41,4 +41,12 @@ export function findObjectView(metadata: MetadataResponse | undefined, target: P
  */
 export function useObjectView(target: PerformTarget | null): ObjectView | undefined {
     return findObjectView(useMetadata().data, target);
+}
+
+/**
+ * Страница конфигурации по имени. Возвращает `undefined`, если описания ещё не загружены
+ * либо страница недоступна пользователю: сервер такие страницы не отдаёт.
+ */
+export function usePageView(name: string): PageView | undefined {
+    return useMetadata().data?.pages.find((page) => page.name === name);
 }

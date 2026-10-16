@@ -1,13 +1,11 @@
 /**
- * Общее описание рассрочек: долг покупателя, который он гасит взносами. Рассрочек два вида:
- * «Рассрочка» оформляется вместо продажи и хранит свои товары, «Рассрочка по продаже» закрывает
- * часть оплаты продажи и товаров не имеет. Поля, взносы, политика, проведение и действия «Внести»
- * и «Закрыть» у них одинаковы и объявлены здесь один раз; документ добавляет только сумму
- * и собственные поля.
+ * Общее описание рассрочки по продаже: долг покупателя, который он гасит взносами. Здесь
+ * объявлены поля, взносы, политика, проведение и действия «Внести» и «Закрыть»; документ
+ * `sale-installment.document.ts` добавляет сумму, ссылку на продажу и собственные движения.
  *
  * У рассрочки два состояния, открыта и закрыта; закрытая не изменяется и взносов не принимает.
  * Остаток хранится вычисляемым полем шапки: по нему работают блок незакрытых рассрочек и условие
- * закрытия. Проведённая рассрочка записывает в регистр «Расчёты с покупателями» свою сумму
+ * закрытия. Проведённая рассрочка записывает в регистр «Долги по рассрочкам» свою сумму
  * и взносы, а в регистр «Поступления денег» каждый взнос по его способу.
  */
 import { Effect } from 'effect';
@@ -36,28 +34,33 @@ import { Rights } from './configuration.generated.js';
 import { Shift } from './documents/shift.document.js';
 import { rubles } from './money.js';
 import { paymentMethods, Payments, receiverField } from './payments.js';
-import { CustomerSettlements } from './registers/customer-settlements.register.js';
+import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
 
-/** Имена документов-рассрочек. По имени из `Rights` берётся право закрытия своего документа. */
-type InstallmentName = 'installment' | 'saleInstallment';
+/** Имя документа-рассрочки. По нему из `Rights` берётся право закрытия. */
+type InstallmentName = 'saleInstallment';
 
 /** Рассрочка, за которую отвечает магазин: у неё обязателен ответственный сотрудник. */
-const ownInstallment = 'Собственная';
+export const ownInstallment = 'Собственная';
 
 /**
- * Начало шапки: поля до суммы. Сумму объявляет документ, потому что считается она по-разному:
- * у рассрочки по товарам, у рассрочки по продаже вводится.
+ * Типы рассрочки: банковская оформляется через банк, собственную магазин ведёт сам. Объявлены
+ * отдельно: тот же выбор запрашивает действие продажи «Продать с рассрочкой».
+ */
+export const installmentTypes = ['Банковская', ownInstallment];
+
+/**
+ * Начало шапки: поля до суммы. Сумму объявляет документ.
  *
  * Тип и физическое лицо у поля необязательны: рассрочку по продаже создаёт действие продажи,
  * и заполняет их продавец уже в созданном документе. Когда они обязательны, решает политика.
  */
 const head = <const Name extends InstallmentName>(name: Name, title: string) => document(name)
     .title(title)
-    .field('type', (field) => field.string().title('Тип').choices(['Банковская', ownInstallment]))
+    .field('type', (field) => field.string().title('Тип').choices(installmentTypes))
     .field('shift', (field) => field.reference(Shift).title('Смена').required())
-    .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо'))
-    .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник'));
+    .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').width('free'))
+    .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник').width('long'));
 
 type HeadBuilder<Name extends InstallmentName> = ReturnType<typeof head<Name>>;
 type HeadFields = HeadBuilder<InstallmentName>['~fields'];
@@ -81,7 +84,7 @@ const tail = <Name extends InstallmentName>(base: DocumentBuilder<Name, HeadFiel
 
 type TailBuilder = ReturnType<typeof tail<InstallmentName>>;
 
-/** Общая запись рассрочки: поля, которые есть у обоих документов. */
+/** Запись рассрочки с общими полями. */
 type InstallmentRecord = RecordOf<TailBuilder>;
 
 const rejected = (message: string) => new DataPolicyError({ message });
@@ -92,7 +95,6 @@ const notPosted = 'Рассрочка не проведена: сначала п
 
 /**
  * Тип и физическое лицо нужны движениям и отчётам, поэтому без них рассрочка не проводится.
- * Обычная рассрочка требует их при каждой записи, как до появления рассрочки по продаже.
  */
 const checkCustomer = (record: InstallmentRecord) => {
     // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
@@ -108,7 +110,7 @@ const checkCustomer = (record: InstallmentRecord) => {
  * закрывает само действие. Поэтому условие закрытия и право на него проверяются здесь.
  * Ответственный обязателен только у собственной рассрочки, в том числе при вложенной записи
  * взноса или закрытия. `Rights` читается при выполнении: при загрузке документа реестр ещё не готов.
- * Предел взносов политика не проверяет: его задаёт ограничение регистра «Расчёты с покупателями».
+ * Предел взносов политика не проверяет: его задаёт ограничение регистра «Долги по рассрочкам».
  */
 const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => ({
     name: 'installment-rules',
@@ -118,7 +120,7 @@ const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => (
         if (closes) yield* requireRight(Rights.document[name].actions.close);
         // Рассрочку по продаже действие продажи создаёт без типа и физического лица, поэтому
         // её черновик записывается без них.
-        if (name === 'installment' || proposedRecord.posted) yield* checkCustomer(proposedRecord);
+        if (proposedRecord.posted) yield* checkCustomer(proposedRecord);
         if (proposedRecord.type === ownInstallment && (proposedRecord.responsibleEmployee ?? null) === null) {
             return yield* rejected('Укажите ответственного сотрудника собственной рассрочки');
         }
@@ -137,8 +139,8 @@ const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => (
  * документа сверх общих.
  *
  * Форму документ задаёт сам вызовом `.form(...)` на результате: её состав зависит от собственных
- * полей. Группа «Рассрочка» с полем `person` должна быть у обоих документов: после него стоят
- * общие элементы формы.
+ * полей. На форме должна быть группа «Рассрочка» с полем `person`: после него стоят элементы
+ * формы рассрочки.
  *
  * Взносы на форме недоступны для изменения, а дата закрытия скрыта: взнос добавляет действие
  * «Внести», закрывает рассрочку действие «Закрыть». Оба действия записывают рассрочку вложенным
@@ -184,7 +186,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
             const person = record.person;
             const basis = objectReference(target, record.guid);
             return [
-                movements(CustomerSettlements, [
+                movements(InstallmentDebts, [
                     { basis, person, shift: record.shift, amount: record.amount },
                     // Взнос уменьшает долг датой взноса, но сменой рассрочки: рассрочка считается продажей
                     // выдавшей её смены, оплата которой растянута во времени.

@@ -97,12 +97,13 @@ function removeTab(state: TabsState, id: number): TabsState {
 }
 
 /**
- * Меняет путь вкладки с `from` на `path`. Вкладка с другим путём не меняется.
- * Строка запроса относилась к прежнему пути и сбрасывается.
+ * Меняет путь вкладки с `from` или вложенного в него пути на `path`: так вкладка черновика
+ * `/вид/имя/new/<ключ>` тоже переходит на адрес созданной записи. Вкладка с другим путём
+ * не меняется. Строка запроса относилась к прежнему пути и сбрасывается.
  */
 function relocateTab(state: TabsState, id: number, from: string, path: string): TabsState {
     const relocated = state.tabs.find((tab) => tab.id === id);
-    if (relocated === undefined || relocated.path !== from || from === path) return state;
+    if (relocated === undefined || (relocated.path !== from && !relocated.path.startsWith(`${from}/`)) || relocated.path === path) return state;
     const tabs = state.tabs.map((tab) => (tab === relocated ? { ...tab, path, search: '' } : tab));
     return state.activeId === id ? { ...state, tabs, departed: relocated.path } : { ...state, tabs };
 }

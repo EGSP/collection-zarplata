@@ -2,7 +2,8 @@
  * Модальное окно с формой записи: вторая реализация области окна после вкладки.
  *
  * Окно открывает команда открытия записи SDK в режиме окна. Форма внутри та же, что во вкладке:
- * она обращается к ближайшей области и не знает, что показана в окне. Заголовок и кнопки формы
+ * она обращается к ближайшей области, а место показа получает свойством `presentation` и может
+ * вывести в окне другую раскладку. Заголовок и кнопки формы
  * каркас страницы выводит в рамку области: в шапку и нижнюю часть окна.
  *
  * Адреса у окна нет: вкладки выводятся из адреса, и адрес окна открыл бы вкладку. Поэтому окно
@@ -18,17 +19,21 @@
 import { Button, Modal, theme } from 'antd';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NotFoundPage } from '../common/not-found';
-import { useObjectView, useWindowScope, type PerformTarget } from '../sdk';
+import { useObjectView, useWindowScope, type FormValues, type PerformTarget } from '../sdk';
 import { RecordDialogContext, type OpenRecordDialog } from '../sdk/open-record';
 import { WindowScopeProvider } from '../window/window-scope';
 import { ExistingRecordForm } from './existing-record-form';
-import { RecordForm } from './record-form';
+import { ObjectRecordForm } from './object-forms';
 
 interface OpenedDialog {
     readonly id: number;
     readonly object: PerformTarget;
     /** `guid` открытой записи; у формы новой записи `null`. */
     readonly guid: string | null;
+    /** Значения новой записи от открывшего окно кода. */
+    readonly initial: FormValues | undefined;
+    /** Ширина окна от открывшего его кода; без неё обычная. */
+    readonly width: number | undefined;
 }
 
 let nextDialogId = 1;
@@ -49,12 +54,12 @@ export function RecordDialogHost({ children }: { readonly children: ReactNode })
     const waiting = useRef(new Map<number, (written: string | null) => void>());
 
     const open = useCallback<OpenRecordDialog>(
-        (object, guid) =>
+        (object, guid, initial, width) =>
             new Promise((resolve) => {
                 const id = nextDialogId++;
                 waiting.current.set(id, resolve);
                 // Объект мог прийти описанием или ссылкой с типами: окну нужны только вид и имя.
-                setDialogs((previous) => [...previous, { id, guid, object: { kind: object.kind, name: object.name } }]);
+                setDialogs((previous) => [...previous, { id, guid, initial, width, object: { kind: object.kind, name: object.name } }]);
             }),
         [],
     );
@@ -118,9 +123,9 @@ function RecordDialog({ dialog, onFinish }: RecordDialogProperties) {
             onRecordWritten={remember}
             unsavedChangesWarning="На форме есть несохранённые изменения. Если закрыть окно, они будут потеряны."
         >
-            <RecordDialogWindow onHeader={setHeader} onFooter={setFooter}>
+            <RecordDialogWindow width={dialog.width} onHeader={setHeader} onFooter={setFooter}>
                 <RecordDialogHost>
-                    <RecordDialogContent object={dialog.object} guid={dialog.guid} />
+                    <RecordDialogContent object={dialog.object} guid={dialog.guid} initial={dialog.initial} />
                 </RecordDialogHost>
             </RecordDialogWindow>
         </WindowScopeProvider>
@@ -128,13 +133,14 @@ function RecordDialog({ dialog, onFinish }: RecordDialogProperties) {
 }
 
 interface RecordDialogWindowProperties {
+    readonly width: number | undefined;
     readonly onHeader: (element: HTMLElement | null) => void;
     readonly onFooter: (element: HTMLElement | null) => void;
     readonly children: ReactNode;
 }
 
 /** Модальное окно Ant Design с пустыми шапкой и нижней частью: их заполняет каркас страницы. */
-function RecordDialogWindow({ onHeader, onFooter, children }: RecordDialogWindowProperties) {
+function RecordDialogWindow({ width, onHeader, onFooter, children }: RecordDialogWindowProperties) {
     const { token } = theme.useToken();
     const scope = useWindowScope();
     const layer = useContext(RecordDialogLayerContext);
@@ -145,7 +151,9 @@ function RecordDialogWindow({ onHeader, onFooter, children }: RecordDialogWindow
             // на вкладку показано с введёнными значениями.
             open={scope.active}
             getContainer={layer ?? document.body}
-            width={720}
+            // Окно не шире области, в которой показано: окно вкладки занимает только её страницу,
+            // и ширина от окна браузера увела бы его край за пределы страницы.
+            width={width === undefined ? 720 : `min(${width}px, calc(100% - 32px))`}
             // Esc обрабатывает форма: она отличает закрытие списка выбора от закрытия окна.
             // Со встроенной обработкой подтверждение спрашивалось бы дважды.
             keyboard={false}
@@ -175,7 +183,7 @@ function RecordDialogWindow({ onHeader, onFooter, children }: RecordDialogWindow
  * и новой записи без права записи вызывающий код открывать не должен; если это случилось, окно
  * отвечает так же, как адрес вкладки.
  */
-function RecordDialogContent({ object: target, guid }: { readonly object: PerformTarget; readonly guid: string | null }) {
+function RecordDialogContent({ object: target, guid, initial }: { readonly object: PerformTarget; readonly guid: string | null; readonly initial: FormValues | undefined }) {
     const object = useObjectView(target);
     const { close } = useWindowScope();
     if (object === undefined || object.form === null) return <NotFoundPage />;
@@ -185,6 +193,7 @@ function RecordDialogContent({ object: target, guid }: { readonly object: Perfor
                 object={object}
                 view={object.form}
                 guid={guid}
+                presentation="dialog"
                 failureAction={
                     <Button type="primary" onClick={close}>
                         Закрыть
@@ -194,5 +203,5 @@ function RecordDialogContent({ object: target, guid }: { readonly object: Perfor
         );
     }
     if (!object.form.actions.some((action) => action.name === 'save')) return <NotFoundPage />;
-    return <RecordForm object={object} view={object.form} record={null} reload={null} />;
+    return <ObjectRecordForm object={object} view={object.form} record={null} reload={null} presentation="dialog" initial={initial} />;
 }

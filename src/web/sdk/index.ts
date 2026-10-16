@@ -35,12 +35,13 @@ export type {
     ObjectKind,
     ObjectTarget,
     ObjectView,
+    PageView,
     RecordOpeningMode,
     SortDirection,
     ValidationRules,
 } from '../../server/ui/descriptions';
-export { RecordTablePart, type RecordTablePartProperties } from './record-table-part';
-export { useObjectView } from '../data-provider/metadata';
+export { RecordTablePart, type RecordTablePartProperties, type RecordTableSelection } from './record-table-part';
+export { useObjectView, usePageView } from '../data-provider/metadata';
 export type { PerformTarget } from '../data-provider/perform';
 
 // Ссылки на объекты конфигурации: по ним компилятор проверяет имена полей и действий.
@@ -48,14 +49,14 @@ export type { ActedObject, FieldName, ListedObject, ObjectReference, ReadObject,
 
 // Данные: чтение списка и записи, выполнение действий.
 export { ApiError } from '../common/api';
-export { useAction, type ActionCall } from '../data-provider/actions';
+export { useAction, useActionResult, type ActionCall, type ActionQuery } from '../data-provider/actions';
 export type { ListCondition } from '../data-provider/data-provider';
 export { recordGuid, type RecordData } from '../data-provider/records';
-export { useRecord, type RecordQuery } from './record';
+export { useRecord, useRecords, type RecordQuery, type RecordsQuery } from './record';
 export { defaultPageSize, useRecordList, type RecordList, type RecordListOptions } from './record-list';
 
 // Представления записей и ссылки на них.
-export { recordPresentation, recordTitle, useRecordPresentation, useReferencePresentation, type ReferencePresentation } from '../references/presentation';
+export { listRecordPresentation, recordPresentation, recordTitle, useRecordPresentation, useReferencePresentation, type ReferencePresentation } from '../references/presentation';
 export { RecordLink, type RecordLinkProperties } from '../references/reference-display';
 
 // Область окна страницы, открытие формы записи, адреса страниц объектов и собственных страниц конфигурации.
@@ -69,15 +70,43 @@ export { FieldDisplay, FieldInput, compositeInputs, hasInput } from '../widgets/
 export { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage, validationMessage } from '../widgets/validation';
 export type { CompositeInputModes, CompositeInputProperties, DisplayProperties, FieldValues, InputHandle, InputProperties, WidgetField } from '../widgets/widget';
 export { FieldGroup, type FieldGroupProperties } from './field-group';
-export { FormDataProvider, useFormData, useFormRestrictions, useFormValue, type EnteredValue, type FormData, type FormDataProviderProperties, type FormElementComponent } from './form-data';
+export { FluidField, fieldInput, type FieldInputComponent, type FieldInputLayouts, type FieldInputMark, type FieldLayout, type FluidFieldProperties, type FluidInputProperties, type LaidOutInputProperties } from './field-layout';
+export { FormDataProvider, useFormData, useFormRestrictions, useFormValue, type EnteredValue, type FormData, type FormDataProviderProperties, type FormElementComponent, type SetValueOptions } from './form-data';
 export { useFormRestrictionRegistry, type FormRestrictionRegistry, type FormRestrictions } from './form-restrictions';
 export { useFieldTraversal, type FieldTraversal } from './field-traversal';
 export { hasOpenDialog, hasOpenPicker } from './keyboard';
 export { newRecordValues, newRowValues, recordValues, saveFields, type FormValues } from './record-values';
-export { TablePart, type TablePartProperties } from './table-part';
+export { TablePart, TablePartTitle, type TablePartOptions, type TablePartProperties } from './table-part';
 
-// Иконки по смыслу: добавление, открытие, удаление и прочие.
+// Формы объекта: свойства форм, контракт формы записи с областью окна и части стандартной формы записи.
+export type { FormPresentation, ListFormProperties, NewFormProperties, RecordFormProperties } from './object-form-properties';
+export { useRecordFormContract, type RecordFormActionInput, type RecordFormController, type RecordFormHandlers, type RecordFormOutcome, type RecordFormRunOptions } from './record-form-contract';
+export {
+    RecordFormActions,
+    RecordFormBody,
+    RecordFormLayout,
+    RecordFormMarks,
+    RecordFormPage,
+    StandardRecordForm,
+    recordFormElements,
+    useRecordForm,
+    type RecordFormActionsProperties,
+    type RecordFormBodyProperties,
+    type RecordFormButtons,
+    type RecordFormLayoutProperties,
+    type RecordFormOptions,
+    type RecordFormPageProperties,
+    type RecordFormPartProperties,
+    type RecordFormState,
+    type RecordFormTitles,
+} from './record-form';
+
+// Иконки по смыслу: добавление, открытие, удаление и прочие; крупные пиктограммы разделов.
 export { Icons, type IconName } from './icons';
+export { Pictograms, type PictogramName } from './pictograms';
+
+// Плитка перехода к странице.
+export { Tile, type TileProperties } from './tile';
 
 // Действия.
 export { ActionButton, actionApplies, actionSuccessMessage, type ActionButtonProperties } from './action-button';

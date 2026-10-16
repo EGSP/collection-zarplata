@@ -17,24 +17,38 @@
 import {
     ApartmentOutlined,
     AppstoreOutlined,
+    BankOutlined,
     BarChartOutlined,
     BookOutlined,
+    CalendarOutlined,
     CheckCircleOutlined,
     CloseOutlined,
+    CreditCardOutlined,
     DeleteOutlined,
     ExportOutlined,
     FileTextOutlined,
     FilterOutlined,
     GlobalOutlined,
     HomeOutlined,
+    InboxOutlined,
+    LinkOutlined,
+    LockOutlined,
     LogoutOutlined,
     MoreOutlined,
+    PartitionOutlined,
     PlusOutlined,
     ProfileOutlined,
     ReadOutlined,
+    RollbackOutlined,
     SaveOutlined,
+    SearchOutlined,
     SettingOutlined,
+    ShopOutlined,
+    ShoppingCartOutlined,
+    SkinOutlined,
     ThunderboltOutlined,
+    UnlockOutlined,
+    WalletOutlined,
 } from '@ant-design/icons';
 
 /** Иконки приложения по смыслу. Правила пользования описаны во вводном комментарии модуля. */
@@ -43,12 +57,21 @@ export const Icons = {
     add: PlusOutlined,
     /** Переход к записи или странице, на которую ссылается элемент. */
     open: ExportOutlined,
+    /** Связь с другим документом: строка основания ссылается на продажу. */
+    link: LinkOutlined,
     /** Удаление данных: строки табличной части, записи. */
     delete: DeleteOutlined,
     /** Исключение элемента из набора без удаления данных: условия из отбора. */
     remove: CloseOutlined,
+    /**
+     * Удаление строки табличной части. Крестик, а не корзина: строка убирается из несохранённой
+     * формы, и до записи её удаление ничего не стирает.
+     */
+    removeRow: CloseOutlined,
     /** Отбор списка. */
     filter: FilterOutlined,
+    /** Подбор записи для поля ссылки: окно с поиском и таблицей. */
+    lookup: SearchOutlined,
     /** Меню остальных действий с элементом. */
     more: MoreOutlined,
     /** Главная вкладка. */
@@ -67,6 +90,36 @@ export const Icons = {
     save: SaveOutlined,
     /** Проведение документа. */
     post: CheckCircleOutlined,
+
+    // Действия продавца: у каждого свой значок, чтобы кнопки рабочего места различались с первого взгляда.
+    /** Оформление продажи. */
+    sell: ShoppingCartOutlined,
+    /** Оформление отвеса: товар откладывается для покупателя. */
+    weigh: InboxOutlined,
+    /** Вывешивание товара из отвеса обратно в зал: значок одежды. */
+    hang: SkinOutlined,
+    /** Оформление возврата. */
+    refund: RollbackOutlined,
+    /** Оформление рассрочки: оплата взносами по графику. */
+    installment: CalendarOutlined,
+    // Способы оплаты: переключатель способа показывает значок рядом с названием.
+    /** Оплата наличными. */
+    cashPayment: WalletOutlined,
+    /** Безналичная оплата: картой или переводом. */
+    cashlessPayment: CreditCardOutlined,
+    /** Часть оплаты, на которую оформляется рассрочка. */
+    installmentPayment: CalendarOutlined,
+    /** Сложная оплата: несколько оплат разными способами. */
+    complexPayment: PartitionOutlined,
+    // Типы рассрочки: кто ведёт долг покупателя.
+    /** Собственная рассрочка: долг ведёт магазин. */
+    ownInstallment: ShopOutlined,
+    /** Банковская рассрочка: долг ведёт банк. */
+    bankInstallment: BankOutlined,
+    /** Открытие смены. */
+    openShift: UnlockOutlined,
+    /** Закрытие смены. */
+    closeShift: LockOutlined,
 
     /** Состояние записи: помечена на удаление. */
     markedDeleted: DeleteOutlined,

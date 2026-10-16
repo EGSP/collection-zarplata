@@ -7,9 +7,13 @@
  * строкового варианта нет, числом или суммой. Поэтому имя человека, которого нет в справочнике,
  * сохраняется строкой и не мешает вводу. Тип получившегося значения подписан под полем: «100»
  * строкой и числом выглядят одинаково, а сравниваются и суммируются по-разному.
+ *
+ * Если по тексту не нашлось ни одной записи, список предлагает создать её: пункт «Новый: <объект>»
+ * для каждого ссылочного варианта. Пункт открывает форму новой записи в модальном окне, а записанная
+ * там запись становится значением поля вместо строки.
  */
 import { AutoComplete, Button, Flex, Tooltip, Typography, type AutoCompleteProps } from 'antd';
-import { useMemo, useState } from 'react';
+import { useContext, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { compositeReference } from '../../server/metadata/composite';
 import type { CompositeValue } from '../../server/metadata/descriptions';
@@ -19,6 +23,7 @@ import { findObjectView, useMetadata } from '../data-provider/metadata';
 import { useObjectReferencePresentation } from '../references/presentation';
 import { recordSuggestionKey, useRecordSuggestions } from '../references/record-suggestions';
 import { Icons } from '../sdk/icons';
+import { RecordDialogContext } from '../sdk/open-record';
 import { compositeTypeTitle, defaultInterpretation, displayedText, editableText, textInterpretations } from './composite-text';
 import { defined, useInputHandle } from './inputs';
 import type { CompositeInputProperties } from './widget';
@@ -94,11 +99,38 @@ export function CompositeFluentInput({ field, value, onChange, disabled, id, ref
         ].filter((group) => group.suggestions.length > 0);
     }, [variants, draft, interpretations, records.groups, metadata]);
     const suggestions = groups.flatMap((group) => group.suggestions);
-    const toOption = (suggestion: Suggestion) => ({ value: suggestion.key, label: suggestion.label });
+
+    // Создание записи из поля: только когда записей по тексту нет, в объекты с правом записи
+    // и там, где модальное окно можно показать.
+    const openDialog = useContext(RecordDialogContext);
+    const entered = (draft ?? '').trim();
+    const nothingFound = entered !== '' && !records.loading && records.groups.every((group) => group.suggestions.length === 0);
+    const creations = openDialog === null || !nothingFound ? [] : targets
+        .filter((object) => object.form?.actions.some((action) => action.name === 'save') === true)
+        .map((object) => ({ key: `${keyPrefix}create/${object.kind}/${object.name}`, object, label: `Новый: ${object.title}` }));
+
+    /**
+     * Создаёт запись в окне и делает её значением поля. Справочнику, который называется своим
+     * наименованием, введённый текст передаётся наименованием. Закрытое без записи окно
+     * оставляет прежнее значение: введённый текст строкой, если строковый вариант есть.
+     */
+    const create = async (object: ObjectView, name: string) => {
+        if (openDialog === null) return;
+        const initial = object.kind === 'catalog' && object.presentation === null ? { name } : undefined;
+        const guid = await openDialog(object, null, initial);
+        if (guid === null) return;
+        const created: CompositeValue = { type: 'reference', kind: object.kind === 'document' ? 'document' : 'catalog', name: object.name, guid };
+        // Пока представление новой записи читается, поле показывает введённый текст.
+        setPicked({ key: `${keyPrefix}record/${recordSuggestionKey({ kind: created.kind, name: created.name, guid })}`, value: created, label: name });
+        onChange?.(created);
+    };
+
+    const toOption = (suggestion: Pick<Suggestion, 'key' | 'label'>) => ({ value: suggestion.key, label: suggestion.label });
+    const shownGroups = [...groups, ...(creations.length === 0 ? [] : [{ title: 'Создать', suggestions: creations }])];
     // Заголовки нужны, только когда источников несколько: иначе неясно, что именно предложено.
-    const options: NonNullable<AutoCompleteProps['options']> = groups.length === 1
-        ? groups[0]!.suggestions.map(toOption)
-        : groups.map((group) => ({ label: group.title, options: group.suggestions.map(toOption) }));
+    const options: NonNullable<AutoCompleteProps['options']> = shownGroups.length === 1
+        ? shownGroups[0]!.suggestions.map(toOption)
+        : shownGroups.map((group) => ({ label: group.title, options: group.suggestions.map(toOption) }));
 
     const reference = compositeReference(value);
     const selected = useObjectReferencePresentation(reference);
@@ -132,6 +164,15 @@ export function CompositeFluentInput({ field, value, onChange, disabled, id, ref
                             setOpen(false);
                         }}
                         onChange={(entered: string | undefined) => {
+                            const creation = creations.find((candidate) => candidate.key === entered);
+                            if (creation !== undefined) {
+                                // Текст запоминается до закрытия списка: уход фокуса в окно сбросит набранное.
+                                const name = (draft ?? '').trim();
+                                setDraft(null);
+                                setOpen(false);
+                                void create(creation.object, name);
+                                return;
+                            }
                             const suggestion = suggestions.find((candidate) => candidate.key === entered);
                             if (suggestion !== undefined) {
                                 setPicked(suggestion);

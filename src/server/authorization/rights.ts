@@ -38,11 +38,12 @@ const standardPermissions = {
         write: ['save', 'delete'],
     },
     catalog: {
-        read: ['list', 'get'],
+        // Подбор только читает записи, поэтому его разрешает право чтения.
+        read: ['list', 'get', 'lookup'],
         write: ['save', 'markDeleted', 'unmarkDeleted', 'import'],
     },
     document: {
-        read: ['list', 'get'],
+        read: ['list', 'get', 'lookup'],
         write: ['save', 'markDeleted', 'unmarkDeleted'],
         post: ['post', 'unpost'],
     },

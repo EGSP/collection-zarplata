@@ -1,21 +1,10 @@
 import { Button, Flex, Typography } from 'antd';
 import { useState } from 'react';
-import { ActionDialog, FieldDisplay, useFormData, useFormRestrictions, type ActedObject, type ReadObject } from '../../web/sdk';
+import { ActionDialog, FieldDisplay, useFormData, useFormRestrictions } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
-type Installments = typeof Objects.document.installment;
-type SaleInstallments = typeof Objects.document.saleInstallment;
-
-/** Поля, которые есть у обеих рассрочек: только их элемент и читает. */
-type InstallmentRecord = Pick<Installments['~record'], keyof Installments['~record'] & keyof SaleInstallments['~record']>;
-
-/** Ссылка на любую из двух рассрочек с их общими полями и действиями. */
-type InstallmentObject = ReadObject<InstallmentRecord> & ActedObject<Installments['~action']>;
-
 /**
- * Состояние рассрочки на её форме и кнопки «Внести» и «Закрыть». Элемент стоит на формах
- * рассрочки и рассрочки по продаже: состояния, действия и запреты у них общие, а документ
- * он определяет по форме.
+ * Состояние рассрочки по продаже на её форме и кнопки «Внести» и «Закрыть».
  *
  * Элемент управляет формой. Взносы недоступны для изменения: взнос добавляет действие «Внести».
  * Закрытую рассрочку нельзя изменить, пометить на удаление, пополнить и закрыть повторно:
@@ -32,8 +21,7 @@ type InstallmentObject = ReadObject<InstallmentRecord> & ActedObject<Installment
  * Условие берётся из записанного состояния: рассрочка становится закрытой после ответа сервера.
  */
 export default function InstallmentState() {
-    const { object } = useFormData();
-    const installments: InstallmentObject = object.name === Objects.document.saleInstallment.name ? Objects.document.saleInstallment : Objects.document.installment;
+    const installments = Objects.document.saleInstallment;
     const form = useFormData(installments);
     const [paying, setPaying] = useState(false);
     const [closing, setClosing] = useState(false);

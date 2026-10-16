@@ -56,11 +56,23 @@ export class AuthenticationController {
         }
     }
 
-    /** Заменяет одноразовый refresh-токен и обновляет обе cookie. */
+    /**
+     * Заменяет одноразовый refresh-токен и обновляет обе cookie.
+     *
+     * При автовходе отказ в обновлении заменяется входом по PIN автовхода. Клиент обновляет токены
+     * после первого ответа 401, поэтому браузер без сессии входит сам, и экрана входа нет.
+     * После явного выхода клиент запросов не отправляет и показывает экран входа: на нём можно
+     * войти другим тестовым пользователем. Перезагрузка страницы снова входит по PIN автовхода.
+     */
     @Post('refresh')
     @HttpCode(HttpStatus.NO_CONTENT)
     async refresh(@Req() request: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply): Promise<void> {
-        const tokens = await this.authentication.refresh(request.cookies[refreshCookie]);
+        const autoLoginPin = this.settings.autoLoginPin;
+        const tokens = await this.authentication.refresh(request.cookies[refreshCookie]).catch((error: unknown) => {
+            const refused = error instanceof HttpException && error.getStatus() === HttpStatus.UNAUTHORIZED;
+            if (!refused || autoLoginPin === undefined) throw error;
+            return this.authentication.login(autoLoginPin);
+        });
         this.setCookies(reply, request, tokens);
     }
 

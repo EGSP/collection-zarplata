@@ -35,6 +35,12 @@ export type EnteredValue<Value> = Value extends ReadonlyArray<infer Row> ? Reado
  */
 export type FormElementComponent = ComponentType<never>;
 
+/** Настройки изменения значения элементом формы (`FormData.setValue`). */
+export interface SetValueOptions {
+    /** Проверять ли значение сразу после изменения. По умолчанию проверяется. */
+    readonly validate?: boolean;
+}
+
 /**
  * Данные формы записи типа `Record` с действиями `Action`. По ссылке на объект конфигурации запись
  * и имена действий получают точные типы.
@@ -67,10 +73,16 @@ export interface FormData<Record extends RecordData = RecordData, Action extends
      * новое. Так меняют значение, которое зависит от прежнего, например добавляют строку табличной
      * части: значение из `useFormValue` элемент получает с отрисовкой, и при двух изменениях подряд
      * второе, вычисленное по нему, отменило бы первое.
+     *
+     * После изменения форма проверяет значение и показывает ошибки под полем. Параметр
+     * `{ validate: false }` откладывает проверку до ввода пользователя или записи: так элемент
+     * ставит пустую строку для заполнения, и ошибки «Заполните поле» не появляются раньше,
+     * чем пользователь начал её заполнять.
      */
     readonly setValue: <Field extends FieldName<Record>>(
         field: Field,
         value: EnteredValue<Record[Field]> | ((current: EnteredValue<Record[Field]>) => EnteredValue<Record[Field]>),
+        options?: SetValueOptions,
     ) => void;
     /**
      * Выполняет действие формы так же, как его кнопка: сначала записывает несохранённые изменения,
@@ -82,6 +94,13 @@ export interface FormData<Record extends RecordData = RecordData, Action extends
      * пользователю уже сообщило уведомление.
      */
     readonly runAction: (action: Action, input?: FormValues) => Promise<unknown>;
+    /**
+     * Читает запись с сервера заново и показывает её на форме. Нужен, когда запись изменилась вне
+     * формы: например, проведение продажи из отвеса отметило товары отвеса проданными. Значения
+     * полей заменяются записанными, и несохранённые изменения теряются. У новой записи ничего
+     * не делает: читать на сервере нечего.
+     */
+    readonly reload: () => Promise<void>;
 }
 
 /** Всё, что форма передаёт своим элементам. Форма Ant Design наружу не выходит: её читают только хуки модуля. */
@@ -115,6 +134,8 @@ export interface FormDataProviderProperties {
      * элемент, который выполняет действие, завершается ошибкой.
      */
     readonly onAction?: (action: string, input: FormValues | null) => Promise<unknown>;
+    /** Перечитывает запись и показывает её на форме (`FormData.reload`). Без обработчика вызов ничего не делает. */
+    readonly onReload?: () => Promise<void>;
     /**
      * Компонент собственного элемента конфигурации по имени. Без этой функции собственных элементов
      * на форме нет: поле выводится виджетом своего вида, а элемент в группе пропускается.
@@ -127,11 +148,13 @@ export interface FormDataProviderProperties {
  * Поставщик данных формы. Стоит внутри формы Ant Design и снаружи её групп полей: значения он
  * берёт из формы, в которой стоит, а остальное получает от экрана.
  */
-export function FormDataProvider({ object, view, saved, readOnly, restrictions, onChange, onAction, elements, children }: FormDataProviderProperties) {
+export function FormDataProvider({ object, view, saved, readOnly, restrictions, onChange, onAction, onReload, elements, children }: FormDataProviderProperties) {
     const form = Form.useFormInstance();
-    // Обработчик действия экран тоже создаёт заново при каждой отрисовке.
+    // Обработчики действия и перечитывания экран тоже создаёт заново при каждой отрисовке.
     const action = useRef(onAction);
     action.current = onAction;
+    const reload = useRef(onReload);
+    reload.current = onReload;
     // Обработчик экран создаёт заново при каждой отрисовке; по ссылке данные формы от него не зависят
     // и не обновляются без причины.
     const changed = useRef(onChange);
@@ -142,7 +165,7 @@ export function FormDataProvider({ object, view, saved, readOnly, restrictions, 
             view,
             saved,
             readOnly,
-            setValue: (field, entered) => {
+            setValue: (field, entered, options) => {
                 if (readOnly || restrictions?.isFieldReadOnly(field) === true) return;
                 const editable = view.fields.some((candidate) => candidate.name === field && !candidate.readOnly) || view.tableParts.some((part) => part.name === field);
                 if (!editable) throw new Error(`Поля «${field}» нет среди редактируемых полей формы «${object.title}»`);
@@ -151,6 +174,11 @@ export function FormDataProvider({ object, view, saved, readOnly, restrictions, 
                 // Программное изменение форма Ant Design изменением пользователя не считает
                 // и сама ни о нём не сообщает, ни значение не проверяет.
                 changed.current();
+                if (options?.validate === false) {
+                    // Прежние ошибки относились к заменённому значению и сами не исчезают.
+                    form.setFields([{ name: field, errors: [] }]);
+                    return;
+                }
                 // Об ошибке проверки сообщает само поле; отклонённый промис здесь только повторил бы её в консоли.
                 form.validateFields([field], { recursive: true }).catch(() => undefined);
             },
@@ -158,6 +186,7 @@ export function FormDataProvider({ object, view, saved, readOnly, restrictions, 
                 if (action.current === undefined) return Promise.reject(new Error('Экран формы не выполняет действия по запросу элементов'));
                 return action.current(name, input ?? null);
             },
+            reload: () => reload.current?.() ?? Promise.resolve(),
         };
         return { data, form, restrictions, elements: elements ?? (() => undefined) };
     }, [object, view, saved, readOnly, restrictions, form, elements]);

@@ -25,6 +25,7 @@ import { enforcePolicies, type PolicyInvocation } from './policies.js';
 import { importCatalog } from './import.js';
 import { getInformation, mutateInformation } from './information-register.js';
 import { totalsAction } from './register-totals.js';
+import { lookupAction } from './lookup.js';
 import { documentsTarget, repostDocuments } from './reposting.js';
 import { buildList } from '../ui/views.js';
 import { ListPresentations } from './list-presentations.js';
@@ -171,6 +172,7 @@ export class DataService {
                 case 'save': return this.mutateSave(description, payload);
                 case 'markDeleted': return this.mutateMarkDeleted(description, payload);
                 case 'unmarkDeleted': return this.mutateUnmarkDeleted(description, payload);
+                case 'lookup': return lookupAction(description, payload);
             }
         }
         if (description.kind === 'document') {
@@ -214,12 +216,27 @@ export class DataService {
         return guidValue(objectValue(payload, 'payload')['guid'], 'payload.guid');
     }
 
-    /** Сохраняет запись через общий конвейер; новый объект ещё не имеет существующей записи. */
+    /**
+     * Сохраняет запись через общий конвейер; новый объект ещё не имеет существующей записи.
+     *
+     * Документ можно записать и провести одним запросом: `post: true` в запросе проводит записанный
+     * документ вложенным действием `post`. Оба действия идут в транзакции запроса, поэтому отказ
+     * проведения отменяет и запись: новый документ не остаётся черновиком. Вложенное проведение
+     * проверяется по правам того же пользователя, как и самостоятельное.
+     */
     private mutateSave(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionRequirements> {
-        return Effect.suspend(() => {
-            const guid = objectValue(payload, 'payload')['guid'] === undefined ? undefined : this.guidPayload(payload);
-            return this.mutate(description, 'save', guid, (existingRecord) => this.prepareSave(description, payload, existingRecord));
-        });
+        return Effect.gen(function* (this: DataService) {
+            const request = objectValue(payload, 'payload');
+            const guid = request['guid'] === undefined ? undefined : this.guidPayload(payload);
+            const withPosting = request['post'] === true;
+            if (withPosting && description.kind !== 'document') {
+                return yield* new DataValidationError({ message: 'Проводить при записи можно только документ', fields: ['payload.post'] });
+            }
+            const saved = yield* this.mutate(description, 'save', guid, (existingRecord) => this.prepareSave(description, payload, existingRecord));
+            if (!withPosting) return saved;
+            const dispatcher = yield* ActionDispatcher;
+            return (yield* dispatcher.execute({ target: { kind: description.kind, name: description.name }, action: 'post', payload: { guid: saved['guid'] } })) as RecordValue;
+        }.bind(this));
     }
 
     /** Помечает существующую запись на удаление после проверки её политик. */

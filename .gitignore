@@ -10,10 +10,14 @@ collection-zarplata.settings.json
 # Только каталог данных в корне: серверный модуль src/server/data должен отслеживаться Git.
 /data/
 .worktrees/
+# Временные инструкции агента на время задачи, см. AGENTS.md
+/TEMPORARY.md
 # Реестры конфигурации создаёт npm run metadata:generate
 src/configuration/*.generated.ts
 # Собранный инструмент импорта из 1С
 /tools/1c-xml-import/collection-xml-import
 /tools/1c-xml-import/*.exe
+# Выгрузки 1С для параметра --local-source: в них персональные данные
+/tools/1c-xml-import/local-source/
 # Каталоги сборки инструментов, в том числе остатки прежней сборки на Rust
 /tools/**/target/

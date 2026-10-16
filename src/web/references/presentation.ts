@@ -155,7 +155,7 @@ export function useReferencePresentation(object: ObjectView, guid: string | null
  * а без `guid` они ничего не запрашивают, и имя ресурса значения не имеет.
  */
 const absentObject: ObjectView = {
-    kind: 'catalog', name: '', title: '', presentation: null, form: null,
+    kind: 'catalog', name: '', title: '', presentation: null, form: null, lookup: null,
     list: { columns: [], filters: [], sortable: [], defaultSort: [], deletionMark: false },
 };
 

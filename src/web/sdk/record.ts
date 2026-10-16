@@ -1,8 +1,8 @@
-import { useOne } from '@refinedev/core';
-import { useCallback } from 'react';
+import { useMany, useOne } from '@refinedev/core';
+import { useCallback, useMemo } from 'react';
 import type { ApiError } from '../common/api';
 import { resourceName } from '../data-provider/perform';
-import type { RecordData } from '../data-provider/records';
+import { recordGuid, type RecordData } from '../data-provider/records';
 import type { ReadObject } from './object-reference';
 
 /** Запись справочника или документа типа `Record`, прочитанная по `guid`, и состояние её чтения. */
@@ -47,4 +47,35 @@ export function useRecord<Record extends RecordData = RecordData>(object: ReadOb
         error: query.isError ? query.error : null,
         reload,
     };
+}
+
+/** Записи объекта типа `Record`, прочитанные по списку `guid`, и состояние их чтения. */
+export interface RecordsQuery<Record = RecordData> {
+    /**
+     * Прочитанные записи вместе со строками табличных частей, по `guid`. Пока записи не прочитаны
+     * или чтение завершилось отказом, словарь пуст.
+     */
+    readonly records: ReadonlyMap<string, Record>;
+    readonly loading: boolean;
+    /** Отказ сервера в последнем чтении. Пакет выполняется целиком, поэтому отказ в одной записи относится ко всем. */
+    readonly error: ApiError | null;
+}
+
+/**
+ * Читает записи объекта по списку `guid` общим пакетом действий `get`. Нужен, когда экрану
+ * нужны строки табличных частей нескольких записей: список их не отдаёт, а чтение `useRecord`
+ * на каждую запись отправило бы отдельный запрос. Об отказе сервера уведомление
+ * не показывается: о нём сообщает сам экран. При пустом списке запрос не отправляется.
+ */
+export function useRecords<Record extends RecordData = RecordData>(object: ReadObject<Record>, guids: ReadonlyArray<string>): RecordsQuery<Record> {
+    const { query } = useMany<RecordData, ApiError>({
+        resource: resourceName(object),
+        ids: [...guids],
+        queryOptions: { enabled: guids.length > 0 },
+        errorNotification: false,
+    });
+    const data = query.isError ? undefined : query.data?.data;
+    // Сервер отдаёт записи по описанию объекта, из билдера которого выведен тип `Record`.
+    const records = useMemo(() => new Map((data ?? []).map((record) => [recordGuid(record), record as Record])), [data]);
+    return { records, loading: query.isFetching, error: query.isError ? query.error : null };
 }

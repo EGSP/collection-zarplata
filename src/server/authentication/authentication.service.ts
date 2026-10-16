@@ -1,10 +1,8 @@
-import { Injectable, type OnApplicationBootstrap, UnauthorizedException } from '@nestjs/common';
-import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { Effect } from 'effect';
 import { jwtVerify, SignJWT } from 'jose';
-import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
-import { assignUserRoles } from '../authorization/user-roles.js';
-import { Database } from '../database/database.effect.js';
+import type { DatabaseError } from '../database/database.errors.js';
 import { DatabaseService } from '../database/database.service.js';
 import { insert, select, update } from '../database/sql.builder.js';
 import { SettingsService } from '../settings/settings.service.js';
@@ -23,48 +21,21 @@ type TokenRow = Record<string, unknown> & { userGuid: string; expiresAt: string;
  * транзакции, поэтому два одновременных обновления не могут использовать один токен.
  */
 @Injectable()
-export class AuthenticationService implements OnApplicationBootstrap {
+export class AuthenticationService {
     private readonly signingKey: Uint8Array;
 
     constructor(
         private readonly database: DatabaseService,
         private readonly settings: SettingsService,
-        private readonly rightsGuard: RightsGuardPlatform,
     ) {
         this.signingKey = createHmac('sha256', settings.pinHmacSecret).update('access-token').digest();
     }
 
     /**
-     * Создаёт указанных в настройках пользователей только в пустой таблице и назначает им роли.
-     * Пользователь без списка ролей получает все роли конфигурации: первый пользователь должен
-     * иметь доступ ко всему, иначе назначить права было бы некому. Роль, которой нет
-     * в конфигурации, останавливает запуск: пользователь с ней остался бы без прав.
+     * HMAC PIN с секретом из настроек. Открыт для модуля первичных данных: начальных
+     * пользователей он создаёт с тем же хешем, по которому их находит вход.
      */
-    async onApplicationBootstrap(): Promise<void> {
-        const initial = this.settings.initialUsers;
-        if (initial.length === 0) return;
-        const known = this.rightsGuard.roles.map((role) => role.name);
-        for (const user of initial) {
-            const unknown = (user.roles ?? []).filter((role) => !known.includes(role));
-            if (unknown.length > 0) {
-                throw new Error(`Пользователю «${user.name}» назначены роли, которых нет в конфигурации: ${unknown.join(', ')}. Описанные роли: ${known.join(', ')}`);
-            }
-        }
-        const database = this.database.effect;
-        await Effect.runPromise(database.transaction(Effect.gen(function* (this: AuthenticationService) {
-            const row = yield* database.get<{ total: number }>({ sql: 'SELECT COUNT(*) AS total FROM platform_users', parameters: [] });
-            if ((row?.total ?? 0) !== 0) return;
-            for (const user of initial) {
-                const guid = randomUUID();
-                yield* database.run(insert('platform_users', {
-                    guid, name: user.name.trim(), pinHash: this.pinHash(user.pin), disabledAt: null,
-                }));
-                yield* assignUserRoles(guid, user.roles ?? known);
-            }
-        }.bind(this)).pipe(Effect.provideService(Database, database))));
-    }
-
-    private pinHash(pin: string): string {
+    pinHash(pin: string): string {
         return createHmac('sha256', this.settings.pinHmacSecret).update(pin).digest('hex');
     }
 
@@ -72,13 +43,21 @@ export class AuthenticationService implements OnApplicationBootstrap {
         return createHash('sha256').update(token).digest('hex');
     }
 
+    /**
+     * `guid` активного пользователя с этим PIN или `undefined`, если такого нет или он отключён.
+     * Тем же поиском пользуется модуль первичных данных, чтобы писать записи от имени начального пользователя.
+     */
+    activeUserGuid(pin: string): Effect.Effect<string | undefined, DatabaseError> {
+        return this.database.effect.get<UserRow>(select('platform_users', {
+            columns: ['guid', 'disabledAt'], where: [{ column: 'pinHash', operator: '=', value: this.pinHash(pin) }],
+        })).pipe(Effect.map((user) => user === undefined || user.disabledAt !== null ? undefined : user.guid));
+    }
+
     /** Находит активного пользователя по PIN и выдаёт пару; неверный PIN даёт 401. */
     async login(pin: string): Promise<TokenPair> {
-        const user = await Effect.runPromise(this.database.effect.get<UserRow>(select('platform_users', {
-            columns: ['guid', 'disabledAt'], where: [{ column: 'pinHash', operator: '=', value: this.pinHash(pin) }],
-        })));
-        if (user === undefined || user.disabledAt !== null) throw new UnauthorizedException('Неверный PIN');
-        return this.issue(user.guid);
+        const userGuid = await Effect.runPromise(this.activeUserGuid(pin));
+        if (userGuid === undefined) throw new UnauthorizedException('Неверный PIN');
+        return this.issue(userGuid);
     }
 
     private async issue(userGuid: string): Promise<TokenPair> {
