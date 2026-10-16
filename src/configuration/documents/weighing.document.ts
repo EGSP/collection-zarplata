@@ -31,7 +31,7 @@ const inWeighing = { field: 'state', equals: held };
 const weighing = document('weighing')
     .title('Отвес')
     .field('shift', (field) => field.reference(Shift).title('Смена').required())
-    .field('person', (field) => field.reference(PhysicalPersons).title('Покупатель').required().width('free'))
+    .field('person', (field) => field.reference(PhysicalPersons).title('Покупатель').required().width('long'))
     .field('balance', (field) => field.money().title('Остаток').required().computed(formula.sum('goods', 'total', inWeighing)))
     // Признак закрытия: остаток для него не годится, потому что товар в отвесе может стоить ноль.
     .field('heldCount', (field) => field.number().title('Товаров в отвесе').integer().required().computed(formula.count('goods', inWeighing)))

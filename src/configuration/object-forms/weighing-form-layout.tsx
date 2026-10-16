@@ -253,7 +253,10 @@ function WeighingFormLayout({ state }: { readonly state: RecordFormState }) {
     return (
         <RecordFormPage state={state} buttons={weighingButtons}>
             <Card size="small">
-                <FieldGroup elements={recordFormElements(state, header.filter((item) => !isElement(item)))} layout="fluid" {...common} />
+                {/* Поле покупателя стоит отдельной строкой под разделителем: оно длинное и с остальной шапкой в строку не помещается. */}
+                <FieldGroup elements={recordFormElements(state, header.filter((item) => !isElement(item) && item !== 'person'))} layout="fluid" {...common} />
+                <Divider style={dividerStyle} />
+                <FieldGroup elements={recordFormElements(state, header.filter((item) => !isElement(item) && item === 'person'))} layout="fluid" {...common} />
                 <div hidden>
                     <FieldGroup elements={recordFormElements(state, header.filter(isElement))} />
                 </div>
