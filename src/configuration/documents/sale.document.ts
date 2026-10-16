@@ -15,7 +15,8 @@ import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
-import { document, formula, movements, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
+import { document, formula, movements, type LookupInput, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
+import { formatDateTime, formatMoney, normalizeSearchText } from '../../server/ui/value-format.js';
 import { Employees } from '../catalogs/employees.catalog.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
@@ -206,6 +207,51 @@ const saleWeighing: Policy<SaleRecord> = {
     unpost: ({ document }) => applyToWeighing(document, []),
 };
 
+/**
+ * Поиск продаж для подбора: проведённые продажи без пометки удаления, новые сверху. Подбор
+ * нужен полям, которые ссылаются на совершённую продажу: возврату, рассрочке по продаже,
+ * строке отвеса. Черновик продажи в них выбирать незачем, поэтому подбор его не показывает.
+ *
+ * Строка поиска делится на слова, и продажа подходит, если каждое слово есть в её дате и времени,
+ * способе оплаты, названиях товаров, сумме или номере. Сумму можно ввести с пробелами разрядов
+ * и без них. Слова ищутся в тексте строки на сервере, а не запросом LIKE: LIKE в Turso различает
+ * регистр кириллицы. Поэтому при поиске читаются все проведённые продажи и их товары. Для объёмов
+ * магазина этого достаточно; без поиска строки страницы читаются запросом с LIMIT и OFFSET.
+ */
+const searchSales = ({ search, pageSize, offset }: LookupInput) => Effect.gen(function* () {
+    const database = yield* Database;
+    const sales = query(sale);
+    const where = [{ column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }] as const;
+    const columns = ['guid', 'number', 'date', 'paymentMode', 'amount'] as const;
+    const orderBy = [{ column: 'date', direction: 'DESC' }, { column: 'number', direction: 'DESC' }] as const;
+    const words = normalizeSearchText('string', search).split(/\s+/u).filter((word) => word !== '');
+    const found = words.length === 0
+        ? yield* database.all(sales.select({ columns, where, orderBy, limit: pageSize, offset }))
+        : yield* database.all(sales.select({ columns, where, orderBy }));
+    // Товары читаются только у продаж, которые нужны: у страницы без поиска или у всех при поиске.
+    const lines = found.length === 0 ? [] : yield* database.all(sales.tablePart('goods').select({
+        columns: ['ownerGuid', 'name'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: found.map((row) => row.guid) }],
+        orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
+    }));
+    const names = new Map<string, string[]>();
+    for (const line of lines) names.set(line.ownerGuid, [...names.get(line.ownerGuid) ?? [], line.name]);
+    const rows = found.map((row) => ({ guid: row.guid, number: row.number, date: row.date, paymentMode: row.paymentMode, goods: (names.get(row.guid) ?? []).join(', '), amount: row.amount }));
+    // Номер нужен только поиску: колонки номера в подборе нет, и в строку ответа он не входит.
+    const visible = (row: typeof rows[number]) => ({ guid: row.guid, date: row.date, paymentMode: row.paymentMode, goods: row.goods, amount: row.amount });
+    if (words.length === 0) {
+        const total = yield* database.get(sales.count({ where }));
+        return { total: total?.total ?? 0, rows: rows.map(visible) };
+    }
+    const matched = rows.filter((row) => {
+        // Сумма добавлена и без пробелов разрядов: «13256» и «13 256» находят одну продажу.
+        const money = formatMoney(row.amount);
+        const text = normalizeSearchText('string', [formatDateTime(row.date), row.paymentMode, row.goods, money, money.replace(/\s/gu, ''), String(Number(row.number))].join(' '));
+        return words.every((word) => text.includes(word));
+    });
+    return { total: matched.length, rows: matched.slice(offset, offset + pageSize).map(visible) };
+});
+
 const target = { kind: 'document', name: 'sale' };
 
 /**
@@ -249,6 +295,13 @@ export const Sale = sale
     .policy(salePayments)
     .policy(saleAmount)
     .policy(saleWeighing)
+    // Подбор показывает продажу развёрнуто, а представление в ссылках и вкладках остаётся коротким.
+    .lookup((lookup) => lookup
+        .column('date', (field) => field.dateTime().title('Дата').required())
+        .column('paymentMode', (field) => field.string().title('Оплата').required())
+        .column('goods', (field) => field.string().title('Товары').required())
+        .column('amount', (field) => field.money().title('Сумма').required())
+        .search(searchSales))
     .action('createInstallment', (action) => action
         .title('Оформить рассрочку')
         .input((input) => input.field('sale', (field) => field.reference(sale).title('Продажа').required()))

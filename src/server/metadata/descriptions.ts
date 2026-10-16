@@ -259,6 +259,16 @@ export interface RegisterConstraintDescription {
 }
 
 /**
+ * Подбор записей объекта: колонки таблицы в окне подбора и функция поиска. Аргумент функции
+ * типизирован как `never` по той же причине, что и у обработчика действия: типы колонок
+ * конкретного объекта стёрты после сборки описаний.
+ */
+export interface LookupDescription {
+    readonly columns: ReadonlyArray<FieldDescription>;
+    readonly search: (input: never) => unknown;
+}
+
+/**
  * Готовое описание объекта конфигурации, которое собирает `commit()`. Описание заморожено:
  * платформа читает его из разных модулей, и изменение в одном месте незаметно сломало бы другие.
  */
@@ -289,6 +299,8 @@ export interface ObjectDescription {
     readonly posting: ((record: never) => unknown) | null;
     /** Ограничения итога; заполняются только у регистра оборотов. */
     readonly constraints: ReadonlyArray<RegisterConstraintDescription>;
+    /** Подбор записей для полей ссылки; `null`, если объект его не объявил. */
+    readonly lookup: LookupDescription | null;
 }
 
 /**

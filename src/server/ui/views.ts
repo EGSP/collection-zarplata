@@ -205,6 +205,7 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
         tableParts: object.tableParts.map((part) => ({ name: part.name, title: part.title, columns: part.fields.map((field) => formField(field)) })),
         form: object.kind === 'catalog' || object.kind === 'document' ? buildForm({ ...object, kind: object.kind }) : null,
         list: buildList(object),
+        lookup: object.lookup === null ? null : { columns: object.lookup.columns.map((field) => formField(field)) },
     };
 }
 

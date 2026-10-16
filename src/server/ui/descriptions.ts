@@ -247,6 +247,16 @@ export interface ObjectView {
     /** Форма объекта; у регистров `null`. */
     readonly form: FormView | null;
     readonly list: ListView;
+    /**
+     * Подбор записей: колонки таблицы в окне подбора. Строки клиент получает стандартным действием
+     * `lookup`. `null`, если объект подбора не объявил: тогда у поля ссылки нет кнопки подбора.
+     */
+    readonly lookup: LookupView | null;
+}
+
+/** Колонки окна подбора; значение колонки показывается виджетом её вида. */
+export interface LookupView {
+    readonly columns: ReadonlyArray<FormField>;
 }
 
 /**

@@ -12,6 +12,7 @@ export {
     movements,
     register,
     informationRegister,
+    LookupBuilder,
     RegisterConstraintBuilder,
     TablePartBuilder,
     type ActionHandler,
@@ -33,6 +34,9 @@ export {
     type SavePolicyInput,
     type PostingPolicyInput,
     type DeletionPolicyInput,
+    type LookupInput,
+    type LookupResult,
+    type LookupSearch,
 } from './builders.js';
 export { commitConfiguration } from './commit.js';
 export type * from './descriptions.js';

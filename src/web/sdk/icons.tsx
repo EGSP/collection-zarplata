@@ -40,6 +40,7 @@ import {
     ReadOutlined,
     RollbackOutlined,
     SaveOutlined,
+    SearchOutlined,
     SettingOutlined,
     ShopOutlined,
     ShoppingCartOutlined,
@@ -66,6 +67,8 @@ export const Icons = {
     removeRow: CloseOutlined,
     /** Отбор списка. */
     filter: FilterOutlined,
+    /** Подбор записи для поля ссылки: окно с поиском и таблицей. */
+    lookup: SearchOutlined,
     /** Меню остальных действий с элементом. */
     more: MoreOutlined,
     /** Главная вкладка. */

@@ -72,6 +72,15 @@ export interface ConstraintEntry {
     readonly message: RegisterConstraintDescription['message'];
 }
 
+/**
+ * Объявленный подбор. `search` равен `null`, пока не вызван `search(...)`: такой подбор
+ * отклоняет `commit()`.
+ */
+export interface LookupEntry {
+    readonly columns: ReadonlyArray<FieldEntry>;
+    readonly search: ((input: never) => unknown) | null;
+}
+
 /** Всё, что накопила цепочка вызовов билдера объекта. Из этого состояния `commit()` собирает описание. */
 export interface ObjectState {
     readonly kind: ObjectKind;
@@ -90,6 +99,8 @@ export interface ObjectState {
     readonly posting: ((record: never) => unknown) | null;
     /** Ограничения итога; задаются только у регистра оборотов. */
     readonly constraints: ReadonlyArray<ConstraintEntry>;
+    /** Подбор записей для полей ссылки; задаётся только у справочника и документа. */
+    readonly lookup: LookupEntry | null;
     /** Вызван ли `withStandardFields()`: без стандартных полей `commit()` завершается ошибкой. */
     readonly standardFieldsAdded: boolean;
 }
@@ -251,6 +262,60 @@ export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartM
 }
 
 /**
+ * Входные данные функции подбора: строка поиска и страница. `search` передаётся как ввёл
+ * пользователь, без обрезки пробелов и приведения регистра: как искать, решает функция.
+ * `offset` — число строк перед страницей, уже посчитанное по `page` и `pageSize`.
+ */
+export interface LookupInput {
+    readonly search: string;
+    readonly page: number;
+    readonly pageSize: number;
+    readonly offset: number;
+}
+
+/**
+ * Результат функции подбора: строки страницы и общее число найденных строк. Строка содержит
+ * `guid` записи, который поле получит при выборе, и значения колонок подбора.
+ */
+export interface LookupResult<Columns extends FieldMap> {
+    readonly total: number;
+    readonly rows: ReadonlyArray<Simplify<{ readonly guid: string } & FieldsRecord<Columns>>>;
+}
+
+/**
+ * Функция подбора. Она не зависит от формы и клиента: получает только строку поиска и страницу.
+ * Через окружение ей доступны чтение базы данных и метаданные; запись через Database запрещена.
+ */
+export type LookupSearch<Columns extends FieldMap> = (input: LookupInput) => Effect.Effect<LookupResult<Columns>, unknown, unknown>;
+
+/**
+ * Билдер подбора: колонки таблицы в окне подбора и функция, которая ищет строки. Колонки
+ * объявляются так же, как поля объекта: вид поля задаёт, как окно форматирует значение.
+ */
+export class LookupBuilder<Columns extends FieldMap = {}> {
+    /** Только для вывода типов: во время выполнения свойства нет. */
+    declare readonly '~columns': Columns;
+    readonly '~entry': LookupEntry;
+
+    constructor(entry: LookupEntry = { columns: [], search: null }) {
+        this['~entry'] = entry;
+    }
+
+    /** Колонка таблицы подбора с уникальным литеральным именем. */
+    column<const Name extends string, Field extends AnyFieldBuilder>(
+        name: Name & AvailableName<NoInfer<Name>, keyof Columns | 'guid', 'имя колонки повторяется или совпадает с guid'>,
+        define: (field: FieldFactory) => Field,
+    ): LookupBuilder<Columns & { readonly [K in Name]: Field }> {
+        return new LookupBuilder({ ...this['~entry'], columns: [...this['~entry'].columns, attribute(name, define)] });
+    }
+
+    /** Функция поиска строк. Объявляется после колонок: тип её результата выводится из них. */
+    search(search: LookupSearch<Columns>): LookupBuilder<Columns> {
+        return new LookupBuilder({ ...this['~entry'], search });
+    }
+}
+
+/**
  * Переопределение формы по умолчанию. `Names` — имена полей и табличных частей объекта,
  * `Fields` — только имена полей, поэтому TypeScript отклоняет несуществующие имена.
  *
@@ -404,6 +469,13 @@ export interface RecordObjectBuilder<
 
     /** Политика объекта. Политики из нескольких вызовов выполняются по порядку. */
     policy(policy: Policy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+
+    /**
+     * Подбор записей объекта: у каждого поля ссылки на объект появляется кнопка, которая открывает
+     * окно с поиском и таблицей. Колонки и функцию поиска задаёт `define`; клиент только показывает
+     * строки, которые вернула функция. Повторный вызов заменяет подбор.
+     */
+    lookup<Columns extends FieldMap>(define: (lookup: LookupBuilder) => LookupBuilder<Columns>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 }
 
 /** Билдер справочника; его создаёт `catalog(name)`. */
@@ -657,6 +729,10 @@ class ObjectBuilderImplementation {
 
     listTableParts(names: ReadonlyArray<string>): this { return this.with({ listTableParts: names }); }
 
+    lookup(define: (lookup: LookupBuilder) => LookupBuilder<FieldMap>): this {
+        return this.with({ lookup: define(new LookupBuilder())['~entry'] });
+    }
+
     posting(handler: PostingHandler<never>): this {
         return this.with({ posting: handler });
     }
@@ -697,7 +773,7 @@ export function isObjectBuilder(value: unknown): value is ObjectBuilder {
 }
 
 function emptyState(kind: ObjectKind, name: string): ObjectState {
-    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, constraints: [], standardFieldsAdded: false };
+    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, constraints: [], lookup: null, standardFieldsAdded: false };
 }
 
 // Функции ниже приводят реализацию к интерфейсу через unknown: точные типы полей существуют

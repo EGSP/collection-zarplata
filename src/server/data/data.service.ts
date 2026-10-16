@@ -25,6 +25,7 @@ import { enforcePolicies, type PolicyInvocation } from './policies.js';
 import { importCatalog } from './import.js';
 import { getInformation, mutateInformation } from './information-register.js';
 import { totalsAction } from './register-totals.js';
+import { lookupAction } from './lookup.js';
 import { documentsTarget, repostDocuments } from './reposting.js';
 import { buildList } from '../ui/views.js';
 import { ListPresentations } from './list-presentations.js';
@@ -171,6 +172,7 @@ export class DataService {
                 case 'save': return this.mutateSave(description, payload);
                 case 'markDeleted': return this.mutateMarkDeleted(description, payload);
                 case 'unmarkDeleted': return this.mutateUnmarkDeleted(description, payload);
+                case 'lookup': return lookupAction(description, payload);
             }
         }
         if (description.kind === 'document') {
