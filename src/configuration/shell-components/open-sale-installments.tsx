@@ -1,4 +1,4 @@
-import { useObjectView, useRecordList } from '../../web/sdk';
+import { FieldDisplay, useObjectView, useRecordList } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { DebtList } from './debt-list';
 
@@ -25,5 +25,6 @@ function AvailableSaleInstallments() {
         sort: [{ field: 'date', direction: 'ascending' }],
         pageSize: 100,
     });
-    return <DebtList title="Рассрочки по продажам" object={Objects.document.saleInstallment} rows={list.records} total={list.total} loading={list.loading} error={list.error} empty="Незакрытых рассрочек по продажам нет" />;
+    return <DebtList title="Рассрочки по продажам" object={Objects.document.saleInstallment} rows={list.records} total={list.total} loading={list.loading} error={list.error} empty="Незакрытых рассрочек по продажам нет"
+        value={(row) => <FieldDisplay field={{ kind: 'money', target: null }} value={row.balance} />} />;
 }
