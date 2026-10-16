@@ -29,6 +29,7 @@ import {
     type TablePartMap,
 } from '../server/metadata/index.js';
 import { Employees } from './catalogs/employees.catalog.js';
+import { InstallmentRates, ownInstallmentRateName } from './catalogs/installment-rates.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { Rights } from './configuration.generated.js';
 import { Shift } from './documents/shift.document.js';
@@ -59,6 +60,8 @@ export const installmentTypes = ['Банковская', ownInstallment];
 const head = <const Name extends InstallmentName>(name: Name, title: string) => document(name)
     .title(title)
     .field('type', (field) => field.string().title('Тип').choices(installmentTypes))
+    // Ставку банка читает расчёт зарплаты: она уменьшает базу начисления и выбирает ступень ставки сотрудника.
+    .field('rate', (field) => field.reference(InstallmentRates).title('Ставка рассрочки'))
     .field('shift', (field) => field.reference(Shift).title('Смена').required())
     .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').width('free'))
     .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник').width('long'));
@@ -95,14 +98,33 @@ const closedRejection = 'Рассрочка закрыта, изменить е�
 const notPosted = 'Рассрочка не проведена: сначала проведите её';
 
 /**
- * Тип и физическое лицо нужны движениям и отчётам, поэтому без них рассрочка не проводится.
+ * Ставка «Собственная» (0 %): её получает собственная рассрочка. Запись создаёт сервер при запуске;
+ * если её удалили или пометили на удалении, рассрочку не оформить, и отказ называет причину.
  */
-const checkCustomer = (record: InstallmentRecord) => {
+export const ownInstallmentRate = Effect.gen(function* () {
+    const database = yield* Database;
+    const rate = yield* database.get(query(InstallmentRates).select({
+        columns: ['guid'],
+        where: [{ column: 'name', operator: '=', value: ownInstallmentRateName }, { column: 'deletedAt', operator: '=', value: null }],
+        limit: 1,
+    }));
+    if (rate === undefined) return yield* rejected(`В справочнике «Ставки по рассрочке» нет ставки «${ownInstallmentRateName}»`);
+    return rate.guid;
+});
+
+/**
+ * Тип и физическое лицо нужны движениям и отчётам, а ставка рассрочки — расчёту зарплаты, поэтому
+ * без них рассрочка не проводится. Собственной рассрочке форма и действие «Продать с рассрочкой»
+ * проставляют ставку «Собственная» (0 %), но её можно заменить, пока рассрочка открыта и её
+ * период не закрыт.
+ */
+const checkCustomer = (record: InstallmentRecord) => Effect.gen(function* () {
     // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
-    if ((record.type ?? null) === null) return Effect.fail(rejected('Укажите тип рассрочки'));
-    if ((record.person ?? null) === null) return Effect.fail(rejected('Укажите физическое лицо рассрочки'));
-    return Effect.void;
-};
+    if ((record.type ?? null) === null) return yield* rejected('Укажите тип рассрочки');
+    if ((record.person ?? null) === null) return yield* rejected('Укажите физическое лицо рассрочки');
+    const rate = record.rate ?? null;
+    if (rate === null) return yield* rejected('Выберите ставку рассрочки');
+});
 
 /** Момент значения даты со временем: строки хранятся с часовым поясом клиента, и их сравнение дало бы неверный порядок. */
 const moment = (value: string): number => new Date(value).getTime();
@@ -130,7 +152,7 @@ const checkClosingDate = (record: InstallmentRecord) => {
 };
 
 /** Поля шапки, изменение которых меняет рассрочку целиком, а не её взносы или закрытие. */
-const headFields = ['date', 'type', 'shift', 'person', 'responsibleEmployee', 'amount', 'sale'] as const;
+const headFields = ['date', 'type', 'rate', 'shift', 'person', 'responsibleEmployee', 'amount', 'sale'] as const;
 
 /** Значения поля для сравнения: необязательное поле, не переданное в запросе, приходит как `undefined`. */
 const comparable = (value: unknown): string => JSON.stringify(value ?? null);

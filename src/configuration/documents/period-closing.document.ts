@@ -29,7 +29,8 @@ import { Shift } from './shift.document.js';
  * `PeriodClosing` из его же объявления не дала бы вывести тип.
  *
  * Строка начисления ссылается на документ-источник полной ссылкой с видом: им бывает продажа,
- * рассрочка по продаже или возврат.
+ * рассрочка по продаже, возврат или смена. Текст правила сохраняется в строке: по нему видно,
+ * почему начислена сумма, даже после смены правил.
  */
 const closing = periodClosingHead
     .field('periodStart', (field) => field.date().title('Начало периода'))
@@ -45,11 +46,13 @@ const closing = periodClosingHead
         .field('date', (field) => field.dateTime().title('Дата').required())
         .field('kind', (field) => field.string().title('Вид').required().maximumLength(50))
         .field('document', (field) => field.reference().title('Документ').required())
-        .field('sale', (field) => field.reference(Sale).title('Продажа').required())
-        .field('goods', (field) => field.string().title('Товар').required().maximumLength(300))
+        // У бонуса смены нет продажи, товара и ставки: он начисляется на смену фиксированной суммой.
+        .field('sale', (field) => field.reference(Sale).title('Продажа'))
+        .field('goods', (field) => field.string().title('Товар').maximumLength(300))
         .field('base', (field) => field.money().title('База').required())
-        .field('rate', (field) => field.number().title('Ставка, %').required())
-        .field('amount', (field) => field.money().title('Начислено').required()))
+        .field('rate', (field) => field.number().title('Ставка, %'))
+        .field('amount', (field) => field.money().title('Начислено').required())
+        .field('rule', (field) => field.string().title('Правило').required().maximumLength(500)))
     .listTableParts(['employees']);
 
 type ClosingRecord = RecordOf<typeof closing>;
@@ -103,7 +106,8 @@ const checkClosingConditions = (closedThrough: string) => Effect.gen(function* (
 
 /** Строка начисления для сравнения: значения по порядку, дата моментом. */
 const lineKey = (line: ClosingRecord['lines'][number] | PayrollResult['lines'][number]): string => JSON.stringify([
-    line.employee, new Date(line.date).getTime(), line.kind, line.document.kind, line.document.name, line.document.guid, line.sale, line.goods, line.base, line.rate, line.amount,
+    line.employee, new Date(line.date).getTime(), line.kind, line.document.kind, line.document.name, line.document.guid,
+    line.sale ?? null, line.goods ?? null, line.base, line.rate ?? null, line.amount, line.rule,
 ]);
 
 /**
@@ -155,7 +159,7 @@ const target: ObjectTarget = { kind: 'document', name: 'periodClosing' };
  * Действие «Закрыть период» считает зарплату по заданный день и в одной транзакции записывает
  * и проводит закрытие с начислением. Проведение проверяет условия закрытия, поэтому отказ
  * не оставляет черновика. Действие «Расчёт зарплаты» только читает: оно показывает начисление
- * незакрытого периода по сегодняшний день на странице «Зарплата».
+ * незакрытого периода по выбранный день, по умолчанию по сегодняшний, на странице «Зарплата».
  */
 export const PeriodClosing = closing
     .form((form) => form
@@ -190,4 +194,6 @@ export const PeriodClosing = closing
         })))
     .action('payrollPreview', (action) => action
         .title('Расчёт зарплаты')
-        .handle(() => calculatePayroll(today())));
+        // День расчёта необязателен: без него расчёт идёт по сегодняшний день включительно.
+        .input((input) => input.field('closedThrough', (field) => field.date().title('Рассчитать по')))
+        .handle((input) => calculatePayroll(input.closedThrough ?? today())));

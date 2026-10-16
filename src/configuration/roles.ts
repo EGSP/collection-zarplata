@@ -17,8 +17,8 @@ export const roles = [
         .grant(Rights.page.sellerWorkplace.open)
         .grant(Rights.catalog.physicalPersons.read, Rights.catalog.physicalPersons.write,
             Rights.catalog.employees.read, Rights.catalog.nomenclature.read, Rights.catalog.discounts.read,
-            // Без чтения приёмников продавец не выберет приёмника в оплате.
-            Rights.catalog.paymentReceivers.read)
+            // Без чтения приёмников продавец не выберет приёмника в оплате, без чтения ставок — ставку банковской рассрочки.
+            Rights.catalog.paymentReceivers.read, Rights.catalog.installmentRates.read)
         // Закрытие смены проводит её вложенным действием: одного права на закрытие недостаточно.
         .grant(Rights.document.shift.read, Rights.document.shift.write, Rights.document.shift.post, Rights.document.shift.actions.close)
         .grant(Rights.document.sale.read, Rights.document.sale.write, Rights.document.sale.post, Rights.document.sale.actions.createInstallment, Rights.document.sale.actions.sellWithInstallment,
@@ -35,7 +35,7 @@ export const roles = [
         // Пробные сведения исключены, чтобы проверять скрытие клиентских блоков без запрещённых запросов.
         .grant(Rights.catalog.physicalPersons.read, Rights.catalog.employees.read, Rights.catalog.nomenclature.read, Rights.informationRegister.externalLinks.read, Rights.catalog.sample.read, Rights.catalog.sampleDelegate.read, Rights.document.shift.read, Rights.document.sample.read, Rights.document.periodClosing.read, Rights.register.sample.read)
         // Продажи: чтение документов и справочника и рабочее место, на котором без права записи нет кнопок создания.
-        .grant(Rights.catalog.discounts.read, Rights.catalog.paymentReceivers.read, Rights.document.sale.read, Rights.document.saleInstallment.read, Rights.document.weighing.read, Rights.document.refund.read, Rights.document.refund.actions.returnedGoods, Rights.page.sellerWorkplace.open)
+        .grant(Rights.catalog.discounts.read, Rights.catalog.paymentReceivers.read, Rights.catalog.installmentRates.read, Rights.document.sale.read, Rights.document.saleInstallment.read, Rights.document.weighing.read, Rights.document.refund.read, Rights.document.refund.actions.returnedGoods, Rights.page.sellerWorkplace.open)
         // Регистры продаж: по ним читаются итоги по продажам, рассрочкам, сменам и способам оплаты.
         .grant(Rights.register.salesNetOfReturns.read, Rights.register.installmentDebts.read, Rights.register.moneyReceipts.read, Rights.register.unarrangedInstallments.read),
     role('sampleEditor')

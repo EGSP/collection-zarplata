@@ -18,9 +18,10 @@ import { Database } from '../../server/database/database.effect.js';
 import { document, formula, movements, type LookupInput, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { formatDateTime, formatMoney, normalizeSearchText } from '../../server/ui/value-format.js';
 import { Employees } from '../catalogs/employees.catalog.js';
+import { InstallmentRates } from '../catalogs/installment-rates.catalog.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
-import { installmentTypes } from '../installments.js';
+import { installmentTypes, ownInstallment, ownInstallmentRate } from '../installments.js';
 import { rubles } from '../money.js';
 import { cash, installmentMethod, paymentColumns, paymentMethods } from '../payments.js';
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
@@ -349,12 +350,15 @@ export const Sale = sale
             .field('sale', (field) => field.reference(sale).title('Продажа').required())
             .field('type', (field) => field.string().title('Тип рассрочки').choices(installmentTypes).required())
             .field('person', (field) => field.reference(PhysicalPersons).title('Покупатель').required().width('free'))
-            .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник').width('long')))
+            .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник').width('long'))
+            // Ставку выбирают у банковской рассрочки; собственной действие проставляет ставку «Собственная» само.
+            .field('rate', (field) => field.reference(InstallmentRates).title('Ставка рассрочки')))
         .handle((input) => Effect.gen(function* () {
             const dispatcher = yield* ActionDispatcher;
             const record = (yield* dispatcher.execute({ target, action: 'get', payload: { guid: input.sale } })) as SaleRecord;
             const amount = installmentAmount(record);
             if (amount <= 0) return yield* rejected(`В продаже нет оплаты способом «${installmentMethod}»: проведите её без рассрочки`);
+            const rate = input.type === ownInstallment ? yield* ownInstallmentRate : input.rate ?? null;
             // Продажа проводится первой: рассрочка оформляется на итог регистра, который пишет её проведение.
             const posted = yield* dispatcher.execute({ target, action: 'post', payload: { guid: record.guid } });
             // Рассрочка относится к смене продажи: её оформляют в момент продажи, и выдаёт долг та же смена.
@@ -363,7 +367,7 @@ export const Sale = sale
                 payload: {
                     fields: {
                         date: new Date().toISOString(), sale: record.guid, shift: record.shift, amount, payments: [],
-                        type: input.type, person: input.person,
+                        type: input.type, person: input.person, rate,
                         // Необязательное поле, не переданное в запросе, приходит в действие как `undefined`, а запись принимает `null`.
                         responsibleEmployee: input.responsibleEmployee ?? null,
                     },

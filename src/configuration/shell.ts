@@ -8,6 +8,7 @@
 import { shell } from '../server/ui/shell.js';
 import { Discounts } from './catalogs/discounts.catalog.js';
 import { Employees } from './catalogs/employees.catalog.js';
+import { InstallmentRates } from './catalogs/installment-rates.catalog.js';
 import { Nomenclature } from './catalogs/nomenclature.catalog.js';
 import { PaymentReceivers } from './catalogs/payment-receivers.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
@@ -39,7 +40,7 @@ export const applicationShell = shell()
         .group('Рабочие места', [SellerWorkplace])
         .group('Документы', [Sale, Weighing, Refund, SaleInstallment])
         .group('Регистры', [SalesNetOfReturns, InstallmentDebts, MoneyReceipts, UnarrangedInstallments])
-        .group('Справочники', [Discounts, PaymentReceivers])
+        .group('Справочники', [Discounts, PaymentReceivers, InstallmentRates])
         .group('Зарплата', [Payroll, PeriodClosing]))
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')
