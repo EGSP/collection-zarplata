@@ -4,6 +4,14 @@ import { ActionDialog, FieldDisplay, useFormData, useFormRestrictions } from '..
 import { Objects } from '../objects.generated';
 
 /**
+ * Дата последнего взноса; без взносов `null`. Так же её считает сервер при проверке даты закрытия.
+ * Строки дат хранятся с часовым поясом клиента, поэтому сравниваются моменты, а не строки.
+ */
+function lastPaymentDate(payments: ReadonlyArray<{ readonly date: string }>): string | null {
+    return payments.reduce<string | null>((latest, payment) => latest === null || new Date(payment.date).getTime() > new Date(latest).getTime() ? payment.date : latest, null);
+}
+
+/**
  * Состояние рассрочки по продаже на её форме и кнопки «Внести» и «Закрыть».
  *
  * Элемент управляет формой. Взносы недоступны для изменения: взнос добавляет действие «Внести».
@@ -15,6 +23,8 @@ import { Objects } from '../objects.generated';
  * Стандартные кнопки обоих действий скрыты, а элемент выводит свои. Действия принимают рассрочку
  * во входных данных, и стандартное окно потребовало бы выбрать её вручную; элемент передаёт `guid`
  * открытой записи сам, а в окне взноса оставляет дату, способ, сумму и «Куда оплачено».
+ * Окно закрытия спрашивает только дату и предлагает дату последнего взноса: собственная рассрочка
+ * начисляется в зарплату периодом закрытия, а погашена она в день последнего взноса.
  * Действие выполняет форма: перед ним она записывает несохранённые изменения, после него показывает рассрочку
  * в новом состоянии. Кнопки, на действие которой у пользователя нет права, нет.
  *
@@ -36,23 +46,15 @@ export default function InstallmentState() {
 
     const pay = form.view.actions.find((action) => action.name === 'pay');
     const close = form.view.actions.find((action) => action.name === 'close');
-    const closeInstallment = async () => {
-        setClosing(true);
-        try {
-            await form.runAction('close', { installment: saved.guid });
-        } catch {
-            // Об отказе уже сообщило уведомление с текстом сервера.
-        } finally {
-            setClosing(false);
-        }
-    };
+    // Без взносов подсказывать нечего: такую рассрочку политика не даст закрыть, потому что остаток не нулевой.
+    const suggestedClosing = lastPaymentDate(saved.payments);
     return (
         <Flex align="center" gap="middle" wrap>
             <Typography.Text strong>
                 {closed ? <>Закрыта <FieldDisplay field={{ kind: 'dateTime', target: null }} value={saved.closedAt} /></> : posted ? 'Открыта' : 'Не проведена'}
             </Typography.Text>
             {!closed && posted && pay !== undefined && <Button onClick={() => setPaying(true)}>{pay.title}</Button>}
-            {!closed && posted && close !== undefined && <Button loading={closing} onClick={() => void closeInstallment()}>{close.title}</Button>}
+            {!closed && posted && close !== undefined && <Button onClick={() => setClosing(true)}>{close.title}</Button>}
             {paying && pay !== undefined && (
                 <ActionDialog
                     action={{ ...pay, input: pay.input.filter((field) => field.name !== 'installment') }}
@@ -60,6 +62,15 @@ export default function InstallmentState() {
                         await form.runAction('pay', { ...input, installment: saved.guid });
                     }}
                     onClose={() => setPaying(false)}
+                />
+            )}
+            {closing && close !== undefined && (
+                <ActionDialog
+                    action={{ ...close, input: close.input.filter((field) => field.name !== 'installment').map((field) => field.name === 'closedAt' ? { ...field, initial: suggestedClosing } : field) }}
+                    onExecute={async (input) => {
+                        await form.runAction('close', { ...input, installment: saved.guid });
+                    }}
+                    onClose={() => setClosing(false)}
                 />
             )}
         </Flex>

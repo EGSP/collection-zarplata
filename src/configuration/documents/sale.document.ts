@@ -26,6 +26,7 @@ import { cash, installmentMethod, paymentColumns, paymentMethods } from '../paym
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
 import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
+import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
 import { Shift } from './shift.document.js';
 import { Weighing } from './weighing.document.js';
 
@@ -295,6 +296,8 @@ export const Sale = sale
     .policy(salePayments)
     .policy(saleAmount)
     .policy(saleWeighing)
+    // Продажа закрытого периода вошла в зафиксированное начисление зарплаты и больше не меняется.
+    .policy(closedPeriodByDocumentDate())
     // Подбор показывает продажу развёрнуто, а представление в ссылках и вкладках остаётся коротким.
     .lookup((lookup) => lookup
         .column('date', (field) => field.dateTime().title('Дата').required())

@@ -27,7 +27,9 @@ export const roles = [
             // Рассрочку по продаже создаёт действие продажи вложенной записью: одного права на действие недостаточно.
             Rights.document.saleInstallment.read, Rights.document.saleInstallment.write, Rights.document.saleInstallment.post, Rights.document.saleInstallment.actions.pay)
         // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
-        .grant(Rights.register.salesNetOfReturns.read, Rights.register.installmentDebts.read, Rights.register.moneyReceipts.read, Rights.register.unarrangedInstallments.read),
+        .grant(Rights.register.salesNetOfReturns.read, Rights.register.installmentDebts.read, Rights.register.moneyReceipts.read, Rights.register.unarrangedInstallments.read)
+        // Продавцы видят начисление всех сотрудников, но период не закрывают: права на «Закрыть период» нет.
+        .grant(Rights.page.payroll.open, Rights.document.periodClosing.read, Rights.document.periodClosing.actions.payrollPreview),
     role('reader')
         .title('Только чтение')
         // Пробные сведения исключены, чтобы проверять скрытие клиентских блоков без запрещённых запросов.
