@@ -39,8 +39,10 @@ export interface TablePartOptions {
      * Поле получает те же свойства, что и виджет, и так же участвует в обходе с клавиатуры.
      */
     readonly columnInputs?: { readonly [column: string]: ComponentType<InputProperties<unknown>> } | undefined;
-    /** Подпись кнопки добавления строки рядом со значком «+». По умолчанию «Добавить строку». */
+    /** Подпись кнопки добавления строки. По умолчанию «Добавить строку». */
     readonly addTitle?: string | undefined;
+    /** Значок кнопки добавления строки. По умолчанию значок «+». */
+    readonly addIcon?: ReactNode | undefined;
     /**
      * В таблице без строк сразу стоит одна пустая строка, чтобы ввод начинался без нажатия
      * кнопки. Строка добавляется один раз, когда таблица становится доступной для изменения,
@@ -161,7 +163,7 @@ interface RowTableProperties extends TablePartProperties {
  * Фокус ячеек хранится по устойчивому ключу строки, поэтому удаление строки не сдвигает
  * ссылки на поля остальных строк. Новая строка получает фокус после регистрации её полей.
  */
-function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnWidths, columnShares, columnInputs, addTitle = 'Добавить строку', initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false }: RowTableProperties) {
+function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnWidths, columnShares, columnInputs, addTitle = 'Добавить строку', addIcon = <Icons.add />, initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false }: RowTableProperties) {
     const form = Form.useFormInstance();
     const watched: unknown = Form.useWatch(part.name, { form, preserve: true });
     const values = (Array.isArray(watched) ? watched : form.getFieldValue(part.name) ?? []) as Record<string, unknown>[];
@@ -262,7 +264,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
                 rowExpandable: (row) => expanded.some((column) => typeof values[row.name]?.[column.name] === 'string'),
                 expandedRowRender: (row) => expandedKeys.includes(row.key) ? <Flex vertical gap="small">{expanded.filter((column) => typeof values[row.name]?.[column.name] === 'string').map((column) => <RecordTablePart key={column.name} object={column.target!} guid={String(values[row.name]?.[column.name])} part={column.expandedTablePart!} />)}</Flex> : null,
             }} locale={{ emptyText: 'Строк нет' }} />
-            {!disabled && !fixedRows && <Button icon={<Icons.add />} onClick={addRow}>{addTitle}</Button>}
+            {!disabled && !fixedRows && <Button icon={addIcon} onClick={addRow}>{addTitle}</Button>}
         </Flex>
     );
 }

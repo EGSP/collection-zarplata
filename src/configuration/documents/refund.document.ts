@@ -13,11 +13,41 @@ import { Effect } from 'effect';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
-import { document, movements } from '../../server/metadata/index.js';
+import { document, movements, type Policy } from '../../server/metadata/index.js';
 import { Goods } from '../goods.js';
 import { Sales } from '../registers/sales.register.js';
 import { Sale } from './sale.document.js';
+import { preventPostedDocumentDeletion } from '../policies/posted-document-deletion.js';
 import { Shift } from './shift.document.js';
+
+/** Состав возврата, который проверяет правило: шапка с признаком проведения и строки оснований и товаров. */
+interface RefundContent {
+    readonly bases: ReadonlyArray<{ readonly sale: string }>;
+    readonly goods: ReadonlyArray<{ readonly sale: string }>;
+}
+
+/**
+ * Состав возврата (раздел «Правила учёта»): в нём должны быть товары, основания
+ * и каждый товар должен относиться к продаже из оснований.
+ */
+const checkRefundContent = (refund: RefundContent) => Effect.gen(function* () {
+    if (refund.goods.length === 0) return yield* new DataPolicyError({ message: 'В возврате нет товаров: провести можно только возврат с товарами' });
+    if (refund.bases.length === 0) return yield* new DataPolicyError({ message: 'Возврат не связан ни с одной продажей' });
+    const bases = new Set(refund.bases.map((line) => line.sale));
+    for (const [index, line] of refund.goods.entries()) {
+        if (!bases.has(line.sale)) return yield* new DataPolicyError({ message: `Строка ${index + 1}: товар не из продажи, связанной с возвратом` });
+    }
+});
+
+/**
+ * Правила состава возврата. Проверка одинакова при записи и при проведении, не зависит от статуса
+ * проведения: записать возврат с нарушенным составом нельзя даже в черновике.
+ */
+const refundGoods: Policy<RefundContent> = {
+    name: 'refund-goods',
+    save: ({ proposedRecord }) => checkRefundContent(proposedRecord),
+    post: ({ document }) => checkRefundContent(document),
+};
 
 /**
  * Товары в возврат добавляет элемент `RefundSales`: он показывает товары продаж из части
@@ -34,6 +64,9 @@ export const Refund = document('refund')
         .include(Goods)
         .field('sale', (field) => field.reference(Sale).title('Продажа').required()))
     .listTableParts(['goods'])
+    .policy(refundGoods)
+    // Пометка удаления не зависит от состава строк: правило состава её не вызывает. Проведённый возврат помечают на удаление только после отмены проведения.
+    .policy(preventPostedDocumentDeletion())
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе табличные части оказались бы над ней.
     .form((form) => form

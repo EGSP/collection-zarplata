@@ -31,6 +31,7 @@ import {
     GlobalOutlined,
     HomeOutlined,
     InboxOutlined,
+    LinkOutlined,
     LockOutlined,
     LogoutOutlined,
     MoreOutlined,
@@ -56,6 +57,8 @@ export const Icons = {
     add: PlusOutlined,
     /** Переход к записи или странице, на которую ссылается элемент. */
     open: ExportOutlined,
+    /** Связь с другим документом: строка основания ссылается на продажу. */
+    link: LinkOutlined,
     /** Удаление данных: строки табличной части, записи. */
     delete: DeleteOutlined,
     /** Исключение элемента из набора без удаления данных: условия из отбора. */

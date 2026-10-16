@@ -1,0 +1,75 @@
+import { Button, Card } from 'antd';
+import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+
+/** Новый возврат: стандартные действия не выводятся, их заменяет кнопка «Оформить возврат». */
+const refundButtons: RecordFormButtons = { actions: [], postAndClose: false };
+
+/** Размер главной кнопки: как у кнопки «Отвесить» на форме отвеса. */
+const mainButtonStyle = { height: 64, paddingInline: 48, fontSize: 20 };
+
+/**
+ * Основания возврата. Строку добавляет связь с продажей, а не пустая строка: значок цепи показывает,
+ * что строка ссылается на продажу, из которой возвращают товары.
+ */
+const basesOptions: TablePartOptions = { addTitle: 'Связать с продажей', addIcon: <Icons.link /> };
+
+/**
+ * Товары возврата заполняет элемент «Товары продаж-оснований»: строки копируются из продаж, а не
+ * вводятся вручную. Поэтому строки фиксированы, а все колонки только для чтения.
+ */
+const goodsOptions: TablePartOptions = {
+    fixedRows: true,
+    readOnlyColumns: ['name', 'code', 'comment', 'postedIn1C', 'cost', 'discount', 'total', 'sale'],
+};
+
+/**
+ * Форма возврата: шапка, основания и товары в одной группе без заголовка. Шапка в fluid-компоновке,
+ * как у отвеса и продажи. Элементы конфигурации (товары продаж-оснований) стоят в группе на своих местах
+ * и берутся из описания групп формы, поэтому новый элемент появится на форме без правки раскладки.
+ *
+ * Новый возврат оформляет кнопка «Оформить возврат»: стандартное проведение, которое записывает
+ * возврат и проводит его. Существующий возврат показывает стандартные кнопки действий.
+ */
+function RefundFormLayout({ state }: { readonly state: RecordFormState }) {
+    const elements = state.view.groups.flatMap((group) => group.elements);
+    const isNew = state.record === null;
+    const post = isNew ? state.postAction : undefined;
+    return (
+        <RecordFormPage state={state} {...(isNew ? { buttons: refundButtons } : {})}>
+            <Card size="small">
+                <FieldGroup
+                    elements={recordFormElements(state, elements)}
+                    layout="fluid"
+                    record={state.record}
+                    disabled={!state.editable}
+                    traversal={state.traversal}
+                    tablePartOptions={{ bases: basesOptions, goods: goodsOptions }}
+                />
+                {post !== undefined && (
+                    <Button
+                        type="primary"
+                        size="large"
+                        icon={<Icons.refund />}
+                        style={mainButtonStyle}
+                        loading={state.running === post.name}
+                        disabled={state.running !== null}
+                        // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
+                        onClick={() => state.run(post).catch(() => undefined)}
+                    >
+                        Оформить возврат
+                    </Button>
+                )}
+            </Card>
+        </RecordFormPage>
+    );
+}
+
+/** Форма существующего возврата. Поведение формы стандартное, меняется раскладка. */
+export function RefundRecordForm(properties: RecordFormProperties) {
+    return <RefundFormLayout state={useRecordForm(properties)} />;
+}
+
+/** Форма нового возврата с той же раскладкой и кнопкой оформления. */
+export function RefundNewForm(properties: NewFormProperties) {
+    return <RefundFormLayout state={useRecordForm(properties)} />;
+}
