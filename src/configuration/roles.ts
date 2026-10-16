@@ -29,7 +29,9 @@ export const roles = [
         // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
         .grant(Rights.register.salesNetOfReturns.read, Rights.register.installmentDebts.read, Rights.register.moneyReceipts.read, Rights.register.unarrangedInstallments.read)
         // Продавцы видят начисление всех сотрудников, но период не закрывают: права на «Закрыть период» нет.
-        .grant(Rights.page.payroll.open, Rights.document.periodClosing.read, Rights.document.periodClosing.actions.payrollPreview),
+        .grant(Rights.page.payroll.open, Rights.document.periodClosing.read, Rights.document.periodClosing.actions.payrollPreview)
+        // Сводку за период продавец видит так же, как зарплату: отчёт только читает.
+        .grant(Rights.page.periodSummary.open, Rights.document.periodClosing.actions.periodSummary),
     role('reader')
         .title('Только чтение')
         // Пробные сведения исключены, чтобы проверять скрытие клиентских блоков без запрещённых запросов.

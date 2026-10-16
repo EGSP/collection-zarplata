@@ -18,6 +18,7 @@ import { ownInstallment } from '../installments.js';
 import { numberAndDate } from '../money.js';
 import { periodClosingHead } from '../period-closing.js';
 import { calculatePayroll, type PayrollResult } from '../payroll.js';
+import { periodSummary } from '../period-summary.js';
 import { dayOf, lastClosedThrough } from '../policies/closed-period.js';
 import { preventPostedDocumentDeletion } from '../policies/posted-document-deletion.js';
 import { SaleInstallment } from './sale-installment.document.js';
@@ -196,4 +197,15 @@ export const PeriodClosing = closing
         .title('Расчёт зарплаты')
         // День расчёта необязателен: без него расчёт идёт по сегодняшний день включительно.
         .input((input) => input.field('closedThrough', (field) => field.date().title('Рассчитать по')))
-        .handle((input) => calculatePayroll(input.closedThrough ?? today())));
+        .handle((input) => calculatePayroll(input.closedThrough ?? today())))
+    // Отчёт о продажах, взносах, отвесах и должниках за период; только читает. Действие стоит здесь,
+    // потому что у страниц нет своих действий, а закрытие периода объединяет отчёты по периоду.
+    .action('periodSummary', (action) => action
+        .title('Сводка за период')
+        .input((input) => input
+            // Не `from` и `to`: платформа не принимает имён, совпадающих с ключевыми словами SQL.
+            .field('periodStart', (field) => field.date().title('С').required())
+            .field('periodEnd', (field) => field.date().title('По').required()))
+        .handle((input) => input.periodStart > input.periodEnd
+            ? Effect.fail(rejected('Начало периода позже его конца'))
+            : periodSummary(input.periodStart, input.periodEnd)));

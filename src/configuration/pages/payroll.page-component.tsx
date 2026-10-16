@@ -1,6 +1,7 @@
 import { Alert, Button, Card, Flex, Modal, Table, Typography } from 'antd';
 import { useState } from 'react';
-import { ActionDialog, FieldDisplay, FieldInput, FluidField, Page, RecordLink, useAction, useActionResult, useObjectView, useOpenRecord, useReferencePresentation, type ObjectView } from '../../web/sdk';
+import { Link } from 'react-router';
+import { ActionDialog, FieldDisplay, FieldInput, FluidField, Page, pagePath, RecordLink, useAction, useActionResult, useObjectView, useOpenRecord, useReferencePresentation, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PayrollLine, PayrollResult, PayrollRuleDescription } from '../payroll';
 
@@ -119,6 +120,8 @@ export default function PayrollPage() {
             title="Зарплата"
             actions={(
                 <Flex gap="small">
+                    {/* Ссылка, а не обработчик: переход по адресу страницы открывает её во вкладке. */}
+                    <Link to={pagePath('periodSummary')}><Button>Сводка за период</Button></Link>
                     <Button disabled={result === undefined} onClick={() => setRulesOpen(true)}>Правила</Button>
                     {closePeriod !== undefined && <Button type="primary" onClick={() => setClosing(true)}>{closePeriod.title}</Button>}
                 </Flex>

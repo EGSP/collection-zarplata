@@ -27,6 +27,7 @@ import { SampleCompositeInformation } from './information-registers/sample-compo
 import { SampleInformation } from './information-registers/sample.information-register.js';
 import { SampleWorkplace } from './pages/sample-workplace.page.js';
 import { Payroll } from './pages/payroll.page.js';
+import { PeriodSummary } from './pages/period-summary.page.js';
 import { SellerWorkplace } from './pages/seller-workplace.page.js';
 import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
@@ -41,7 +42,8 @@ export const applicationShell = shell()
         .group('Документы', [Sale, Weighing, Refund, SaleInstallment])
         .group('Регистры', [SalesNetOfReturns, InstallmentDebts, MoneyReceipts, UnarrangedInstallments])
         .group('Справочники', [Discounts, PaymentReceivers, InstallmentRates])
-        .group('Зарплата', [Payroll, PeriodClosing]))
+        .group('Зарплата', [Payroll, PeriodClosing])
+        .group('Отчёты', [PeriodSummary]))
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')
         .group('Справочники', [PhysicalPersons, Employees, Nomenclature, Sample, SampleDelegate])
