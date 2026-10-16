@@ -79,6 +79,12 @@ export interface RecordFormOptions {
      * строки в простую.
      */
     readonly beforeSave?: ((values: FormValues) => FormValues | undefined) | undefined;
+    /**
+     * Новый документ записывается и проводится одним запросом: при отказе проведения запись
+     * не создаётся. Действует на кнопки, Ctrl+Enter и `run` формы, пока вызов не задал `atomic` сам
+     * (`RecordFormRunOptions.atomic`). Так возврат не остаётся черновиком после отказа проведения.
+     */
+    readonly atomicPosting?: boolean | undefined;
 }
 
 /**
@@ -134,7 +140,7 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
             );
             changed.current = false;
         },
-        save: async (saved) => {
+        save: async (saved, post) => {
             const prepared = options.beforeSave?.(form.getFieldsValue(true) as FormValues);
             if (prepared !== undefined) form.setFieldsValue(prepared);
             let entered: FormValues;
@@ -152,8 +158,9 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
                 const record: RecordData = await performAction({
                     object,
                     action: 'save',
-                    payload: saved === null ? { fields } : { guid: recordGuid(saved), fields },
-                    successMessage: saved === null ? 'Запись создана' : 'Запись сохранена',
+                    // Запись и проведение одним запросом: отказ проведения не оставляет черновика.
+                    payload: saved === null ? { fields, ...(post === undefined ? {} : { post: true }) } : { guid: recordGuid(saved), fields },
+                    successMessage: post !== undefined ? actionSuccessMessage(post) : saved === null ? 'Запись создана' : 'Запись сохранена',
                     failureMessage: saved === null ? 'Не удалось создать запись' : 'Не удалось сохранить запись',
                 });
                 return record;
@@ -223,7 +230,7 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
         if (hasOpenDialog(root.current) || controller.isRunning()) return;
         const action = view.actions.find((candidate) => candidate.standard && candidate.name === name && isVisible(candidate));
         // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
-        if (action !== undefined) controller.run(action, null, { close }).catch(() => undefined);
+        if (action !== undefined) controller.run(action, null, { close, ...(options.atomicPosting === true ? { atomic: true } : {}) }).catch(() => undefined);
     };
     // Форма скрытой области остаётся смонтированной: без этого условия сочетание сработало бы на всех открытых формах.
     const hotkeyOptions = { ignoreInputs: false, requireReset: true, enabled: scope.active };
@@ -264,7 +271,7 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
         traversal,
         actions,
         postAction,
-        run: controller.run,
+        run: (action, input, runOptions) => controller.run(action, input, { ...(options.atomicPosting === true ? { atomic: true } : {}), ...runOptions }),
         runByName,
         reloadRecord,
         markChanged: () => {

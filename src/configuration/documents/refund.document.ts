@@ -1,6 +1,6 @@
 /**
  * Возврат: товары, которые покупатель вернул по продажам. Строка товара ссылается на продажу.
- * Проведённый возврат записывает в регистр «Продажи» сумму своих строк с минусом по каждой
+ * Проведённый возврат записывает в регистр «Продажи за вычетом возвратов» сумму своих строк с минусом по каждой
  * продаже и этим уменьшает сумму, которую по ней ещё можно вернуть; саму продажу возврат
  * не изменяет. Движение относится к смене продажи, а не к смене возврата: результат смены
  * считается с учётом возвратов по её продажам. Смена в шапке показывает, когда возврат оформлен.
@@ -15,7 +15,7 @@ import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
 import { document, movements, type Policy } from '../../server/metadata/index.js';
 import { Goods } from '../goods.js';
-import { Sales } from '../registers/sales.register.js';
+import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
 import { Sale } from './sale.document.js';
 import { preventPostedDocumentDeletion } from '../policies/posted-document-deletion.js';
 import { Shift } from './shift.document.js';
@@ -50,17 +50,17 @@ const refundGoods: Policy<RefundContent> = {
 };
 
 /**
- * Товары в возврат добавляет элемент `RefundSales`: он показывает товары продаж из части
- * «На основании», и нажатие на товар копирует его в товары возврата со ссылкой на продажу.
+ * Товары в возврат добавляют флажки у товаров продаж под строками части «На основании»
+ * (форма возврата): отметка копирует товар в «Товары на возврат» со ссылкой на продажу.
  */
-export const Refund = document('refund')
+const refund = document('refund')
     .title('Возврат')
     .field('shift', (field) => field.reference(Shift).title('Смена').required())
     .tablePart('bases', (part) => part
         .title('На основании')
         .field('sale', (field) => field.reference(Sale).title('Продажа').required()))
     .tablePart('goods', (part) => part
-        .title('Товары')
+        .title('Товары на возврат')
         .include(Goods)
         .field('sale', (field) => field.reference(Sale).title('Продажа').required()))
     .listTableParts(['goods'])
@@ -72,7 +72,7 @@ export const Refund = document('refund')
     .form((form) => form
         .group('Возврат', ['number', 'date', 'shift'])
         .group('На основании', ['bases'])
-        .group('Товары', ['goods'])
+        .group('Товары на возврат', ['goods'])
         .hide('posted'))
     // Движение записывается на продажу, а не на строку: предел действует на сумму по продаже.
     .posting((record) => Effect.gen(function* () {
@@ -90,5 +90,39 @@ export const Refund = document('refund')
             // Вычитание из нуля, а не унарный минус: для нулевой суммы он дал бы отрицательный ноль.
             rows.push({ sale: saleGuid, shift: sale.shift, amount: 0 - total });
         }
-        return [movements(Sales, rows)];
+        return [movements(SalesNetOfReturns, rows)];
     }));
+
+/**
+ * Товары, которые по продаже уже возвращены: строки товаров проведённых возвратов по этой продаже,
+ * кроме возврата `excludedRefund` (открытого на форме). Форма возврата по ним отмечает товары
+ * продажи как уже возвращённые и не даёт отметить их снова. Действие только читает.
+ *
+ * Строки возвращаются в порядке возвратов и строк: товар в возврате не хранит ссылку на строку
+ * продажи, поэтому форма сопоставляет строки по содержимому.
+ */
+export const Refund = refund
+    .action('returnedGoods', (action) => action
+        .title('Возвращённые товары')
+        .input((input) => input
+            .field('sale', (field) => field.reference(Sale).title('Продажа').required())
+            .field('excludedRefund', (field) => field.string().title('Исключаемый возврат')))
+        .handle((input) => Effect.gen(function* () {
+            const database = yield* Database;
+            const lines = yield* database.all(query(refund).tablePart('goods').select({
+                columns: ['ownerGuid', 'name', 'code', 'comment', 'cost', 'discount'],
+                where: [{ column: 'sale', operator: '=', value: input.sale }],
+                orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
+            }));
+            if (lines.length === 0) return [];
+            const owners = new Set((yield* database.all(query(refund).select({
+                columns: ['guid'],
+                where: [
+                    { column: 'guid', operator: 'IN', value: [...new Set(lines.map((line) => line.ownerGuid))] },
+                    { column: 'posted', operator: '=', value: true },
+                    { column: 'deletedAt', operator: '=', value: null },
+                ],
+            }))).map((row) => row.guid));
+            owners.delete(input.excludedRefund ?? '');
+            return lines.filter((line) => owners.has(line.ownerGuid)).map(({ name, code, comment, cost, discount }) => ({ name, code, comment, cost, discount }));
+        })));

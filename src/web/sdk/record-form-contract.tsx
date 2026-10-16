@@ -42,8 +42,11 @@ export interface RecordFormHandlers {
     /**
      * Проверяет и записывает введённые значения поверх `record`, у новой записи `record` равен `null`.
      * Возвращает запись от сервера либо `null`, если запись не состоялась: ошибки форма уже показала.
+     *
+     * С `post` запись записывается и проводится одним запросом (стандартное действие `post`):
+     * при отказе проведения запись не создаётся. Сервер возвращает проведённый документ.
      */
-    readonly save: (record: RecordData | null) => Promise<RecordData | null>;
+    readonly save: (record: RecordData | null, post?: FormAction) => Promise<RecordData | null>;
     /**
      * Выполняет действие, кроме записи, над записанной записью `record`. Записывать несохранённые
      * изменения не нужно: хук делает это до вызова. Отказ сервера завершает вызов ошибкой.
@@ -71,6 +74,13 @@ export type RecordFormActionInput = FormValues | ((record: RecordData) => FormVa
 export interface RecordFormRunOptions {
     /** Закрыть область после успешного действия. При ошибке область остаётся открытой. */
     readonly close?: boolean;
+    /**
+     * Новый документ записывается и проводится одним запросом, когда выполняется стандартное
+     * действие `post`: при отказе проведения запись не создаётся и форма остаётся с введёнными
+     * значениями. Без параметра сначала создаётся запись, а затем проводится отдельным запросом,
+     * и после отказа остаётся непроведённый документ. Для записанного документа не действует.
+     */
+    readonly atomic?: boolean;
 }
 
 /** То, что хук контракта возвращает форме. */
@@ -162,13 +172,22 @@ export function useRecordFormContract(handlers: RecordFormHandlers): RecordFormC
         setRunning(action.name);
         try {
             let saved = recordRef.current;
-            if (isSave || saved === null || current.current.changed()) {
+            const atomic = options.atomic === true && saved === null && action.standard && action.name === 'post';
+            if (atomic) {
+                saved = await current.current.save(null, action);
+                if (saved === null) throw new Error('Запись не сохранена');
+                accept(saved);
+                written = true;
+                result = saved;
+            } else if (isSave || saved === null || current.current.changed()) {
                 saved = await current.current.save(saved);
                 if (saved === null) throw new Error('Запись не сохранена');
                 accept(saved);
                 written = true;
             }
-            if (isSave) {
+            if (atomic) {
+                // Запись уже проведена запросом на запись.
+            } else if (isSave) {
                 result = saved;
             } else {
                 const outcome = await current.current.perform(action, typeof input === 'function' ? input(saved) : input, saved);

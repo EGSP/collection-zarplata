@@ -1,5 +1,5 @@
 /**
- * Регистр «Расчёты с покупателями»: долг покупателя по документу-основанию и его оплаты.
+ * Регистр «Долги по рассрочкам»: долг покупателя по документу-основанию и его оплаты.
  * Рассрочка по продаже записывает свою сумму и по движению с минусом на каждый
  * взнос. Итог по основанию равен непогашенному долгу, итог по смене равен непогашенному долгу
  * по её рассрочкам.
@@ -18,8 +18,8 @@ import { rubles } from '../money.js';
  * Ограничение `debt` задаёт предел взносов (раздел «Правила учёта»): итог по основанию
  * не уходит в минус, то есть взносы не превышают сумму рассрочки.
  */
-export const CustomerSettlements = register('customerSettlements')
-    .title('Расчёты с покупателями')
+export const InstallmentDebts = register('installmentDebts')
+    .title('Долги по рассрочкам')
     .dimension('basis', (field) => field.reference().title('Основание').required())
     .dimension('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').required())
     .dimension('shift', (field) => field.reference(Shift).title('Смена').required())

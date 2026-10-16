@@ -40,7 +40,7 @@ export type {
     SortDirection,
     ValidationRules,
 } from '../../server/ui/descriptions';
-export { RecordTablePart, type RecordTablePartProperties } from './record-table-part';
+export { RecordTablePart, type RecordTablePartProperties, type RecordTableSelection } from './record-table-part';
 export { useObjectView, usePageView } from '../data-provider/metadata';
 export type { PerformTarget } from '../data-provider/perform';
 
@@ -49,7 +49,7 @@ export type { ActedObject, FieldName, ListedObject, ObjectReference, ReadObject,
 
 // Данные: чтение списка и записи, выполнение действий.
 export { ApiError } from '../common/api';
-export { useAction, type ActionCall } from '../data-provider/actions';
+export { useAction, useActionResult, type ActionCall, type ActionQuery } from '../data-provider/actions';
 export type { ListCondition } from '../data-provider/data-provider';
 export { recordGuid, type RecordData } from '../data-provider/records';
 export { useRecord, useRecords, type RecordQuery, type RecordsQuery } from './record';

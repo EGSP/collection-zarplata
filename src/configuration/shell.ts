@@ -26,10 +26,10 @@ import { SampleCompositeInformation } from './information-registers/sample-compo
 import { SampleInformation } from './information-registers/sample.information-register.js';
 import { SampleWorkplace } from './pages/sample-workplace.page.js';
 import { SellerWorkplace } from './pages/seller-workplace.page.js';
-import { CustomerSettlements } from './registers/customer-settlements.register.js';
+import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
-import { SaleInstallments } from './registers/sale-installments.register.js';
-import { Sales } from './registers/sales.register.js';
+import { UnarrangedInstallments } from './registers/unarranged-installments.register.js';
+import { SalesNetOfReturns } from './registers/sales-net-of-returns.register.js';
 import { SampleRegister } from './registers/sample.register.js';
 
 export const applicationShell = shell()
@@ -37,7 +37,7 @@ export const applicationShell = shell()
         .title('Продажи')
         .group('Рабочие места', [SellerWorkplace])
         .group('Документы', [Sale, Weighing, Refund, SaleInstallment])
-        .group('Регистры', [Sales, CustomerSettlements, MoneyReceipts, SaleInstallments])
+        .group('Регистры', [SalesNetOfReturns, InstallmentDebts, MoneyReceipts, UnarrangedInstallments])
         .group('Справочники', [Discounts, PaymentReceivers]))
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')

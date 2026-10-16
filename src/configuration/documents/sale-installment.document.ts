@@ -10,11 +10,11 @@
  */
 import { movements } from '../../server/metadata/index.js';
 import { installmentDocument } from '../installments.js';
-import { SaleInstallments } from '../registers/sale-installments.register.js';
+import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
 import { Sale } from './sale.document.js';
 
 /**
- * Проведённая рассрочка записывает свою сумму с минусом в регистр «Рассрочки по продажам»:
+ * Проведённая рассрочка записывает свою сумму с минусом в регистр «Неоформленные рассрочки»:
  * так итог по продаже показывает сумму, на которую рассрочка ещё не оформлена. Превысить сумму
  * строк оплаты «Рассрочка» не даёт ограничение этого регистра, а не политика документа.
  */
@@ -22,7 +22,7 @@ export const SaleInstallment = installmentDocument('saleInstallment', 'Расс�
     .field('sale', (field) => field.reference(Sale).title('Продажа').required())
     .field('amount', (field) => field.money().title('Сумма').minimum(1).required()),
 // Вычитание из нуля, а не унарный минус: так сумма записана в том же виде, что у остальных движений с минусом.
-(record) => [movements(SaleInstallments, [{ sale: record.sale, amount: 0 - record.amount }])])
+(record) => [movements(UnarrangedInstallments, [{ sale: record.sale, amount: 0 - record.amount }])])
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     .form((form) => form
         .group('Рассрочка', ['number', 'date', 'sale', 'type', 'shift', 'person', 'responsibleEmployee', 'amount'])

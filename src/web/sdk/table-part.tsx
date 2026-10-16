@@ -80,6 +80,14 @@ export interface TablePartOptions {
      * а значения в ячейках изменять можно. Так записанный документ сохраняет состав строк.
      */
     readonly fixedRows?: boolean | undefined;
+    /**
+     * Содержимое под строкой: например, товары продажи из строки основания возврата. Строка
+     * получает кнопку раскрытия и изначально раскрыта; пользователь может её свернуть. Вместо
+     * содержимого можно вернуть `null`: такая строка не раскрывается. Заменяет раскрытие
+     * по ссылке (`expandTablePart`), если оно есть у колонки. Функция вызывается при отрисовке
+     * как компонент, поэтому хуки внутри неё недопустимы: хуки используют в возвращаемом компоненте.
+     */
+    readonly expandedRow?: ((row: Record<string, unknown>, index: number) => ReactNode) | undefined;
 }
 
 /** Свойства табличной части. */
@@ -163,12 +171,15 @@ interface RowTableProperties extends TablePartProperties {
  * Фокус ячеек хранится по устойчивому ключу строки, поэтому удаление строки не сдвигает
  * ссылки на поля остальных строк. Новая строка получает фокус после регистрации её полей.
  */
-function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnWidths, columnShares, columnInputs, addTitle = 'Добавить строку', addIcon = <Icons.add />, initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false }: RowTableProperties) {
+function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnWidths, columnShares, columnInputs, addTitle = 'Добавить строку', addIcon = <Icons.add />, initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false, expandedRow }: RowTableProperties) {
     const form = Form.useFormInstance();
     const watched: unknown = Form.useWatch(part.name, { form, preserve: true });
     const values = (Array.isArray(watched) ? watched : form.getFieldValue(part.name) ?? []) as Record<string, unknown>[];
     const expanded = part.columns.filter((column) => column.expandedTablePart && column.target);
     const [expandedKeys, setExpandedKeys] = useState<ReadonlyArray<Key>>([]);
+    // Строки с `expandedRow` раскрыты изначально, поэтому хранится то, что свернул пользователь:
+    // новая строка раскрыта без отдельного учёта.
+    const [collapsedKeys, setCollapsedKeys] = useState<ReadonlyArray<Key>>([]);
     const cells = useFieldFocus();
     const pendingRow = useRef<number | null>(null);
     const inputColumns = part.columns.filter((column) => !column.readOnly && hasInput(column));
@@ -258,7 +269,13 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
             <Table<Row> size="small" style={{ width: '100%' }} rowKey="key" columns={columns} dataSource={[...rows]} pagination={false}
                 {...(columnWidths === undefined ? {} : { tableLayout: 'fixed' as const })}
                 {...(totals.length === 0 || rows.length === 0 ? {} : { summary: () => <TotalsRow part={part} values={values} totals={totals} removable={removable} /> })}
-                expandable={expanded.length === 0 ? {} : {
+                expandable={expandedRow !== undefined ? {
+                    expandedRowKeys: rows.map((row) => row.key).filter((key) => !collapsedKeys.includes(key)),
+                    // Антд отдаёт раскрытые строки; свёрнутыми считаются все остальные.
+                    onExpandedRowsChange: (open) => setCollapsedKeys(rows.map((row) => row.key).filter((key) => !open.includes(key))),
+                    rowExpandable: (row) => expandedRow(values[row.name] ?? {}, row.name) !== null,
+                    expandedRowRender: (row) => expandedRow(values[row.name] ?? {}, row.name),
+                } : expanded.length === 0 ? {} : {
                 expandedRowKeys: [...expandedKeys],
                 onExpandedRowsChange: setExpandedKeys,
                 rowExpandable: (row) => expanded.some((column) => typeof values[row.name]?.[column.name] === 'string'),

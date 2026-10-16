@@ -1,6 +1,6 @@
 /**
  * Продажа: товары, проданные в смену, и их оплата. Сумма продажи хранится вычисляемым полем шапки:
- * по ней работают списки. Проведённая продажа записывает сумму в регистр «Продажи» со своей сменой;
+ * по ней работают списки. Проведённая продажа записывает сумму в регистр «Продажи за вычетом возвратов» со своей сменой;
  * по итогу регистра проверяется предел возврата. Оплаты деньгами она записывает в регистр
  * «Поступления денег» по способам, а сумму оплат способом «Рассрочка» в регистр «Рассрочки
  * по продажам»: на неё оформляются рассрочки по продаже.
@@ -24,8 +24,8 @@ import { installmentTypes } from '../installments.js';
 import { rubles } from '../money.js';
 import { cash, installmentMethod, paymentColumns, paymentMethods } from '../payments.js';
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
-import { SaleInstallments } from '../registers/sale-installments.register.js';
-import { Sales } from '../registers/sales.register.js';
+import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
+import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
 import { Shift } from './shift.document.js';
 import { Weighing } from './weighing.document.js';
 
@@ -314,7 +314,7 @@ export const Sale = sale
             // конструктором SQL, а не функцией итогов платформы: её модуль тянет серверный код
             // в проверку типов клиента, который читает тип продажи.
             const database = yield* Database;
-            const total = yield* database.get(query(SaleInstallments).sums({
+            const total = yield* database.get(query(UnarrangedInstallments).sums({
                 groupBy: [],
                 sums: ['amount'],
                 where: [{ column: 'sale', operator: '=', value: record.guid }],
@@ -369,13 +369,13 @@ export const Sale = sale
             yield* dispatcher.execute({ target: installmentTarget, action: 'post', payload: { guid: installment.guid } });
             return posted;
         })))
-    // Проведение объявлено последним: его обработчик ссылается на регистр «Продажи», а тот читает
+    // Проведение объявлено последним: его обработчик ссылается на регистр «Продажи за вычетом возвратов», а тот читает
     // продажу в тексте отказа. У последнего вызова цепочки компилятор берёт тип результата без
     // разбора обработчика, поэтому тип продажи не выводится через тип регистра и обратно.
     .posting((record) => Effect.succeed([
-        movements(Sales, [{ sale: record.guid, shift: record.shift, amount: record.amount }]),
+        movements(SalesNetOfReturns, [{ sale: record.guid, shift: record.shift, amount: record.amount }]),
         // Движение на каждую оплату деньгами со сменой продажи: итог смены по способу складывается из них.
         movements(MoneyReceipts, record.payments.filter((payment) => !byInstallment(payment)).map((payment) => ({ shift: record.shift, method: payment.method, amount: payment.amount }))),
         // Оплаты способом «Рассрочка» записаны одной суммой: рассрочки оформляются на продажу, а не на строку.
-        movements(SaleInstallments, installmentAmount(record) > 0 ? [{ sale: record.guid, amount: installmentAmount(record) }] : []),
+        movements(UnarrangedInstallments, installmentAmount(record) > 0 ? [{ sale: record.guid, amount: installmentAmount(record) }] : []),
     ]));

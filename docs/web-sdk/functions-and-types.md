@@ -41,7 +41,7 @@ covers:
 | `RecordFormHandlers`, `RecordFormController`, `RecordFormOutcome`, `RecordFormRunOptions` | Обработчики, управление и итог действия [контракта формы записи](hooks.md#контракт-формы-записи) |
 | `RecordFormState`, `RecordFormPartProperties`, `RecordFormBodyProperties`, `RecordFormLayoutProperties`, `RecordFormPageProperties`, `RecordFormActionsProperties` | Состояние `useRecordForm` и свойства [частей формы](components.md#стандартная-форма-и-её-части) |
 | `RecordFormTitles`, `RecordFormButtons` | [Подписи](components.md#подписи-кнопок) и [набор кнопок](components.md#набор-кнопок) формы: действия по именам, «Провести и закрыть», «Закрыть» |
-| `RecordFormOptions`, `RecordFormActionInput` | Настройки [`useRecordForm`](hooks.md#userecordform) (`beforeSave`) и входные данные `run`: значения либо функция от записанной записи |
+| `RecordFormOptions`, `RecordFormActionInput` | Настройки [`useRecordForm`](hooks.md#userecordform) (`beforeSave`, `atomicPosting`) и входные данные `run`: значения либо функция от записанной записи |
 | `SetValueOptions` | Параметры `FormData.setValue`: `validate: false` откладывает проверку ([«Данные формы»](hooks.md#данные-формы)) |
 | `FieldLayout`, `FieldInputComponent`, `FieldInputLayouts`, `FieldInputMark`, `FluidInputProperties`, `LaidOutInputProperties` | [Компоновка полей](components.md#компоновка-полей) и контракт собственного поля ввода |
 | `TablePartOptions` | [Настройки вида табличной части](components.md#табличная-часть) |

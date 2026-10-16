@@ -5,7 +5,7 @@
  *
  * У рассрочки два состояния, открыта и закрыта; закрытая не изменяется и взносов не принимает.
  * Остаток хранится вычисляемым полем шапки: по нему работают блок незакрытых рассрочек и условие
- * закрытия. Проведённая рассрочка записывает в регистр «Расчёты с покупателями» свою сумму
+ * закрытия. Проведённая рассрочка записывает в регистр «Долги по рассрочкам» свою сумму
  * и взносы, а в регистр «Поступления денег» каждый взнос по его способу.
  */
 import { Effect } from 'effect';
@@ -34,7 +34,7 @@ import { Rights } from './configuration.generated.js';
 import { Shift } from './documents/shift.document.js';
 import { rubles } from './money.js';
 import { paymentMethods, Payments, receiverField } from './payments.js';
-import { CustomerSettlements } from './registers/customer-settlements.register.js';
+import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
 
 /** Имя документа-рассрочки. По нему из `Rights` берётся право закрытия. */
@@ -110,7 +110,7 @@ const checkCustomer = (record: InstallmentRecord) => {
  * закрывает само действие. Поэтому условие закрытия и право на него проверяются здесь.
  * Ответственный обязателен только у собственной рассрочки, в том числе при вложенной записи
  * взноса или закрытия. `Rights` читается при выполнении: при загрузке документа реестр ещё не готов.
- * Предел взносов политика не проверяет: его задаёт ограничение регистра «Расчёты с покупателями».
+ * Предел взносов политика не проверяет: его задаёт ограничение регистра «Долги по рассрочкам».
  */
 const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => ({
     name: 'installment-rules',
@@ -186,7 +186,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
             const person = record.person;
             const basis = objectReference(target, record.guid);
             return [
-                movements(CustomerSettlements, [
+                movements(InstallmentDebts, [
                     { basis, person, shift: record.shift, amount: record.amount },
                     // Взнос уменьшает долг датой взноса, но сменой рассрочки: рассрочка считается продажей
                     // выдавшей её смены, оплата которой растянута во времени.

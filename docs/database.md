@@ -194,7 +194,7 @@ const closing = yield* database.get(query(PeriodClosing).select({
 Регистратор передаётся целиком во всех операциях:
 
 ```ts
-const byDocument = query(Sales).sums({
+const byDocument = query(SalesNetOfReturns).sums({
     groupBy: ['recorder'],
     sums: ['amount'],
     where: [{ column: 'recorder', operator: '=', value: { document: 'sale', guid } }],

@@ -5,7 +5,7 @@
  * из формы и не запрашивать повторно записи по ссылкам. После изменяющего действия эти ответы
  * устаревают, и их нужно сбросить: иначе список показывал бы запись в прежнем состоянии.
  */
-import { keys, useCustomMutation, type BaseRecord } from '@refinedev/core';
+import { keys, useCustom, useCustomMutation, type BaseRecord } from '@refinedev/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import type { ApiError } from '../common/api';
@@ -69,4 +69,30 @@ export function useAction(): <Action extends string = string, Result = unknown>(
         },
         [mutateAsync, invalidateData],
     );
+}
+
+/** Чтение результата действия: тот же вызов, но без уведомлений, потому что действие только читает. */
+export interface ActionQuery<Action extends string = string> {
+    readonly object: PerformTarget & { readonly '~action'?: Action };
+    readonly action: NoInfer<Action>;
+    readonly payload?: object;
+    /** Читать ли результат сейчас. Пока `false`, запрос не отправляется: например, не выбрана продажа. */
+    readonly enabled?: boolean;
+}
+
+/**
+ * Результат собственного действия, которое только читает данные, как запрос с кешем: он обновляется
+ * после любого изменяющего действия, потому что сохранённые ответы сервера о данных сбрасываются.
+ * Уведомлений нет ни об успехе, ни об отказе: отказ, например нехватка права на действие, оставляет
+ * `data` пустым, и экран показывает себя без этих данных. Для изменяющих действий служит `useAction`.
+ */
+export function useActionResult<Result = unknown, Action extends string = string>({ object, action, payload = {}, enabled = true }: ActionQuery<Action>): { readonly data: Result | undefined; readonly loading: boolean } {
+    const { query } = useCustom<BaseRecord, ApiError>({
+        url: `${resourceName(object)}/${action}`,
+        method: 'post',
+        config: { payload },
+        queryOptions: { enabled },
+        errorNotification: false,
+    });
+    return { data: query.data?.data as Result | undefined, loading: query.isFetching };
 }

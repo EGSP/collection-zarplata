@@ -1,5 +1,12 @@
 import { Button, Card } from 'antd';
-import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { RefundSaleGoods } from './refund-sale-goods';
+import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+
+/**
+ * Новый возврат записывается и проводится одним запросом: если проведение отклонено, например по
+ * пределу возврата, возврат не создаётся и остаётся на форме, а не появляется в списке черновиком.
+ */
+const refundFormOptions: RecordFormOptions = { atomicPosting: true };
 
 /** Новый возврат: стандартные действия не выводятся, их заменяет кнопка «Оформить возврат». */
 const refundButtons: RecordFormButtons = { actions: [], postAndClose: false };
@@ -9,12 +16,17 @@ const mainButtonStyle = { height: 64, paddingInline: 48, fontSize: 20 };
 
 /**
  * Основания возврата. Строку добавляет связь с продажей, а не пустая строка: значок цепи показывает,
- * что строка ссылается на продажу, из которой возвращают товары.
+ * что строка ссылается на продажу, из которой возвращают товары. Под строкой, изначально раскрытой,
+ * стоят товары этой продажи с флажками: отмеченные попадают в «Товары на возврат».
  */
-const basesOptions: TablePartOptions = { addTitle: 'Связать с продажей', addIcon: <Icons.link /> };
+const basesOptions: TablePartOptions = {
+    addTitle: 'Связать с продажей',
+    addIcon: <Icons.link />,
+    expandedRow: (row) => typeof row.sale === 'string' ? <RefundSaleGoods sale={row.sale} /> : null,
+};
 
 /**
- * Товары возврата заполняет элемент «Товары продаж-оснований»: строки копируются из продаж, а не
+ * «Товары на возврат» заполняют флажки у товаров под строками оснований: строки копируются из продаж, а не
  * вводятся вручную. Поэтому строки фиксированы, а все колонки только для чтения.
  */
 const goodsOptions: TablePartOptions = {
@@ -24,8 +36,8 @@ const goodsOptions: TablePartOptions = {
 
 /**
  * Форма возврата: шапка, основания и товары в одной группе без заголовка. Шапка в fluid-компоновке,
- * как у отвеса и продажи. Элементы конфигурации (товары продаж-оснований) стоят в группе на своих местах
- * и берутся из описания групп формы, поэтому новый элемент появится на форме без правки раскладки.
+ * как у отвеса и продажи. Элементы конфигурации берутся из описания групп формы,
+ * поэтому новый элемент появится на форме без правки раскладки.
  *
  * Новый возврат оформляет кнопка «Оформить возврат»: стандартное проведение, которое записывает
  * возврат и проводит его. Существующий возврат показывает стандартные кнопки действий.
@@ -66,10 +78,10 @@ function RefundFormLayout({ state }: { readonly state: RecordFormState }) {
 
 /** Форма существующего возврата. Поведение формы стандартное, меняется раскладка. */
 export function RefundRecordForm(properties: RecordFormProperties) {
-    return <RefundFormLayout state={useRecordForm(properties)} />;
+    return <RefundFormLayout state={useRecordForm(properties, refundFormOptions)} />;
 }
 
 /** Форма нового возврата с той же раскладкой и кнопкой оформления. */
 export function RefundNewForm(properties: NewFormProperties) {
-    return <RefundFormLayout state={useRecordForm(properties)} />;
+    return <RefundFormLayout state={useRecordForm(properties, refundFormOptions)} />;
 }

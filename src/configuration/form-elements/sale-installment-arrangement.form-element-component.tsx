@@ -11,7 +11,7 @@ import { Objects } from '../objects.generated';
  * кроме помеченных на удаление. Они видны у любой записанной продажи при праве их читать:
  * по ним продавец переходит к рассрочке и видит её остаток.
  *
- * Сумма равна итогу регистра «Рассрочки по продажам» по этой продаже: проведённая продажа
+ * Сумма равна итогу регистра «Неоформленные рассрочки» по этой продаже: проведённая продажа
  * записывает в него оплаты способом «Рассрочка», проведённая рассрочка по продаже свою сумму
  * с минусом. Движения есть только у проведённой продажи, поэтому у новой и непроведённой
  * элемент ничего не выводит. Нет его и без права читать регистр: сумму показать нечем.
@@ -22,7 +22,7 @@ import { Objects } from '../objects.generated';
 export default function SaleInstallmentArrangement() {
     const sales = Objects.document.sale;
     const form = useFormData(sales);
-    const register = useObjectView(Objects.register.saleInstallments);
+    const register = useObjectView(Objects.register.unarrangedInstallments);
     useFormRestrictions(sales, { hiddenActions: ['createInstallment'] });
     const installments = useObjectView(Objects.document.saleInstallment);
     const saved = form.saved;
@@ -93,7 +93,7 @@ function Unarranged({ sale, action, run }: UnarrangedProperties) {
     const [creating, setCreating] = useState(false);
     // Итог складывается из движений по продаже: это движение самой продажи и по одному на каждую
     // её проведённую рассрочку, поэтому хватает одной страницы наибольшего размера.
-    const movements = useRecordList(Objects.register.saleInstallments, {
+    const movements = useRecordList(Objects.register.unarrangedInstallments, {
         permanentFilter: [{ field: 'sale', operator: 'equals', value: sale }],
         pageSize: 500,
     });
