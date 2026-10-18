@@ -80,10 +80,23 @@ function right(...segments: ReadonlyArray<string>): Right {
  * поэтому право проведения отдельных документов его не разрешает.
  */
 export const platformRights = Object.freeze({
+    authorization: Object.freeze({ read: right('platform', 'authorization', 'read') }),
     users: Object.freeze({ read: right('platform', 'users', 'read'), write: right('platform', 'users', 'write') }),
     journal: Object.freeze({ read: right('platform', 'journal', 'read') }),
     documents: Object.freeze({ repost: right('platform', 'documents', 'repost') }),
 });
+
+/**
+ * Стандартные права и собственные действия полного описания объекта. Источник стандартных
+ * прав общий с диспетчером: новый вид разрешения автоматически появится и в дереве доступа.
+ */
+export function describeObjectRights(description: Pick<ObjectDescription, 'kind' | 'name' | 'actions'>): ReadonlyArray<Right & { readonly title: string }> {
+    const titles: Readonly<Record<string, string>> = { read: 'Чтение', write: 'Запись', post: 'Проведение и отмена проведения' };
+    return [
+        ...Object.keys(standardPermissions[description.kind]).map((permission) => ({ ...right(description.kind, description.name, permission), title: titles[permission] ?? permission })),
+        ...description.actions.map((action) => ({ ...right(description.kind, description.name, actionsSegment, action.name), title: action.title })),
+    ];
+}
 
 /** Стандартные права объекта вида `Kind`. */
 type StandardRights<Kind extends ObjectKind> = { readonly [Permission in keyof (typeof standardPermissions)[Kind]]: Right };

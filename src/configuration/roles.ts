@@ -12,6 +12,10 @@ export const roles = [
     role('administrator')
         .title('Администратор')
         .grantAll(),
+    // Просмотр полного дерева и оснований доступа без прав на прикладные данные и управление пользователями.
+    role('accessAuditor')
+        .title('Просмотр прав доступа')
+        .grant(Rights.page.accessRights.open, Rights.platform.authorization.read),
     role('seller')
         .title('Продавец')
         .grant(Rights.page.sellerWorkplace.open)

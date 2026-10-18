@@ -2,6 +2,7 @@ import { calculatedInput } from './computed-values.js';
 import { Injectable } from '@nestjs/common';
 import { AuthenticationService } from '../authentication/authentication.service.js';
 import { userDirectoryAction } from '../users/users.js';
+import { accessTreeAction } from '../authorization/access-tree.js';
 import { Effect } from 'effect';
 import { platformRights, requiredRight } from '../authorization/rights.js';
 import { CurrentUserRights } from '../authorization/current-user-rights.js';
@@ -149,6 +150,9 @@ export class DataService {
             if (operation.target.kind === 'platform' && operation.target.name === 'users') {
                 return yield* userDirectoryAction(operation.action, operation.payload, user, this.rightsGuard, (pin) => this.authentication.pinHash(pin))
                     .pipe(Effect.provideService(ActionContext, context));
+            }
+            if (operation.target.kind === 'platform' && operation.target.name === 'authorization') {
+                return yield* accessTreeAction(operation.action, operation.payload, user, this.rightsGuard, this.metadata.objects);
             }
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
             if (description === undefined) {

@@ -7,6 +7,7 @@
  */
 import { shell } from '../server/ui/shell.js';
 import { Users } from './pages/users.page.js';
+import { AccessRights } from './pages/access-rights.page.js';
 import { Discounts } from './catalogs/discounts.catalog.js';
 import { Employees } from './catalogs/employees.catalog.js';
 import { InstallmentRates } from './catalogs/installment-rates.catalog.js';
@@ -39,7 +40,7 @@ import { SampleRegister } from './registers/sample.register.js';
 export const applicationShell = shell()
     .subsystem('administration', (subsystem) => subsystem
         .title('Администрирование')
-        .group('Учётные записи', [Users]))
+        .group('Учётные записи', [Users, AccessRights]))
     .subsystem('sales', (subsystem) => subsystem
         .title('Продажи')
         .group('Рабочие места', [SellerWorkplace])

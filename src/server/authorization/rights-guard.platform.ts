@@ -13,6 +13,8 @@ export interface UserRights {
     /** Роли пользователя, которые описаны в конфигурации. */
     readonly roles: ReadonlyArray<string>;
     allows(right: Right): boolean;
+    /** Все роли-основания, включая полный доступ. Пустой список означает отсутствие права. */
+    grantedBy(right: Right): ReadonlyArray<RoleDescription>;
 }
 
 /**
@@ -42,18 +44,28 @@ export class RightsGuardPlatform {
     }
 
     /**
+     * Собирает права по уже прочитанным назначениям. Проверка операции и объяснение доступа
+     * используют одно правило: объединение известных ролей с учётом полного доступа.
+     */
+    rightsFromRoles(names: ReadonlyArray<string>): UserRights {
+        const assigned = new Set(names);
+        const roles = this.roles.filter((role) => assigned.has(role.name));
+        const grantedBy = (right: Right) => roles.filter((role) => role.all || role.rights.has(right.key));
+        return {
+            roles: roles.map((role) => role.name),
+            allows: (right) => grantedBy(right).length > 0,
+            grantedBy,
+        };
+    }
+
+    /**
      * Права пользователя. У запроса без пользователя и у пользователя без ролей прав нет.
      * Роль, имя которой осталось в базе после удаления из конфигурации, прав не даёт.
      */
     rightsOf(userGuid: string | null): Effect.Effect<UserRights, DatabaseError, Database> {
         return Effect.gen(function* (this: RightsGuardPlatform) {
             const names = userGuid === null ? [] : yield* userRoleNames(userGuid);
-            const granted = this.roles.filter((role) => names.includes(role.name));
-            const rights: UserRights = {
-                roles: granted.map((role) => role.name),
-                allows: (right) => granted.some((role) => role.all || role.rights.has(right.key)),
-            };
-            return rights;
+            return this.rightsFromRoles(names);
         }.bind(this));
     }
 
