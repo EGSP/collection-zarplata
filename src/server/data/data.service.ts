@@ -1,5 +1,7 @@
 import { calculatedInput } from './computed-values.js';
 import { Injectable } from '@nestjs/common';
+import { AuthenticationService } from '../authentication/authentication.service.js';
+import { userDirectoryAction } from '../users/users.js';
 import { Effect } from 'effect';
 import { platformRights, requiredRight } from '../authorization/rights.js';
 import { CurrentUserRights } from '../authorization/current-user-rights.js';
@@ -76,6 +78,7 @@ export class DataService {
         private readonly metadata: MetadataService,
         private readonly database: DatabaseService,
         private readonly rightsGuard: RightsGuardPlatform,
+        private readonly authentication: AuthenticationService,
     ) {}
 
     /**
@@ -142,6 +145,10 @@ export class DataService {
                 if (operation.action !== 'repost') return yield* new DataNotFoundError({ message: `Действие «${operation.action}» для документов не найдено` });
                 yield* this.rightsGuard.require(user, platformRights.documents.repost);
                 return yield* Effect.provideService(repostDocuments, ActionContext, context);
+            }
+            if (operation.target.kind === 'platform' && operation.target.name === 'users') {
+                return yield* userDirectoryAction(operation.action, operation.payload, user, this.rightsGuard, (pin) => this.authentication.pinHash(pin))
+                    .pipe(Effect.provideService(ActionContext, context));
             }
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
             if (description === undefined) {

@@ -80,6 +80,7 @@ function right(...segments: ReadonlyArray<string>): Right {
  * поэтому право проведения отдельных документов его не разрешает.
  */
 export const platformRights = Object.freeze({
+    users: Object.freeze({ read: right('platform', 'users', 'read'), write: right('platform', 'users', 'write') }),
     journal: Object.freeze({ read: right('platform', 'journal', 'read') }),
     documents: Object.freeze({ repost: right('platform', 'documents', 'repost') }),
 });
