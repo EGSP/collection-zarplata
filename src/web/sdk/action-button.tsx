@@ -118,7 +118,8 @@ export function ActionButton<Action extends string = string>({
     // Состояние React обновится позже; ссылка блокирует повторное нажатие в том же кадре.
     const executing = useRef(false);
 
-    if (action === undefined || !actionApplies(action, record)) return null;
+    // Команды просмотра обслуживает меню формы, а не диспетчер изменения записи.
+    if (action === undefined || action.opens !== undefined || !actionApplies(action, record)) return null;
     if (execute === undefined && action.standard && (record === null || action.name === 'save')) return null;
 
     const run = async (values: FormValues | null): Promise<void> => {
