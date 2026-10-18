@@ -27,7 +27,7 @@ import { cash, installmentMethod, paymentColumns, paymentMethods, Payments, rece
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
 import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
-import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
+import { closedPeriodByDocumentDatePolicy } from '../policies/closed-period.js';
 import { Shift } from './shift.document.js';
 import { Weighing } from './weighing.document.js';
 
@@ -112,7 +112,7 @@ const checkPayments = (record: SaleRecord) => {
  * а не только элементом формы: иначе запрос через API записал бы продажу «Наличные» с двумя
  * строками оплат.
  */
-const salePayments: Policy<SaleRecord> = {
+const salePaymentsPolicy: Policy<SaleRecord> = {
     name: 'sale-payments',
     save: ({ proposedRecord }) => checkPayments(proposedRecord),
     post: ({ document }) => checkPayments(document),
@@ -133,7 +133,7 @@ const checkAmount = (record: SaleRecord) => {
  * Правило суммы действует при любой записи, а не только при проведении, по той же причине, что
  * и правила оплат: продавец видит ошибку сразу, пока оформляет продажу.
  */
-const saleAmount: Policy<SaleRecord> = {
+const saleAmountPolicy: Policy<SaleRecord> = {
     name: 'sale-amount',
     save: ({ proposedRecord }) => checkAmount(proposedRecord),
     post: ({ document }) => checkAmount(document),
@@ -199,7 +199,7 @@ const applyToWeighing = (record: SaleRecord, lines: ReadonlyArray<number>) => Ef
  * проведения: если проведение не состоится, отвес не изменится. Отвес меняет его действие
  * `applySale`, поэтому пользователю нужно право и на него.
  */
-const saleWeighing: Policy<SaleRecord> = {
+const saleWeighingPolicy: Policy<SaleRecord> = {
     name: 'sale-weighing',
     save: ({ proposedRecord }) => checkWeighingLines(proposedRecord),
     post: ({ document }) => Effect.gen(function* () {
@@ -376,7 +376,7 @@ interface PaymentChange {
 /** Рассрочка, которую «Внести изменения» записывает, и её новые значения. */
 interface InstallmentWrite {
     readonly existing: LinkedInstallment;
-    readonly fields: Pick<LinkedInstallment, 'amount' | 'person' | 'responsibleEmployee' | 'payments'>;
+    readonly fields: Pick<LinkedInstallment, 'amount' | 'person' | 'responsibleEmployee' | 'payments' | 'closedAt'>;
 }
 
 /**
@@ -404,7 +404,9 @@ const proposedPayments = (existing: LinkedInstallment, rows: ReadonlyArray<Payme
  * Проверяет изменения рассрочек (раздел «Правила редактирования продаж») и возвращает рассрочки,
  * которые нужно записать. Входные данные перечисляют каждую рассрочку продажи ровно один раз:
  * рассрочку нельзя убрать из продажи или добавить чужую. Тип не меняется, сумма не меньше
- * взносов, закрытая рассрочка не меняется вовсе.
+ * взносов. Закрытая рассрочка меняется так же, как открытая, но любое изменение снимает с неё
+ * закрытие: после правки суммы или взносов прежнее закрытие уже не подтверждает погашение,
+ * и рассрочку закрывают заново.
  *
  * Взносы перечислены отдельными строками со ссылкой на рассрочку: у рассрочки без строк взносов
  * нет. Взносы непроведённой рассрочки не меняются: как и действие «Внести», запись их не принимает,
@@ -430,11 +432,11 @@ const checkInstallmentChanges = (state: SaleChangesState, changes: ReadonlyArray
         if (paymentsChanged && !existing.posted) return yield* rejected(`${installmentTitle(existing)} не проведена: её взносы изменить нельзя`);
         const paid = paidAmount(payments);
         if (change.amount < paid) return yield* rejected(`${installmentTitle(existing)}: сумма ${rubles(change.amount)} меньше взносов ${rubles(paid)}`);
-        const fields = { amount: change.amount, person: change.person ?? null, responsibleEmployee: change.responsibleEmployee ?? null, payments };
-        const changed = paymentsChanged || fields.amount !== existing.amount || fields.person !== (existing.person ?? null) || fields.responsibleEmployee !== (existing.responsibleEmployee ?? null);
+        const person = change.person ?? null;
+        const responsibleEmployee = change.responsibleEmployee ?? null;
+        const changed = paymentsChanged || change.amount !== existing.amount || person !== (existing.person ?? null) || responsibleEmployee !== (existing.responsibleEmployee ?? null);
         if (!changed) continue;
-        if (existing.closedAt !== null) return yield* rejected(`${installmentTitle(existing)} закрыта, изменить её нельзя. ${cancellationHint}`);
-        writes.push({ existing, fields });
+        writes.push({ existing, fields: { amount: change.amount, person, responsibleEmployee, payments, closedAt: null } });
     }
     return writes;
 });
@@ -534,7 +536,7 @@ const arrangedAmount = (sale: string) => Effect.gen(function* () {
  * на проведении: запись проведённой продажи меняет «Внести изменения», и та сама следит, чтобы
  * оплату «Рассрочка» покрыли рассрочки.
  */
-const saleInstallments: Policy<SaleRecord> = {
+const saleInstallmentsPolicy: Policy<SaleRecord> = {
     name: 'sale-installments',
     post: ({ document: record }) => Effect.gen(function* () {
         const line = installmentAmount(record);
@@ -564,7 +566,9 @@ const writeInstallment = ({ existing, fields }: InstallmentWrite) => Effect.gen(
  *
  * Рассрочку по продаже создают только действия «Продать с рассрочкой» и «Внести изменения», сразу
  * с типом, покупателем и ставкой: черновика рассрочки без условий нет. Проведённая продажа
- * не оставляет оплату «Рассрочка» без рассрочки (политика `sale-installments`).
+ * не оставляет оплату «Рассрочка» без рассрочки (политика `sale-installments`). Рассрочка
+ * у продажи одна: вторую и рассрочку без оплаты «Рассрочка» не принимает политика документа
+ * рассрочки, а «Внести изменения» оформляет новую, только когда рассрочки у продажи нет.
  *
  * Действие «Продать с рассрочкой» проводит продажу и сразу оформляет и проводит рассрочку по ней
  * на сумму оплат способом «Рассрочка» с типом, покупателем и ответственным из входных данных.
@@ -584,12 +588,12 @@ export const Sale = sale
         .group('Оплата', ['paymentMode', 'payments', 'paid'])
         .hide('basis')
         .hide('posted'))
-    .policy(salePayments)
-    .policy(saleAmount)
-    .policy(saleWeighing)
-    .policy(saleInstallments)
+    .policy(salePaymentsPolicy)
+    .policy(saleAmountPolicy)
+    .policy(saleWeighingPolicy)
+    .policy(saleInstallmentsPolicy)
     // Продажа закрытого периода вошла в зафиксированное начисление зарплаты и больше не меняется.
-    .policy(closedPeriodByDocumentDate())
+    .policy(closedPeriodByDocumentDatePolicy())
     // Подбор показывает продажу развёрнуто, а представление в ссылках и вкладках остаётся коротким.
     .lookup((lookup) => lookup
         .column('date', (field) => field.dateTime().title('Дата').required())
@@ -637,7 +641,7 @@ export const Sale = sale
             .field('sale', (field) => field.reference(sale).title('Продажа').required())
             .field('version', (field) => field.string().title('Версия данных').maximumLength(50).required())
             .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, installmentMethod, complexPayment]).required())
-            // Условия новой рассрочки: заполняются, когда оплату «Рассрочка» не покрывают оформленные рассрочки.
+            // Условия новой рассрочки: заполняются, когда у продажи рассрочки нет, а оплата «Рассрочка» есть.
             .field('newInstallmentType', (field) => field.string().title('Тип новой рассрочки').choices(installmentTypes))
             .field('newInstallmentPerson', (field) => field.reference(PhysicalPersons).title('Покупатель'))
             .field('newInstallmentResponsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник'))
@@ -684,17 +688,20 @@ export const Sale = sale
             if (arranged > line) {
                 return yield* rejected(`Сумма рассрочек ${rubles(arranged)} больше оплаты способом «${installmentMethod}» ${rubles(line)}`);
             }
-            // Оплату «Рассрочка» после изменения покрывают рассрочки целиком. Часть, которую не покрыли
-            // оформленные рассрочки, получает новая рассрочка с условиями из входных данных, как при
-            // продаже с рассрочкой. Так же оформляется сумма, не покрытая рассрочками до изменения.
+            // Оплату «Рассрочка» после изменения покрывают рассрочки целиком. Если рассрочки у продажи
+            // нет, эту оплату получает новая рассрочка с условиями из входных данных, как при продаже
+            // с рассрочкой. Если рассрочка есть, вторую не оформить: изменение достаётся имеющейся.
             const newAmount = line - arranged;
             const newType = input.newInstallmentType ?? null;
             const newPerson = input.newInstallmentPerson ?? null;
+            if (newAmount > 0 && state.installments.length > 0) {
+                return yield* rejected(`Оплата способом «${installmentMethod}» больше суммы рассрочек на ${rubles(newAmount)}: распределите изменение по рассрочкам продажи. Вторая рассрочка по продаже не оформляется`);
+            }
             if (newAmount > 0 && (newType === null || newPerson === null)) {
-                return yield* rejected(`Оплата способом «${installmentMethod}» больше суммы рассрочек на ${rubles(newAmount)}: укажите тип и покупателя новой рассрочки или распределите изменение по рассрочкам`);
+                return yield* rejected(`Оплата способом «${installmentMethod}» ${rubles(newAmount)} не оформлена рассрочкой: укажите тип и покупателя новой рассрочки`);
             }
             if (newAmount <= 0 && newType !== null) {
-                return yield* rejected(`Новая рассрочка не нужна: оплата способом «${installmentMethod}» распределена по рассрочкам`);
+                return yield* rejected(`Новая рассрочка не нужна: оплата способом «${installmentMethod}» покрыта рассрочками`);
             }
             // Ограничения регистров проверяются после каждой записи, поэтому порядок записей
             // не допускает промежуточного нарушения: сначала уменьшаются рассрочки, затем

@@ -3,7 +3,8 @@
  * объявлены поля, взносы, политика, проведение и действия «Внести» и «Закрыть»; документ
  * `sale-installment.document.ts` добавляет сумму, ссылку на продажу и собственные движения.
  *
- * У рассрочки два состояния, открыта и закрыта; закрытая не изменяется и взносов не принимает.
+ * У рассрочки два состояния, открыта и закрыта; закрытая взносов не принимает и меняется только
+ * действием продажи «Внести изменения», которое снимает закрытие.
  * Банковскую рассрочку банк оплачивает целиком сразу: действие «Оплата банком» проводит её, вносит
  * остаток одним безналичным взносом и закрывает.
  * Остаток хранится вычисляемым полем шапки: по нему работают блок незакрытых рассрочек и условие
@@ -217,11 +218,21 @@ export type CancelledWithBasis<Record = InstallmentRecord> = (record: Record) =>
  * взноса или закрытия. `Rights` читается при выполнении: при загрузке документа реестр ещё не готов.
  * Предел взносов политика не проверяет: его задаёт ограничение регистра «Долги по рассрочкам».
  * Закрытую рассрочку можно пометить на удаление, только когда основание отменено (`cancelledWithBasis`).
+ *
+ * Закрытая рассрочка записывается только с пустой датой закрытия, то есть открываясь заново.
+ * Так её меняет «Внести изменения» продажи: любое изменение закрытой рассрочки снимает закрытие,
+ * и рассрочку закрывают снова действием «Закрыть» или «Оплата банком». Прежняя дата закрытия
+ * входит в даты записи: рассрочку, закрытую в закрытом периоде, не открыть.
  */
-const installmentRules = (name: InstallmentName, cancelledWithBasis: CancelledWithBasis): Policy<InstallmentRecord> => ({
+const installmentRulesPolicy = (name: InstallmentName, cancelledWithBasis: CancelledWithBasis): Policy<InstallmentRecord> => ({
     name: 'installment-rules',
     save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
-        if (existingRecord !== null && existingRecord.closedAt !== null) return yield* rejected(closedRejection);
+        if (existingRecord !== null && existingRecord.closedAt !== null) {
+            if ((proposedRecord.closedAt ?? null) !== null) return yield* rejected(closedRejection);
+            // Запись без даты закрытия снимает закрытие: так «Внести изменения» продажи меняет
+            // закрытую рассрочку. Поэтому снять закрытие можно только с правом на это действие.
+            yield* requireRight(Rights.document.sale.actions.saveChanges);
+        }
         const closes = (existingRecord?.closedAt ?? null) === null && (proposedRecord.closedAt ?? null) !== null;
         if (closes) yield* requireRight(proposedRecord.type === ownInstallment ? Rights.document[name].actions.close : Rights.document[name].actions.settleByBank);
         // Рассрочку создают только с полными данными: черновик без типа, физического лица
@@ -299,7 +310,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
 
     const complete = base
         // Запись документа содержит и его собственные поля: общий тип их только не называет.
-        .policy(installmentRules(name, (record) => cancelledWithBasis(record as unknown as ObjectRecord<'document', Fields, Parts>)))
+        .policy(installmentRulesPolicy(name, (record) => cancelledWithBasis(record as unknown as ObjectRecord<'document', Fields, Parts>)))
         .policy(closedPeriodPolicy(installmentDates, changedInstallmentDates))
         .posting((record) => Effect.gen(function* () {
             // Политика не пропускает проведение без физического лица; проверка сужает тип поля.

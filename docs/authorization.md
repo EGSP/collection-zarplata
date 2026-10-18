@@ -143,7 +143,7 @@ import { requireRight } from '../../server/authorization/current-user-rights.js'
 import type { Policy } from '../../server/metadata/index.js';
 import { Rights } from '../configuration.generated.js';
 
-export const sampleCommentRight: Policy<{ readonly comment: string | null }> = {
+export const sampleCommentRightPolicy: Policy<{ readonly comment: string | null }> = {
     name: 'sample-comment-right',
     save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
         if (existingRecord === null || existingRecord.comment === proposedRecord.comment) return;

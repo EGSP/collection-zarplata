@@ -70,8 +70,8 @@ covers:
 import { Effect } from 'effect';
 import { catalog, document, movements, register } from '../../server/metadata/index.js';
 import { Positions } from './positions.catalog.js';
-import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
-import { preventPostedDocumentDeletion } from '../policies/posted-document-deletion.js';
+import { closedPeriodByDocumentDatePolicy } from '../policies/closed-period.js';
+import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
 
 export const Employees = catalog('employees')
     .title('Сотрудники')
@@ -100,8 +100,8 @@ export const Shift = document('shift')
     .tablePart('staff', (part) => part
         .field('employee', (field) => field.reference(Employees).required())
         .field('amount', (field) => field.money().required()))
-    .policy(closedPeriodByDocumentDate())
-    .policy(preventPostedDocumentDeletion())
+    .policy(closedPeriodByDocumentDatePolicy())
+    .policy(preventPostedDocumentDeletionPolicy())
     .posting((record) => Effect.succeed([
         movements(Accruals, record.staff.map((line) => ({ employee: line.employee, amount: line.amount }))),
     ]));

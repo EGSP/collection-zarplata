@@ -52,7 +52,7 @@ const formatted = (value: string): string => new Date(value).toLocaleString('ru-
  * смену само действие. Смена, закрытая записью через единый эндпоинт, остаётся непроведённой
  * и исправляется проведением.
  */
-const shiftRules: Policy<ShiftRecord> = {
+const shiftRulesPolicy: Policy<ShiftRecord> = {
     name: 'shift-rules',
     save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
         if (existingRecord !== null && existingRecord.closedAt !== null) {
@@ -123,7 +123,7 @@ export const Shift = shift
         .hide('closedAt')
         .hide('posted')
         .creation('dialog'))
-    .policy(shiftRules)
+    .policy(shiftRulesPolicy)
     .action('close', (action) => action
         .title('Закрыть смену')
         .input((input) => input.field('closedAt', (field) => field.dateTime().title('Дата закрытия').required()))

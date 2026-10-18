@@ -93,13 +93,13 @@ const paidAmount = (payments: ReadonlyArray<InstallmentPayment>) => payments.red
 const installmentTitle = (installment: LinkedInstallment) => `Рассрочка № ${installment.number} от ${new Date(installment.date).toLocaleDateString('ru-RU')}`;
 
 /**
- * Участвует ли рассрочка в распределении: проведена и открыта. Непроведённая рассрочка итог
- * регистра «Неоформленные рассрочки» не уменьшает, закрытая не меняется.
+ * Участвует ли рассрочка в распределении: проведена. Непроведённая рассрочка итог регистра
+ * «Неоформленные рассрочки» не уменьшает. Закрытая участвует: изменение снимает с неё закрытие.
  */
-const distributable = (installment: LinkedInstallment) => installment.posted && installment.closedAt === null;
+const distributable = (installment: LinkedInstallment) => installment.posted;
 
 /**
- * Распределяет изменение суммы рассрочек по открытым проведённым рассрочкам, начиная с последней.
+ * Распределяет изменение суммы рассрочек по проведённым рассрочкам, начиная с последней.
  * Увеличение целиком достаётся последней рассрочке: её покупатель оформил позже остальных.
  * Уменьшение снимается с последних рассрочек, пока сумма каждой не дойдёт до её взносов
  * (`paymentsOf`, с правками экрана) и не меньше 1 ₽. Возвращает новые суммы; нераспределённый
@@ -192,13 +192,15 @@ export interface SaleChangesProperties {
  * значения продажи остаются на форме: сотрудник проверяет новый расчёт и сохраняет снова.
  *
  * Сумма рассрочек следует за оплатой способом «Рассрочка»: изменение этой оплаты распределяется
- * по открытым проведённым рассрочкам (`distribute`). При нескольких таких рассрочках сотрудник
- * может задать суммы сам; экран показывает, сколько распределено и сколько осталось.
+ * по проведённым рассрочкам (`distribute`), в том числе закрытым: любое изменение закрытой
+ * рассрочки снимает с неё закрытие, и экран об этом предупреждает. Несколько рассрочек бывает
+ * только у продаж, оформленных до правила об одной рассрочке; у них сотрудник может задать суммы
+ * сам, а экран показывает, сколько распределено и сколько осталось.
  * После изменения оплату «Рассрочка» покрывают рассрочки целиком: неоформленной суммы, на которую
- * понадобился бы черновик рассрочки, не остаётся. Если прирост оплаты «Рассрочка» некуда распределить,
- * потому что открытых проведённых рассрочек нет (например, продажа была за наличные), экран
- * выводит блок условий новой рассрочки, как форма новой продажи: тип, покупатель, ответственный,
- * ставка и первоначальный взнос. Сохранение оформляет и проводит рассрочку с этими условиями.
+ * понадобился бы черновик рассрочки, не остаётся. Если рассрочки у продажи нет (например, продажа
+ * была за наличные), экран выводит блок условий новой рассрочки, как форма новой продажи: тип,
+ * покупатель, ответственный, ставка и первоначальный взнос. Сохранение оформляет и проводит
+ * рассрочку с этими условиями. Вторую рассрочку к имеющейся сервер не оформляет.
  *
  * При способе «Сложная» сумма строки «Рассрочка» следует за суммой продажи: остальные оплаты
  * сохраняются, а рассрочка получает разницу. Так уменьшение продажи при той же наличной оплате
@@ -266,8 +268,8 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     const distributed = installments.filter((installment) => installment.posted).reduce((total, installment) => total + amountOf(installment), 0);
     const editableAmounts = installments.filter(distributable).length > 1;
 
-    // Прирост оплаты «Рассрочка», который некуда распределить: открытых проведённых рассрочек нет.
-    const newAmount = installments.some(distributable) ? 0 : Math.max(0, target - distributed);
+    // Оплата «Рассрочка» продажи без рассрочки: её получает новая рассрочка. Вторая рассрочка не оформляется.
+    const newAmount = installments.length > 0 ? 0 : Math.max(0, target - distributed);
     const termsProblems = newAmount > 0 ? installmentTermsProblems(terms, newAmount) : [];
 
     const problems: string[] = [];
@@ -386,8 +388,8 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
                 const closed = installment.closedAt !== null;
                 const paid = paidAmount(paymentsOf(installment));
                 const next = amountOf(installment);
-                // Взносы меняются у проведённой открытой рассрочки: закрытая не меняется, а непроведённая взносов не принимает.
-                const paymentsEditable = installment.posted && !closed;
+                // Взносы меняются у проведённой рассрочки, в том числе закрытой: непроведённая взносов не принимает.
+                const paymentsEditable = installment.posted;
                 const personField = field('person');
                 const employeeField = field('responsibleEmployee');
                 const amountField = field('amount');
@@ -403,11 +405,16 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
                                 {!installment.posted && <Tag style={{ marginInlineEnd: 0 }}>Черновик</Tag>}
                                 {closed && <Tag color="green" style={{ marginInlineEnd: 0 }}>Закрыта</Tag>}
                             </Flex>
+                            {closed && (
+                                <Typography.Text type="secondary">
+                                    Любое изменение снимет с рассрочки закрытие. После сохранения закройте её заново.
+                                </Typography.Text>
+                            )}
                             <Flex gap="large" wrap>
                                 {personField !== undefined && (
                                     <Labelled title={personField.title}>
                                         <div style={{ width: 320 }}>
-                                            <FieldInput field={personField} disabled={closed || saving} value={persons.has(installment.guid) ? persons.get(installment.guid) : installment.person}
+                                            <FieldInput field={personField} disabled={saving} value={persons.has(installment.guid) ? persons.get(installment.guid) : installment.person}
                                                 onChange={(value) => setPersons((current) => new Map(current).set(installment.guid, value))} />
                                         </div>
                                     </Labelled>
@@ -415,7 +422,7 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
                                 {employeeField !== undefined && (
                                     <Labelled title={employeeField.title}>
                                         <div style={{ width: 280 }}>
-                                            <FieldInput field={employeeField} disabled={closed || saving} value={employees.has(installment.guid) ? employees.get(installment.guid) : installment.responsibleEmployee}
+                                            <FieldInput field={employeeField} disabled={saving} value={employees.has(installment.guid) ? employees.get(installment.guid) : installment.responsibleEmployee}
                                                 onChange={(value) => setEmployees((current) => new Map(current).set(installment.guid, value))} />
                                         </div>
                                     </Labelled>
