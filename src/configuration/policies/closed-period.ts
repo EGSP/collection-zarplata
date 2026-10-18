@@ -64,6 +64,6 @@ export function closedPeriodPolicy<Record>(
 }
 
 /** Подключает правило к стандартной дате документа, сохраняя возможность другого извлекателя. */
-export function closedPeriodByDocumentDate<Record extends { readonly date: string }>(): Policy<Record> {
+export function closedPeriodByDocumentDatePolicy<Record extends { readonly date: string }>(): Policy<Record> {
     return closedPeriodPolicy((record: Record) => [record.date]);
 }

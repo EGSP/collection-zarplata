@@ -55,6 +55,8 @@ export interface RecordFormState {
     readonly actions: ReadonlyArray<FormAction>;
     /** Видимое стандартное проведение; по нему выводится кнопка «Провести и закрыть». */
     readonly postAction: FormAction | undefined;
+    /** Доступные действия с местом показа «Ещё» в порядке описания: их выводит меню «Ещё». */
+    readonly menuActions: ReadonlyArray<FormAction>;
     /** Выполняет действие формы с записью несохранённых изменений перед ним (`RecordFormController.run`). */
     readonly run: (action: FormAction, input?: RecordFormActionInput, options?: RecordFormRunOptions) => Promise<unknown>;
     /** Выполняет действие по имени для элемента формы: имя ищется среди действий с правом пользователя. */
@@ -203,10 +205,10 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
     }, [restrictions.pending]);
 
     /**
-     * Показывает ли форма действие. Применимость к состоянию записи проверяет SDK, остальное зависит
-     * от самой формы и от ограничений её элементов. По этой же проверке работают сочетания клавиш.
+     * Доступно ли действие на форме, где бы оно ни выводилось. Применимость к состоянию записи
+     * проверяет SDK, остальное зависит от самой формы и от ограничений её элементов.
      */
-    const isVisible = (action: FormAction): boolean => {
+    const isAvailable = (action: FormAction): boolean => {
         // Команды просмотра выводит меню «Ещё»: они не должны сохранять или изменять запись.
         if (action.opens !== undefined) return false;
         if (restrictions.isActionHidden(action.name) || !actionApplies(action, saved)) return false;
@@ -218,6 +220,12 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
         // Записывать на форме, недоступной для изменения, нечего.
         return action.name === 'save' ? editable : saved !== null;
     };
+
+    /**
+     * Выводит ли форма действие кнопкой. Действия с местом «Ещё» и скрытые кнопок не получают.
+     * По этой же проверке работают сочетания клавиш.
+     */
+    const isVisible = (action: FormAction): boolean => (action.placement ?? 'buttons') === 'buttons' && isAvailable(action);
 
     const runByName = (name: string, input: FormValues | null): Promise<unknown> => {
         const action = view.actions.find((candidate) => candidate.name === name && candidate.opens === undefined);
@@ -254,6 +262,7 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
     }, { ...hotkeyOptions, preventDefault: false, stopPropagation: false });
 
     const visibleActions = view.actions.filter(isVisible);
+    const menuActions = view.actions.filter((action) => action.placement === 'more' && isAvailable(action));
     const postAction = visibleActions.find((action) => action.standard && action.name === 'post');
     // Главная кнопка и сочетание Ctrl+Enter используют одну проверку доступности проведения.
     const actions = postAction === undefined ? visibleActions : [
@@ -274,6 +283,7 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
         traversal,
         actions,
         postAction,
+        menuActions,
         run: (action, input, runOptions) => controller.run(action, input, { ...(options.atomicPosting === true ? { atomic: true } : {}), ...runOptions }),
         runByName,
         reloadRecord,
@@ -422,6 +432,16 @@ export interface RecordFormActionsProperties extends RecordFormPartProperties {
     readonly buttons?: RecordFormButtons;
 }
 
+/**
+ * Входные данные действия из меню «Ещё». Окна входных данных у меню нет, поэтому действие получает
+ * `guid` записи в каждом поле-ссылке на объект формы, а остальные поля не заполняются. Так
+ * действие вида «Отмена продажи» с полем `sale` получает открытую продажу.
+ */
+function menuActionInput(action: FormAction, saved: RecordData, object: ObjectView): FormValues {
+    const own = action.input.filter((field) => field.target?.kind === object.kind && field.target.name === object.name);
+    return Object.fromEntries(own.map((field) => [field.name, recordGuid(saved)]));
+}
+
 /** Кнопки действий формы записи: «Провести и закрыть», видимые действия и «Закрыть». */
 export function RecordFormActions({ state, titles = {}, buttons = {} }: RecordFormActionsProperties) {
     const { close } = useWindowScope();
@@ -468,7 +488,7 @@ export function RecordFormActions({ state, titles = {}, buttons = {} }: RecordFo
                     {compact(action) ? '' : title(action)}
                 </ActionButton>
             ))}
-            <RecordMoreActions object={state.object} record={state.record} />
+            <RecordMoreActions object={state.object} record={state.record} actions={state.menuActions} busy={running !== null} onRun={(action) => state.run(action, (saved) => menuActionInput(action, saved, state.object))} />
             <Button onClick={close}>{titles.close ?? 'Закрыть'}</Button>
         </>
     );

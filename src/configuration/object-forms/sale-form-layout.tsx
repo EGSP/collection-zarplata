@@ -1,9 +1,10 @@
 import { Button, Card, Divider, Flex, Form } from 'antd';
 import { useEffect, useState } from 'react';
 import { PostedIn1CSwitch } from './posted-in-1c-switch';
+import { SaleChanges } from './sale-changes';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
 import { Objects } from '../objects.generated';
-import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecord, useRecordForm, type FormElementReference, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { FieldGroup, Icons, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, type FormElementReference, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Вид таблицы товаров. Код и стоимость короткие, поэтому их колонки вдвое уже, чем досталось бы
@@ -85,6 +86,38 @@ function beforeSave(values: FormValues): FormValues | undefined {
 /** Поведение формы продажи: стандартное, с подготовкой оплаты перед записью. */
 const saleFormOptions: RecordFormOptions = { beforeSave };
 
+/**
+ * Действия, которые форма не предлагает в режиме изменения: запись и проведение заменяет
+ * «Сохранить изменения», отмену продажи экран предлагает сам, без записи введённых изменений,
+ * а «Продать с рассрочкой» нужна только новой продаже.
+ */
+const actionsHiddenWhileEditing = ['save', 'post', 'unpost', 'markDeleted', 'unmarkDeleted', 'cancel', 'sellWithInstallment'] as const;
+
+/**
+ * Ограничения формы проведённой и отменённой продажи. Вне режима изменения она только для просмотра:
+ * изменения продажи с рассрочками должны записываться вместе с ними, а стандартная запись
+ * изменила бы одну продажу. Отменённая продажа помечена на удаление и тоже только для просмотра.
+ * В режиме изменения недоступны номер, дата и смена: они определяют место продажи в учёте смен
+ * и закрытых периодов.
+ */
+function SaleEditingRestrictions({ editing, cancelled }: { readonly editing: boolean; readonly cancelled: boolean }) {
+    useFormRestrictions(Objects.document.sale, editing
+        ? { readOnlyFields: ['number', 'date', 'shift'], hiddenActions: [...actionsHiddenWhileEditing] }
+        // «Продать с рассрочкой» нужна только новой продаже. Отменённую продажу не проводят: чтобы
+        // вернуть её, снимают пометку удаления, и она снова становится черновиком.
+        : { readOnly: true, hiddenActions: cancelled ? ['sellWithInstallment', 'post'] : ['sellWithInstallment'] });
+    return null;
+}
+
+/**
+ * Черновик продажи продают кнопкой «Продать» под оплатой, как новую продажу. Стандартная кнопка
+ * «Продать с рассрочкой» скрыта: её окно потребовало бы заново выбрать продажу и условия.
+ */
+function DraftRestrictions() {
+    useFormRestrictions(Objects.document.sale, { hiddenActions: ['sellWithInstallment'] });
+    return null;
+}
+
 /** Товар введён, если у строки заполнены обязательные название и стоимость. */
 const isEntered = (line: GoodsLine) => typeof line.name === 'string' && line.name.trim() !== '' && typeof line.cost === 'number';
 
@@ -116,6 +149,12 @@ const isEntered = (line: GoodsLine) => typeof line.name === 'string' && line.nam
  * действие продажи «Продать с рассрочкой»: оно в одной транзакции проводит продажу и оформляет
  * и проводит рассрочку по ней. Продажу форма перед действием записывает отдельным запросом,
  * поэтому при отказе действия она остаётся записанной, но не проведённой, и рассрочки нет.
+ *
+ * Проведённая продажа открывается только для просмотра, а под оплатой стоит крупная кнопка
+ * «Внести изменения». Она переводит форму в режим изменения: товары и оплаты становятся
+ * доступны, а под продажей через штриховые разделители выводятся её рассрочки (`SaleChanges`).
+ * Продажу и рассрочки записывает одним запросом действие `saveChanges`. Кнопки нет без права
+ * на действие и у продажи, помеченной на удаление.
  */
 function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
     const items = (title: string) => state.view.groups.find((group) => group.title === title)?.elements ?? [];
@@ -137,10 +176,19 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
     // Ошибки блока рассрочки показываются после первой попытки продать, а не сразу при его появлении.
     const [termsChecked, setTermsChecked] = useState(false);
     const isNew = state.record === null;
-    const sell = isNew ? state.postAction : undefined;
+    const [editing, setEditing] = useState(false);
+    // Режим изменения есть только у проведённой продажи без пометки удаления: черновик меняется на форме как обычно.
+    const posted = state.record !== null && state.record['posted'] === true && (state.record['deletedAt'] ?? null) === null;
+    // Отменённая продажа помечена на удаление и тоже только для просмотра: её не меняют, а оформляют новую.
+    const locked = posted || (state.record !== null && (state.record['deletedAt'] ?? null) !== null);
+    const changesAvailable = posted && ['saveChanges', 'changesState'].every((name) => state.view.actions.some((action) => action.name === name));
+    // Продать можно новую продажу и записанный черновик: черновик остаётся, например, когда сервер
+    // отклонил продажу с рассрочкой, и продавец допродаёт его той же кнопкой с условиями рассрочки.
+    const sellable = isNew || !locked;
+    const sell = sellable ? state.postAction : undefined;
     const sellWithInstallment = state.view.actions.find((action) => action.name === 'sellWithInstallment');
-    // Без права на действие продажа с рассрочкой проводится как обычная, а рассрочку оформляют потом на форме продажи.
-    const withInstallment = isNew && sellWithInstallment !== undefined && Array.isArray(payments) && payments.some((line: PaymentLine) => isInstallment(line));
+    // Без права на действие продать с оплатой «Рассрочка» нельзя: обычное проведение такую продажу отклонит.
+    const withInstallment = sellable && sellWithInstallment !== undefined && Array.isArray(payments) && payments.some((line: PaymentLine) => isInstallment(line));
     // Сумма рассрочки — сумма оплаты способом «Рассрочка»: первоначальный взнос должен быть меньше неё.
     const installmentAmount = Array.isArray(payments) ? payments.filter((line: PaymentLine) => isInstallment(line)).reduce((total: number, line: PaymentLine) => total + (line.amount as number), 0) : 0;
     const problems = withInstallment && termsChecked ? installmentTermsProblems(terms, installmentAmount) : [];
@@ -154,6 +202,8 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
     };
     return (
         <RecordFormPage state={state} {...(state.record === null ? { buttons: newSaleButtons } : {})}>
+            {locked && <SaleEditingRestrictions editing={posted && editing} cancelled={!posted} />}
+            {!isNew && !locked && <DraftRestrictions />}
             <Card size="small">
                 <FieldGroup elements={recordFormElements(state, header.filter((item) => !isElement(item)))} layout="fluid" {...common} />
                 <div hidden={(basis ?? state.record?.['basis'] ?? null) === null}>
@@ -189,7 +239,13 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
                             {withInstallment ? 'Продать + Рассрочка' : 'Продать'}
                         </Button>
                     )}
+                    {changesAvailable && !editing && (
+                        <Button type="primary" size="large" icon={<Icons.edit />} style={sellButtonStyle} disabled={state.running !== null} onClick={() => setEditing(true)}>
+                            Внести изменения
+                        </Button>
+                    )}
                 </div>
+                {changesAvailable && editing && <SaleChanges state={state} prepare={beforeSave} onClose={() => setEditing(false)} />}
             </Card>
         </RecordFormPage>
     );

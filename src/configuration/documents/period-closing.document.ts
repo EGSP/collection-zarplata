@@ -20,7 +20,7 @@ import { periodClosingHead } from '../period-closing.js';
 import { calculatePayroll, type PayrollResult } from '../payroll.js';
 import { periodSummary } from '../period-summary.js';
 import { dayOf, lastClosedThrough } from '../policies/closed-period.js';
-import { preventPostedDocumentDeletion } from '../policies/posted-document-deletion.js';
+import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
 import { SaleInstallment } from './sale-installment.document.js';
 import { Sale } from './sale.document.js';
 import { Shift } from './shift.document.js';
@@ -135,7 +135,7 @@ const checkPayroll = (record: ClosingRecord) => Effect.gen(function* () {
  * проведение можно только у последнего закрытия: иначе внутри закрытого периода появился бы
  * открытый промежуток, а начисления следующих закрытий посчитаны без его документов.
  */
-const closingRules: Policy<ClosingRecord> = {
+const closingRulesPolicy: Policy<ClosingRecord> = {
     name: 'period-closing-rules',
     save: ({ existingRecord }) => existingRecord !== null && existingRecord.posted
         ? Effect.fail(rejected('Проведённое закрытие периода не изменяется: отмените проведение и закройте период заново'))
@@ -172,8 +172,8 @@ export const PeriodClosing = closing
         .group('Сотрудники', ['employees'])
         .group('Расшифровка', ['lines'])
         .hide('posted'))
-    .policy(closingRules)
-    .policy(preventPostedDocumentDeletion())
+    .policy(closingRulesPolicy)
+    .policy(preventPostedDocumentDeletionPolicy())
     .action('closePeriod', (action) => action
         .title('Закрыть период')
         .input((input) => input.field('closedThrough', (field) => field.date().title('Закрыть по').required()))

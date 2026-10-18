@@ -13,7 +13,7 @@ import { Rights } from '../configuration.generated.js';
  * модуля документа ещё не готов. Тип политики указан явно: тип `Rights` выводится из типа
  * документа, и без аннотации тип документа зависел бы от самого себя.
  */
-export const sampleCommentRight: Policy<{ readonly comment: string | null }> = {
+export const sampleCommentRightPolicy: Policy<{ readonly comment: string | null }> = {
     name: 'sample-comment-right',
     save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
         if (existingRecord === null || existingRecord.comment === proposedRecord.comment) return;

@@ -56,7 +56,7 @@ const rejected = (message: string) => new DataPolicyError({ message });
  * переводит само действие. Поэтому она проверяет итог: продажа из строки должна быть оформлена
  * из этого отвеса. Состояние «Продано», выбранное вручную, такой проверки не проходит.
  */
-const weighingRules: Policy<WeighingRecord> = {
+const weighingRulesPolicy: Policy<WeighingRecord> = {
     name: 'weighing-rules',
     save: ({ proposedRecord }) => Effect.gen(function* () {
         const database = yield* Database;
@@ -109,7 +109,7 @@ export const Weighing = weighing
         .hide('balance')
         .hide('heldCount')
         .hide('posted'))
-    .policy(weighingRules)
+    .policy(weighingRulesPolicy)
     .action('applySale', (action) => action
         .title('Отметить продажу')
         .input((input) => input

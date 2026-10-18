@@ -17,8 +17,8 @@ import { document, movements, type Policy } from '../../server/metadata/index.js
 import { Goods } from '../goods.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
 import { Sale } from './sale.document.js';
-import { preventPostedDocumentDeletion } from '../policies/posted-document-deletion.js';
-import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
+import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
+import { closedPeriodByDocumentDatePolicy } from '../policies/closed-period.js';
 import { Shift } from './shift.document.js';
 
 /** Состав возврата, который проверяет правило: шапка с признаком проведения и строки оснований и товаров. */
@@ -44,7 +44,7 @@ const checkRefundContent = (refund: RefundContent) => Effect.gen(function* () {
  * Правила состава возврата. Проверка одинакова при записи и при проведении, не зависит от статуса
  * проведения: записать возврат с нарушенным составом нельзя даже в черновике.
  */
-const refundGoods: Policy<RefundContent> = {
+const refundGoodsPolicy: Policy<RefundContent> = {
     name: 'refund-goods',
     save: ({ proposedRecord }) => checkRefundContent(proposedRecord),
     post: ({ document }) => checkRefundContent(document),
@@ -65,12 +65,12 @@ const refund = document('refund')
         .include(Goods)
         .field('sale', (field) => field.reference(Sale).title('Продажа').required()))
     .listTableParts(['goods'])
-    .policy(refundGoods)
+    .policy(refundGoodsPolicy)
     // Пометка удаления не зависит от состава строк: правило состава её не вызывает. Проведённый возврат помечают на удаление только после отмены проведения.
-    .policy(preventPostedDocumentDeletion())
+    .policy(preventPostedDocumentDeletionPolicy())
     // Возврат относится к периоду своей датой, а не датой продажи: возврат по продаже закрытого
     // периода допустим и уменьшает зарплату в новом периоде.
-    .policy(closedPeriodByDocumentDate())
+    .policy(closedPeriodByDocumentDatePolicy())
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе табличные части оказались бы над ней.
     .form((form) => form

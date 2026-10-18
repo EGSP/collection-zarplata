@@ -19,6 +19,9 @@
 
 // Описания объектов с сервера. Сервер отдаёт только объекты и действия, доступные пользователю.
 export type {
+    ActionConfirmation,
+    ActionConfirmationTone,
+    ActionPlacement,
     FieldKind,
     FilterOperator,
     FormAction,
@@ -49,7 +52,7 @@ export type { ActedObject, FieldName, ListedObject, ObjectReference, ReadObject,
 
 // Данные: чтение списка и записи, выполнение действий.
 export { ApiError } from '../common/api';
-export { useAction, useActionResult, type ActionCall, type ActionQuery } from '../data-provider/actions';
+export { useAction, useActionResult, type ActionCall, type ActionQuery, type ActionResult } from '../data-provider/actions';
 export type { ListCondition } from '../data-provider/data-provider';
 export { recordGuid, type RecordData } from '../data-provider/records';
 export { useRecord, useRecords, type RecordQuery, type RecordsQuery } from './record';
@@ -111,6 +114,7 @@ export { Tile, type TileProperties } from './tile';
 // Действия.
 export { ActionButton, actionApplies, actionSuccessMessage, type ActionButtonProperties } from './action-button';
 export { ActionDialog, type ActionDialogProperties } from './action-dialog';
+export { ActionConfirmationDialog, useActionConfirmation, type ActionConfirmationDialogProperties, type ActionConfirmationState } from './action-confirmation';
 
 // Списки.
 export { ListFilters, type ListFiltersProperties } from './list-filters';

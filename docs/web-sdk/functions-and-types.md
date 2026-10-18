@@ -22,6 +22,7 @@ covers:
 | `defaultPageSize` | Размер страницы списка по умолчанию |
 | `ApiError` | Отказ API: статус, сообщение, поля и право |
 | `fieldInput`, `FluidField` | Сборка собственного поля ввода для обеих [компоновок](components.md#компоновка-полей) и обёртка поля с подписью в сегменте |
+| `useActionConfirmation` | [Запрос подтверждения действия](hooks.md#выполнение-действий): `confirm(action)` и окно `dialog` |
 | `Icons`, `Pictograms` | [Реестры значков](../web-sdk.md#иконки-и-пиктограммы) |
 
 `hasOpenDialog` принимает корневой элемент экрана и не учитывает окно, в котором показан сам экран. Иначе форма в модальном окне сочла бы себя перекрытой собственным окном и отключила бы сочетания клавиш.
@@ -31,6 +32,8 @@ covers:
 | Типы | Назначение |
 |---|---|
 | `ObjectView`, `FormView`, `ListView`, `FormField`, `FormAction` и связанные | Описания объектов с сервера |
+| `ActionPlacement`, `ActionConfirmation`, `ActionConfirmationTone` | Место показа действия (`buttons`, `more`, `hidden`) и настройка его окна подтверждения (`delay`, `title`, `message`, `tone`) |
+| `ActionResult`, `ActionConfirmationState`, `ActionConfirmationDialogProperties` | Результат [`useActionResult`](hooks.md#выполнение-действий) с `refresh`, результат `useActionConfirmation` и свойства [окна подтверждения](components.md#подтверждение-действия) |
 | `ObjectReference`, `FieldName`, `RecordCondition`, `RecordSort` и связанные | [Ссылки на объекты](../web-sdk.md#типизация-объектов) с точными типами записи и действий |
 | `ObjectTarget`, `PerformTarget`, `ListCondition` | Объект и условия запроса |
 | `RecordData`, `FormValues` | Запись общего типа и значения формы |

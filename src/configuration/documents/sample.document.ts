@@ -4,7 +4,7 @@
  * справочник с представлением по ссылке, при проведении записывает
  * строки табличной части в пробный регистр. На его форме стоят пробные собственные элементы:
  * блок «Итого» под табличной частью, поле ввода комментария с кнопкой и элемент, который делает
- * форму документа с комментарием недоступной для изменения. Политика `sampleCommentRight` проверяет
+ * форму документа с комментарием недоступной для изменения. Политика `sampleCommentRightPolicy` проверяет
  * право пользователя: без права на действие «Принять строки» комментарий записанного документа
  * не меняется. Составные поля шапки показывают оба способа ввода: «Куда оплачено» принимает
  * текст либо запись справочника в одном поле, «Отметка» в том же поле принимает ещё и число,
@@ -17,8 +17,8 @@ import { document, formula, movements } from '../../server/metadata/index.js';
 import { SampleDelegate } from '../catalogs/sample-delegate.catalog.js';
 import { Sample } from '../catalogs/sample.catalog.js';
 import { SampleRegister } from '../registers/sample.register.js';
-import { closedPeriodByDocumentDate } from '../policies/closed-period.js';
-import { sampleCommentRight } from '../policies/sample-comment-right.js';
+import { closedPeriodByDocumentDatePolicy } from '../policies/closed-period.js';
+import { sampleCommentRightPolicy } from '../policies/sample-comment-right.js';
 
 /** Пробный документ с вычислениями, общими строками и составным представлением. */
 export const SampleDocument = document('sample')
@@ -46,8 +46,8 @@ export const SampleDocument = document('sample')
         .group('Основное', ['number', 'date', 'posted', 'item', 'delegate', 'comment'])
         .group('Строки и итог', ['lines'])
         .group('Оплата', ['discount', 'payments', 'paymentComment', 'paymentTotal', 'receiver', 'mark', 'term']))
-    .policy(closedPeriodByDocumentDate())
-    .policy(sampleCommentRight)
+    .policy(closedPeriodByDocumentDatePolicy())
+    .policy(sampleCommentRightPolicy)
     .posting((record) => Effect.succeed([
         movements(SampleRegister, record.lines.map((line) => ({ item: line.item, receiver: record.receiver, mark: record.mark, quantity: line.quantity, amount: line.amount }))),
     ]));

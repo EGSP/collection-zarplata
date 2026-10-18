@@ -3,7 +3,8 @@
  * объявлены поля, взносы, политика, проведение и действия «Внести» и «Закрыть»; документ
  * `sale-installment.document.ts` добавляет сумму, ссылку на продажу и собственные движения.
  *
- * У рассрочки два состояния, открыта и закрыта; закрытая не изменяется и взносов не принимает.
+ * У рассрочки два состояния, открыта и закрыта; закрытая взносов не принимает и меняется только
+ * действием продажи «Внести изменения», которое снимает закрытие.
  * Банковскую рассрочку банк оплачивает целиком сразу: действие «Оплата банком» проводит её, вносит
  * остаток одним безналичным взносом и закрывает.
  * Остаток хранится вычисляемым полем шапки: по нему работают блок незакрытых рассрочек и условие
@@ -59,8 +60,8 @@ export const installmentTypes = ['Банковская', ownInstallment];
 /**
  * Начало шапки: поля до суммы. Сумму объявляет документ.
  *
- * Тип и физическое лицо у поля необязательны: рассрочку по продаже создаёт действие продажи,
- * и заполняет их продавец уже в созданном документе. Когда они обязательны, решает политика.
+ * Тип и физическое лицо у поля необязательны: так открываются рассрочки, записанные до того, как
+ * их стали требовать. Записать рассрочку без них не даёт политика.
  */
 const head = <const Name extends InstallmentName>(name: Name, title: string) => document(name)
     .title(title)
@@ -119,7 +120,7 @@ export const ownInstallmentRate = Effect.gen(function* () {
 
 /**
  * Тип и физическое лицо нужны движениям и отчётам, а ставка рассрочки — расчёту зарплаты, поэтому
- * без них рассрочка не проводится. Собственной рассрочке форма и действие «Продать с рассрочкой»
+ * без них рассрочка не записывается и не проводится. Собственной рассрочке форма и действие «Продать с рассрочкой»
  * проставляют ставку «Собственная» (0 %), но её можно заменить, пока рассрочка открыта и её
  * период не закрыт.
  */
@@ -200,6 +201,12 @@ const changedInstallmentDates = (existingRecord: InstallmentRecord | null, propo
 };
 
 /**
+ * Отменено ли основание рассрочки: например, продажа, по которой она оформлена, помечена на удаление.
+ * Документ рассрочки задаёт проверку сам: общая часть не знает поля основания.
+ */
+export type CancelledWithBasis<Record = InstallmentRecord> = (record: Record) => Effect.Effect<boolean, unknown, Database>;
+
+/**
  * Правила рассрочки (раздел «Правила учёта»).
  *
  * Запись с датой закрытия политика не отличает от закрытия действием «Закрыть»: так рассрочку
@@ -210,16 +217,27 @@ const changedInstallmentDates = (existingRecord: InstallmentRecord | null, propo
  * Ответственный обязателен только у собственной рассрочки, в том числе при вложенной записи
  * взноса или закрытия. `Rights` читается при выполнении: при загрузке документа реестр ещё не готов.
  * Предел взносов политика не проверяет: его задаёт ограничение регистра «Долги по рассрочкам».
+ * Закрытую рассрочку можно пометить на удаление, только когда основание отменено (`cancelledWithBasis`).
+ *
+ * Закрытая рассрочка записывается только с пустой датой закрытия, то есть открываясь заново.
+ * Так её меняет «Внести изменения» продажи: любое изменение закрытой рассрочки снимает закрытие,
+ * и рассрочку закрывают снова действием «Закрыть» или «Оплата банком». Прежняя дата закрытия
+ * входит в даты записи: рассрочку, закрытую в закрытом периоде, не открыть.
  */
-const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => ({
+const installmentRulesPolicy = (name: InstallmentName, cancelledWithBasis: CancelledWithBasis): Policy<InstallmentRecord> => ({
     name: 'installment-rules',
     save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
-        if (existingRecord !== null && existingRecord.closedAt !== null) return yield* rejected(closedRejection);
+        if (existingRecord !== null && existingRecord.closedAt !== null) {
+            if ((proposedRecord.closedAt ?? null) !== null) return yield* rejected(closedRejection);
+            // Запись без даты закрытия снимает закрытие: так «Внести изменения» продажи меняет
+            // закрытую рассрочку. Поэтому снять закрытие можно только с правом на это действие.
+            yield* requireRight(Rights.document.sale.actions.saveChanges);
+        }
         const closes = (existingRecord?.closedAt ?? null) === null && (proposedRecord.closedAt ?? null) !== null;
         if (closes) yield* requireRight(proposedRecord.type === ownInstallment ? Rights.document[name].actions.close : Rights.document[name].actions.settleByBank);
-        // Рассрочку по продаже действие продажи создаёт без типа и физического лица, поэтому
-        // её черновик записывается без них.
-        if (proposedRecord.posted) yield* checkCustomer(proposedRecord);
+        // Рассрочку создают только с полными данными: черновик без типа, физического лица
+        // и ставки не записывается, иначе долг покупателя остался бы без условий.
+        yield* checkCustomer(proposedRecord);
         if (proposedRecord.type === ownInstallment && (proposedRecord.responsibleEmployee ?? null) === null) {
             return yield* rejected('Укажите ответственного сотрудника собственной рассрочки');
         }
@@ -229,14 +247,18 @@ const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => (
         if (closes) yield* checkClosingDate(proposedRecord);
     }),
     post: ({ document: record }) => checkCustomer(record),
-    markDeleted: ({ record }) => record.closedAt === null ? Effect.void : Effect.fail(rejected(closedRejection)),
+    // Закрытая рассрочка помечается на удаление только вместе с отменённым основанием: отмена
+    // продажи снимает всю сделку, а сама по себе закрытая рассрочка не меняется.
+    markDeleted: ({ record }) => record.closedAt === null ? Effect.void : Effect.gen(function* () {
+        if (!(yield* cancelledWithBasis(record))) return yield* rejected(closedRejection);
+    }),
 });
 
 /**
  * Строит документ-рассрочку из общего описания. `extend` получает начало шапки и объявляет сумму
  * `amount` и собственные поля и табличные части документа; после них функция добавляет остаток,
  * дату закрытия, взносы, политику, проведение и действия. `additionalMovements` возвращает движения
- * документа сверх общих.
+ * документа сверх общих, `cancelledWithBasis` сообщает, отменено ли основание рассрочки.
  *
  * Форму документ задаёт сам вызовом `.form(...)` на результате: её состав зависит от собственных
  * полей. На форме должна быть группа «Рассрочка» с полем `person`: после него стоят элементы
@@ -263,6 +285,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
     title: string,
     extend: (base: HeadBuilder<Name>) => DocumentBuilder<Name, Fields, Parts>,
     additionalMovements: (record: ObjectRecord<'document', Fields, Parts>) => ReadonlyArray<RegisterMovements> = () => [],
+    cancelledWithBasis: CancelledWithBasis<ObjectRecord<'document', Fields, Parts>> = () => Effect.succeed(false),
 ): DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close' | 'settleByBank'> {
     // Общая часть читает только общие поля, поэтому дальше документ виден как билдер с ними одними.
     // Приведение нужно, потому что для обобщённых `Fields` компилятор не проверяет имена новых полей.
@@ -286,7 +309,8 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
     });
 
     const complete = base
-        .policy(installmentRules(name))
+        // Запись документа содержит и его собственные поля: общий тип их только не называет.
+        .policy(installmentRulesPolicy(name, (record) => cancelledWithBasis(record as unknown as ObjectRecord<'document', Fields, Parts>)))
         .policy(closedPeriodPolicy(installmentDates, changedInstallmentDates))
         .posting((record) => Effect.gen(function* () {
             // Политика не пропускает проведение без физического лица; проверка сужает тип поля.

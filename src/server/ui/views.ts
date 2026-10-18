@@ -162,6 +162,8 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
             standard: false,
             input: action.input.map((field) => formField(field)),
             tableParts: action.tableParts.map((part) => ({ name: part.name, title: part.title, columns: part.fields.map((field) => formField(field)) })),
+            placement: action.placement,
+            ...(action.confirmation === null ? {} : { confirmation: action.confirmation }),
         })),
     ];
 

@@ -23,7 +23,7 @@ const employees = catalog('employees')
  * занимает физическое лицо: после снятия пометки в справочнике оказались бы два сотрудника
  * одного человека.
  */
-const onePersonOneEmployee: Policy<RecordOf<typeof employees>> = {
+const onePersonOneEmployeePolicy: Policy<RecordOf<typeof employees>> = {
     name: 'one-person-one-employee',
     save: ({ proposedRecord }) => Effect.gen(function* () {
         const database = yield* Database;
@@ -52,4 +52,4 @@ export const Employees = employees
     .form((form) => form
         .title('name', 'Код')
         .creation('dialog'))
-    .policy(onePersonOneEmployee);
+    .policy(onePersonOneEmployeePolicy);

@@ -170,6 +170,34 @@ export interface TablePartDescription {
     readonly fields: ReadonlyArray<FieldDescription>;
 }
 
+/**
+ * Где форма записи предлагает собственное действие. `buttons` — кнопкой среди действий формы,
+ * `more` — пунктом меню «Ещё»: так выводятся редкие или необратимые действия, которым не место
+ * рядом с «Записать». `hidden` — нигде: действие вызывает собственный экран конфигурации,
+ * например чтение данных для своего блока. Право на действие от места показа не зависит.
+ */
+export type ActionPlacement = 'buttons' | 'more' | 'hidden';
+
+/**
+ * Оформление окна подтверждения: `danger` — необратимое действие, кнопка подтверждения красная;
+ * `warning` — действие с заметными последствиями; `info` — обычное подтверждение.
+ */
+export type ActionConfirmationTone = 'danger' | 'warning' | 'info';
+
+/**
+ * Подтверждение собственного действия перед выполнением. Подтверждение — часть интерфейса:
+ * действие, вызванное через API, сервер выполняет без него.
+ */
+export interface ActionConfirmation {
+    /** Сколько секунд после открытия окна кнопка «Подтверждаю» недоступна; 0 — доступна сразу. */
+    readonly delay: number;
+    /** Заголовок окна; без него заголовком служит вопрос с названием действия. */
+    readonly title: string | null;
+    /** Пояснение последствий под заголовком; без него окно показывает только заголовок. */
+    readonly message: string | null;
+    readonly tone: ActionConfirmationTone;
+}
+
 /** Собственное действие объекта: диспетчер проверяет входные данные перед вызовом обработчика. */
 export interface ActionDescription {
     readonly name: string;
@@ -177,6 +205,9 @@ export interface ActionDescription {
     readonly input: ReadonlyArray<FieldDescription>;
     /** Строки во входных данных действия. */
     readonly tableParts: ReadonlyArray<TablePartDescription>;
+    readonly placement: ActionPlacement;
+    /** Подтверждение перед выполнением; `null`, если действие выполняется сразу. */
+    readonly confirmation: ActionConfirmation | null;
     /**
      * Аргумент типизирован как `never`, чтобы в одном списке хранились обработчики с разными
      * входными данными. Вызывать обработчик можно только после проверки входных данных по `input`.

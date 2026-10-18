@@ -18,7 +18,7 @@
 import type { PresentationPart } from './descriptions.js';
 import type { Effect } from 'effect';
 import { commitObject } from './commit.js';
-import type { FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RecordOpeningMode, RegisterConstraintDescription, RegisterMovements } from './descriptions.js';
+import type { ActionConfirmation, ActionConfirmationTone, ActionPlacement, FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RecordOpeningMode, RegisterConstraintDescription, RegisterMovements } from './descriptions.js';
 import {
     fieldFactory,
     type AnyFieldBuilder,
@@ -58,6 +58,8 @@ export interface ActionEntry {
     readonly input: ReadonlyArray<FieldEntry>;
     readonly tableParts: ReadonlyArray<TablePartEntry>;
     readonly handler: ((input: never) => unknown) | null;
+    readonly placement: ActionPlacement;
+    readonly confirmation: ActionConfirmation | null;
 }
 
 /**
@@ -225,25 +227,77 @@ export class ActionInputBuilder<Fields extends FieldMap = {}, Parts extends Tabl
  */
 export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, unknown>;
 
+/** Настройки окна подтверждения в объявлении действия; незаданные берутся по умолчанию. */
+export interface ActionConfirmationOptions {
+    /** Секунды до того, как «Подтверждаю» станет доступна. По умолчанию 0. */
+    readonly delay?: number;
+    readonly title?: string;
+    readonly message?: string;
+    /** Оформление окна. По умолчанию `warning`. */
+    readonly tone?: ActionConfirmationTone;
+}
+
+/** Объявленное о действии помимо входных данных и обработчика: заголовок, место показа, подтверждение. */
+interface ActionSettings {
+    readonly title: string | null;
+    readonly placement: ActionPlacement;
+    readonly confirmation: ActionConfirmation | null;
+}
+
+const defaultActionSettings: ActionSettings = { title: null, placement: 'buttons', confirmation: null };
+
 /** Билдер собственного действия; обработчик вызывается диспетчером после проверки данных. */
 export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartMap = {}> {
     /** Только для вывода типов: во время выполнения свойства нет. */
     declare readonly '~input': Input;
     readonly '~title': string | null;
+    readonly '~placement': ActionPlacement;
+    readonly '~confirmation': ActionConfirmation | null;
     readonly '~entries': ReadonlyArray<FieldEntry>;
     readonly '~handler': ((input: never) => unknown) | null;
 
     readonly '~parts': ReadonlyArray<TablePartEntry>;
     declare readonly '~tableParts': Parts;
-    constructor(title: string | null = null, entries: ReadonlyArray<FieldEntry> = [], handler: ((input: never) => unknown) | null = null, parts: ReadonlyArray<TablePartEntry> = []) {
+    constructor(settings: ActionSettings = defaultActionSettings, entries: ReadonlyArray<FieldEntry> = [], handler: ((input: never) => unknown) | null = null, parts: ReadonlyArray<TablePartEntry> = []) {
         this['~parts'] = parts;
-        this['~title'] = title;
+        this['~title'] = settings.title;
+        this['~placement'] = settings.placement;
+        this['~confirmation'] = settings.confirmation;
         this['~entries'] = entries;
         this['~handler'] = handler;
     }
 
+    /** Настройки этого билдера: каждый метод переносит их в новый билдер. */
+    private get settings(): ActionSettings {
+        return { title: this['~title'], placement: this['~placement'], confirmation: this['~confirmation'] };
+    }
+
     title(title: string): ActionBuilder<Input, Parts> {
-        return new ActionBuilder(title, this['~entries'], this['~handler'], this['~parts']);
+        return new ActionBuilder({ ...this.settings, title }, this['~entries'], this['~handler'], this['~parts']);
+    }
+
+    /**
+     * Где форма записи предлагает действие (`ActionPlacement`). По умолчанию кнопкой; `more`
+     * переносит его в меню «Ещё», `hidden` убирает с формы для вызова из собственного экрана.
+     */
+    placement(placement: ActionPlacement): ActionBuilder<Input, Parts> {
+        return new ActionBuilder({ ...this.settings, placement }, this['~entries'], this['~handler'], this['~parts']);
+    }
+
+    /**
+     * Требует подтверждения перед выполнением: интерфейс открывает окно с кнопками «Подтверждаю»,
+     * «Отмена» и крестиком, а «Подтверждаю» становится доступна через `delay` секунд. Так
+     * необратимое действие не выполняется случайным нажатием.
+     *
+     * ```ts
+     * .action('cancel', (action) => action
+     *     .title('Отмена продажи')
+     *     .confirmation({ delay: 3, tone: 'danger', message: 'Продажа и её рассрочки будут помечены на удаление.' }))
+     * ```
+     */
+    confirmation(options: ActionConfirmationOptions = {}): ActionBuilder<Input, Parts> {
+        const confirmation: ActionConfirmation = { delay: options.delay ?? 0, title: options.title ?? null, message: options.message ?? null, tone: options.tone ?? 'warning' };
+        return new ActionBuilder({ ...this.settings, confirmation }, this['~entries'], this['~handler'], this['~parts']);
     }
 
     /**
@@ -252,12 +306,12 @@ export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartM
      */
     input<Fields extends FieldMap, InputParts extends TablePartMap>(define: (input: ActionInputBuilder) => ActionInputBuilder<Fields, InputParts>): ActionBuilder<Fields, InputParts> {
         const input = define(new ActionInputBuilder());
-        return new ActionBuilder(this['~title'], input['~entries'], null, input['~parts']);
+        return new ActionBuilder(this.settings, input['~entries'], null, input['~parts']);
     }
 
     /** Обработчик действия; получает входные данные, проверенные по объявленным полям. */
     handle(handler: ActionHandler<FieldsRecord<Input> & { readonly [Name in keyof Parts]: ReadonlyArray<FieldsRecord<Parts[Name]>> }>): ActionBuilder<Input, Parts> {
-        return new ActionBuilder(this['~title'], this['~entries'], handler, this['~parts']);
+        return new ActionBuilder(this.settings, this['~entries'], handler, this['~parts']);
     }
 }
 
@@ -702,7 +756,10 @@ class ObjectBuilderImplementation {
 
     action(name: string, define: (action: ActionBuilder) => ActionBuilder<FieldMap, TablePartMap>): this {
         const action = define(new ActionBuilder());
-        const entry: ActionEntry = { name, title: action['~title'], input: action['~entries'], tableParts: action['~parts'], handler: action['~handler'] };
+        const entry: ActionEntry = {
+            name, title: action['~title'], input: action['~entries'], tableParts: action['~parts'], handler: action['~handler'],
+            placement: action['~placement'], confirmation: action['~confirmation'],
+        };
         return this.with({ actions: [...this['~state'].actions, entry] });
     }
 
