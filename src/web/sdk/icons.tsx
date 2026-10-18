@@ -26,12 +26,15 @@ import {
     CreditCardOutlined,
     DeleteOutlined,
     DownOutlined,
+    EditOutlined,
+    ExclamationCircleFilled,
     ExportOutlined,
     FileTextOutlined,
     FilterOutlined,
     GlobalOutlined,
     HomeOutlined,
     InboxOutlined,
+    InfoCircleFilled,
     LinkOutlined,
     LockOutlined,
     LogoutOutlined,
@@ -51,6 +54,7 @@ import {
     ThunderboltOutlined,
     UnlockOutlined,
     WalletOutlined,
+    WarningFilled,
 } from '@ant-design/icons';
 
 /** Иконки приложения по смыслу. Правила пользования описаны во вводном комментарии модуля. */
@@ -96,6 +100,16 @@ export const Icons = {
     save: SaveOutlined,
     /** Проведение документа. */
     post: CheckCircleOutlined,
+    /** Переход записи в режим изменения, например «Внести изменения» проведённой продажи. */
+    edit: EditOutlined,
+
+    // Окно подтверждения действия: значок по оформлению окна (`ActionConfirmationTone`).
+    /** Необратимое действие. */
+    confirmDanger: ExclamationCircleFilled,
+    /** Действие с заметными последствиями. */
+    confirmWarning: WarningFilled,
+    /** Обычное подтверждение. */
+    confirmInfo: InfoCircleFilled,
 
     // Действия продавца: у каждого свой значок, чтобы кнопки рабочего места различались с первого взгляда.
     /** Оформление продажи. */

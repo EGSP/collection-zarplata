@@ -80,13 +80,24 @@ export interface ActionQuery<Action extends string = string> {
     readonly enabled?: boolean;
 }
 
+/** Прочитанный результат действия и его обновление. */
+export interface ActionResult<Result> {
+    readonly data: Result | undefined;
+    readonly loading: boolean;
+    /**
+     * Читает результат заново. Нужен, когда данные на сервере могли измениться без действия
+     * в этом клиенте: например, сервер отклонил запись, потому что другой пользователь изменил данные.
+     */
+    readonly refresh: () => Promise<void>;
+}
+
 /**
  * Результат собственного действия, которое только читает данные, как запрос с кешем: он обновляется
  * после любого изменяющего действия, потому что сохранённые ответы сервера о данных сбрасываются.
  * Уведомлений нет ни об успехе, ни об отказе: отказ, например нехватка права на действие, оставляет
  * `data` пустым, и экран показывает себя без этих данных. Для изменяющих действий служит `useAction`.
  */
-export function useActionResult<Result = unknown, Action extends string = string>({ object, action, payload = {}, enabled = true }: ActionQuery<Action>): { readonly data: Result | undefined; readonly loading: boolean } {
+export function useActionResult<Result = unknown, Action extends string = string>({ object, action, payload = {}, enabled = true }: ActionQuery<Action>): ActionResult<Result> {
     const { query } = useCustom<BaseRecord, ApiError>({
         url: `${resourceName(object)}/${action}`,
         method: 'post',
@@ -94,5 +105,11 @@ export function useActionResult<Result = unknown, Action extends string = string
         queryOptions: { enabled },
         errorNotification: false,
     });
-    return { data: query.data?.data as Result | undefined, loading: query.isFetching };
+    return {
+        data: query.data?.data as Result | undefined,
+        loading: query.isFetching,
+        refresh: async () => {
+            await query.refetch();
+        },
+    };
 }

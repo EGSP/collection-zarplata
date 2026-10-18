@@ -475,6 +475,9 @@ function validateObject(
         if (actionNames.has(action.name)) problems.add(location, `имя действия «${action.name}» повторяется`);
         actionNames.add(action.name);
         if (action.handler === null) problems.add(location, 'не задан обработчик: вызовите handle(...)');
+        // Задержку отсчитывает таймер интерфейса, поэтому это конечное неотрицательное число секунд.
+        const delay = action.confirmation?.delay ?? 0;
+        if (!Number.isFinite(delay) || delay < 0) problems.add(location, 'задержка подтверждения должна быть неотрицательным числом секунд');
         const names = new Set(action.input.map((field) => field.name));
         for (const part of action.tableParts) {
             const problem = checkName(part.name);
@@ -489,6 +492,8 @@ function validateObject(
             input: describeFields(action.input, `${location}, `, problems, configuration),
             tableParts: action.tableParts.map((part) => ({ name: part.name, title: part.title ?? part.name, fields: describeFields(part.fields, location + ', табличная часть ' + part.name + ', ', problems, configuration) })),
             handler: action.handler,
+            placement: action.placement,
+            confirmation: action.confirmation,
         };
     });
 

@@ -22,6 +22,8 @@ export const roles = [
         // Закрытие смены проводит её вложенным действием: одного права на закрытие недостаточно.
         .grant(Rights.document.shift.read, Rights.document.shift.write, Rights.document.shift.post, Rights.document.shift.actions.close)
         .grant(Rights.document.sale.read, Rights.document.sale.write, Rights.document.sale.post, Rights.document.sale.actions.createInstallment, Rights.document.sale.actions.sellWithInstallment,
+            // «Внести изменения» и «Отмена продажи» меняют рассрочки вложенными действиями: нужны и права на них.
+            Rights.document.sale.actions.changesState, Rights.document.sale.actions.saveChanges, Rights.document.sale.actions.cancel,
             Rights.document.weighing.read, Rights.document.weighing.write, Rights.document.weighing.post, Rights.document.weighing.actions.applySale,
             Rights.document.refund.read, Rights.document.refund.write, Rights.document.refund.post, Rights.document.refund.actions.returnedGoods,
             // Рассрочку по продаже создаёт действие продажи вложенной записью: одного права на действие недостаточно.

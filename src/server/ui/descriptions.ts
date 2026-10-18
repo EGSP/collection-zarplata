@@ -11,9 +11,9 @@
  */
 import type { Formula } from '../../common/formulas.js';
 import type { ValueSuggestions } from '../metadata/descriptions.js';
-import type { DelegatedPresentation, FieldKind, FieldRole, FieldWidth, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
+import type { ActionConfirmation, ActionConfirmationTone, ActionPlacement, DelegatedPresentation, FieldKind, FieldRole, FieldWidth, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode } from '../metadata/descriptions.js';
 
-export type { DelegatedPresentation, FieldKind, FieldWidth, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
+export type { ActionConfirmation, ActionConfirmationTone, ActionPlacement, DelegatedPresentation, FieldKind, FieldWidth, FormElementReference, InputMode, ObjectKind, ObjectTarget, RecorderValue, RecordOpeningMode };
 
 /**
  * Правила проверки значения поля. Клиент проверяет по ним ввод до отправки, окончательную
@@ -96,6 +96,9 @@ export interface FormGroup {
  * платформы (`save`, `post` и другие) от собственных действий объекта. У стандартных действий
  * `input` пуст: их входные данные — сама запись формы. Команда с `opens` открывает служебный
  * экран без сохранения формы и не выполняется диспетчером объекта.
+ *
+ * `placement` и `confirmation` есть только у собственного действия. Без `placement` действие
+ * выводится кнопкой; без `confirmation` выполняется сразу.
  */
 export interface FormAction {
     /** Команда открытия служебного экрана вместо изменения записи через диспетчер объекта. */
@@ -105,6 +108,10 @@ export interface FormAction {
     readonly standard: boolean;
     readonly input: ReadonlyArray<FormField>;
     readonly tableParts?: ReadonlyArray<FormTablePart>;
+    /** Где форма предлагает действие: кнопкой, в меню «Ещё» или нигде. */
+    readonly placement?: ActionPlacement;
+    /** Окно подтверждения перед выполнением. */
+    readonly confirmation?: ActionConfirmation;
 }
 
 /**

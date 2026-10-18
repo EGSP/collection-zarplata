@@ -42,6 +42,9 @@ function subsectionTitles(fileName: string): ReadonlyArray<string> {
  */
 const accountingRules = { title: 'Правила учёта', name: 'accounting-rules' };
 
+/** Дочерняя страница правил учёта: условия изменения и отмены продажи. */
+const saleEditingRules = { title: 'Правила редактирования продаж', name: 'sale-editing-rules' };
+
 /** Пункты меню для подразделов файла раздела. */
 function subsectionItems(name: string): Array<DefaultTheme.SidebarItem> {
     return subsectionTitles(`${name}.md`).map((subsection) => ({
@@ -79,7 +82,7 @@ function architectureSections(): Array<DefaultTheme.SidebarItem> {
  */
 function sidebar(): Array<DefaultTheme.SidebarItem> {
     return [
-        { text: accountingRules.title, link: `/${accountingRules.name}`, items: subsectionItems(accountingRules.name) },
+        { text: accountingRules.title, link: `/${accountingRules.name}`, items: [...subsectionItems(accountingRules.name), pageItem(saleEditingRules.title, saleEditingRules.name, [])] },
         { text: 'Архитектура', link: '/', items: architectureSections() },
     ];
 }

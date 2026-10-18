@@ -200,6 +200,12 @@ const changedInstallmentDates = (existingRecord: InstallmentRecord | null, propo
 };
 
 /**
+ * Отменено ли основание рассрочки: например, продажа, по которой она оформлена, помечена на удаление.
+ * Документ рассрочки задаёт проверку сам: общая часть не знает поля основания.
+ */
+export type CancelledWithBasis<Record = InstallmentRecord> = (record: Record) => Effect.Effect<boolean, unknown, Database>;
+
+/**
  * Правила рассрочки (раздел «Правила учёта»).
  *
  * Запись с датой закрытия политика не отличает от закрытия действием «Закрыть»: так рассрочку
@@ -210,8 +216,9 @@ const changedInstallmentDates = (existingRecord: InstallmentRecord | null, propo
  * Ответственный обязателен только у собственной рассрочки, в том числе при вложенной записи
  * взноса или закрытия. `Rights` читается при выполнении: при загрузке документа реестр ещё не готов.
  * Предел взносов политика не проверяет: его задаёт ограничение регистра «Долги по рассрочкам».
+ * Закрытую рассрочку можно пометить на удаление, только когда основание отменено (`cancelledWithBasis`).
  */
-const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => ({
+const installmentRules = (name: InstallmentName, cancelledWithBasis: CancelledWithBasis): Policy<InstallmentRecord> => ({
     name: 'installment-rules',
     save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
         if (existingRecord !== null && existingRecord.closedAt !== null) return yield* rejected(closedRejection);
@@ -229,14 +236,18 @@ const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => (
         if (closes) yield* checkClosingDate(proposedRecord);
     }),
     post: ({ document: record }) => checkCustomer(record),
-    markDeleted: ({ record }) => record.closedAt === null ? Effect.void : Effect.fail(rejected(closedRejection)),
+    // Закрытая рассрочка помечается на удаление только вместе с отменённым основанием: отмена
+    // продажи снимает всю сделку, а сама по себе закрытая рассрочка не меняется.
+    markDeleted: ({ record }) => record.closedAt === null ? Effect.void : Effect.gen(function* () {
+        if (!(yield* cancelledWithBasis(record))) return yield* rejected(closedRejection);
+    }),
 });
 
 /**
  * Строит документ-рассрочку из общего описания. `extend` получает начало шапки и объявляет сумму
  * `amount` и собственные поля и табличные части документа; после них функция добавляет остаток,
  * дату закрытия, взносы, политику, проведение и действия. `additionalMovements` возвращает движения
- * документа сверх общих.
+ * документа сверх общих, `cancelledWithBasis` сообщает, отменено ли основание рассрочки.
  *
  * Форму документ задаёт сам вызовом `.form(...)` на результате: её состав зависит от собственных
  * полей. На форме должна быть группа «Рассрочка» с полем `person`: после него стоят элементы
@@ -263,6 +274,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
     title: string,
     extend: (base: HeadBuilder<Name>) => DocumentBuilder<Name, Fields, Parts>,
     additionalMovements: (record: ObjectRecord<'document', Fields, Parts>) => ReadonlyArray<RegisterMovements> = () => [],
+    cancelledWithBasis: CancelledWithBasis<ObjectRecord<'document', Fields, Parts>> = () => Effect.succeed(false),
 ): DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close' | 'settleByBank'> {
     // Общая часть читает только общие поля, поэтому дальше документ виден как билдер с ними одними.
     // Приведение нужно, потому что для обобщённых `Fields` компилятор не проверяет имена новых полей.
@@ -286,7 +298,8 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
     });
 
     const complete = base
-        .policy(installmentRules(name))
+        // Запись документа содержит и его собственные поля: общий тип их только не называет.
+        .policy(installmentRules(name, (record) => cancelledWithBasis(record as unknown as ObjectRecord<'document', Fields, Parts>)))
         .policy(closedPeriodPolicy(installmentDates, changedInstallmentDates))
         .posting((record) => Effect.gen(function* () {
             // Политика не пропускает проведение без физического лица; проверка сужает тип поля.

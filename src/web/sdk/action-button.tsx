@@ -4,6 +4,7 @@ import type { FormAction } from '../../server/ui/descriptions';
 import { useAction } from '../data-provider/actions';
 import { useObjectView } from '../data-provider/metadata';
 import { recordGuid, type RecordData } from '../data-provider/records';
+import { useActionConfirmation } from './action-confirmation';
 import { ActionDialog } from './action-dialog';
 import type { ActedObject } from './object-reference';
 import type { FormValues } from './record-values';
@@ -91,7 +92,8 @@ export interface ActionButtonProperties<Action extends string = string> {
  * Стандартное действие получает `guid` записи, поэтому без записи его кнопка не выводится.
  * Действие `save` кнопка сама не выполняет: значения полей знает только форма, и ей нужен `execute`.
  * Собственное действие получает входные данные: если они у него объявлены, кнопка сначала
- * открывает окно с их полями.
+ * открывает окно с их полями. Если описание действия требует подтверждения, перед выполнением
+ * кнопка открывает окно подтверждения (`useActionConfirmation`); отказ действие не выполняет.
  *
  * Во время запроса кнопка недоступна. Об успехе и отказе сервера сообщает уведомление, после
  * успеха сохранённые ответы сервера сбрасываются: открытые списки и ссылки перечитываются.
@@ -117,6 +119,7 @@ export function ActionButton<Action extends string = string>({
     const [dialogOpen, setDialogOpen] = useState(false);
     // Состояние React обновится позже; ссылка блокирует повторное нажатие в том же кадре.
     const executing = useRef(false);
+    const confirmation = useActionConfirmation();
 
     // Команды просмотра обслуживает меню формы, а не диспетчер изменения записи.
     if (action === undefined || action.opens !== undefined || !actionApplies(action, record)) return null;
@@ -124,6 +127,8 @@ export function ActionButton<Action extends string = string>({
 
     const run = async (values: FormValues | null): Promise<void> => {
         if (executing.current) throw new Error('Действие уже выполняется');
+        // Отказ от подтверждения — не ошибка: действие просто не выполняется, окно входных данных закрывается.
+        if (!(await confirmation.confirm(action))) return;
         executing.current = true;
         setRunning(true);
         try {
@@ -159,6 +164,7 @@ export function ActionButton<Action extends string = string>({
                 </Button>
             </Tooltip>
             {dialogOpen && <ActionDialog action={action} onExecute={run} onClose={() => setDialogOpen(false)} />}
+            {confirmation.dialog}
         </>
     );
 }

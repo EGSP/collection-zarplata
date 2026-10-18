@@ -6,8 +6,12 @@
  * Отдельный документ, а не поля рассрочки в строке оплаты: так продажа не усложняется.
  *
  * Поля шапки, взносы, политика, проведение и действия «Внести» и «Закрыть» заданы общим описанием
- * рассрочек в `installments.ts`.
+ * рассрочек в `installments.ts`. Изменяют рассрочку вместе с продажей и отменяют её действия
+ * продажи «Внести изменения» и «Отмена продажи».
  */
+import { Effect } from 'effect';
+import { Database } from '../../server/database/database.effect.js';
+import { query } from '../../server/database/sql.builder.js';
 import { movements } from '../../server/metadata/index.js';
 import { installmentDocument } from '../installments.js';
 import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
@@ -22,7 +26,13 @@ export const SaleInstallment = installmentDocument('saleInstallment', 'Расс�
     .field('sale', (field) => field.reference(Sale).title('Продажа').required())
     .field('amount', (field) => field.money().title('Сумма').minimum(1).required()),
 // Вычитание из нуля, а не унарный минус: так сумма записана в том же виде, что у остальных движений с минусом.
-(record) => [movements(UnarrangedInstallments, [{ sale: record.sale, amount: 0 - record.amount }])])
+(record) => [movements(UnarrangedInstallments, [{ sale: record.sale, amount: 0 - record.amount }])],
+// Основание рассрочки — продажа: закрытая рассрочка помечается на удаление, когда продажу отменили.
+(record) => Effect.gen(function* () {
+    const database = yield* Database;
+    const sale = yield* database.get(query(Sale).select({ columns: ['deletedAt'], where: [{ column: 'guid', operator: '=', value: record.sale }], limit: 1 }));
+    return (sale?.deletedAt ?? null) !== null;
+}))
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     .form((form) => form
         .group('Рассрочка', ['number', 'date', 'sale', 'type', 'rate', 'shift', 'person', 'responsibleEmployee', 'amount'])

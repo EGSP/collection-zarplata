@@ -4,7 +4,7 @@ import { Alert, Avatar, Button, Collapse, Dropdown, Empty, Flex, Modal, Paginati
 import { HistoryOutlined, MoreOutlined, UserOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import type { JournalEntry, JournalTraceNode } from '../../server/journal/descriptions';
-import type { FormTablePart, ObjectView } from '../../server/ui/descriptions';
+import type { FormAction, FormTablePart, ObjectView } from '../../server/ui/descriptions';
 import { useMetadata } from '../data-provider/metadata';
 import { perform } from '../data-provider/perform';
 import { recordGuid, type RecordData } from '../data-provider/records';
@@ -12,6 +12,7 @@ import { useRecordPresentation } from '../references/presentation';
 import { RecordLink } from '../references/reference-display';
 import { FieldDisplay } from '../widgets/registry';
 import { useWindowScope } from '../window/window-scope';
+import { useActionConfirmation } from '../sdk/action-confirmation';
 
 interface HistoryPage {
     readonly items: readonly JournalEntry[];
@@ -26,18 +27,47 @@ const actionTitles: Readonly<Record<string, string>> = {
     delete: 'Запись удалена', import: 'Данные импортированы', repost: 'Документы перепроведены',
 };
 
-/** Общие дополнительные команды стандартной и собственной формы, использующей RecordFormActions. */
-export function RecordMoreActions({ object, record }: { readonly object: ObjectView; readonly record: RecordData | null }) {
+/** Свойства меню «Ещё» формы записи. */
+export interface RecordMoreActionsProperties {
+    readonly object: ObjectView;
+    readonly record: RecordData | null;
+    /** Собственные действия с местом показа «Ещё», доступные на форме сейчас. */
+    readonly actions?: ReadonlyArray<FormAction>;
+    /** Выполняет действие меню через форму; об отказе сообщает уведомление. */
+    readonly onRun?: (action: FormAction) => Promise<unknown>;
+    /** Форма выполняет действие: пункты действий недоступны, как и кнопки формы. */
+    readonly busy?: boolean;
+}
+
+/**
+ * Общие дополнительные команды стандартной и собственной формы, использующей RecordFormActions:
+ * журнал действий и собственные действия с местом показа «Ещё». Действие с подтверждением
+ * выполняется только после него (`useActionConfirmation`).
+ */
+export function RecordMoreActions({ object, record, actions = [], onRun, busy = false }: RecordMoreActionsProperties) {
     const command = object.form?.actions.find((action) => action.opens === 'journal');
     const [opened, setOpened] = useState(false);
     const scope = useWindowScope();
+    const confirmation = useActionConfirmation();
     // Регистры не имеют карточек записи с guid; их историю этот вход не открывает.
-    if (command === undefined) return null;
+    if (command === undefined && actions.length === 0) return null;
+    const items = [
+        ...command === undefined ? [] : [{ key: command.name, label: command.title, icon: <HistoryOutlined />, disabled: record === null }],
+        ...actions.map((action) => ({ key: action.name, label: action.title, disabled: busy || onRun === undefined, danger: action.confirmation?.tone === 'danger' })),
+    ];
+    const select = async (key: string) => {
+        if (key === command?.name) return setOpened(true);
+        const action = actions.find((candidate) => candidate.name === key);
+        if (action === undefined || onRun === undefined || !(await confirmation.confirm(action))) return;
+        // Об отказе сервера уже сообщило уведомление, поэтому ошибка здесь не обрабатывается.
+        await onRun(action).catch(() => undefined);
+    };
     return (
         <>
-            <Dropdown trigger={['click']} menu={{ items: [{ key: command.name, label: command.title, icon: <HistoryOutlined />, disabled: record === null }], onClick: () => setOpened(true) }}>
+            <Dropdown trigger={['click']} menu={{ items, onClick: ({ key }) => void select(key) }}>
                 <Button icon={<MoreOutlined />}>Ещё</Button>
             </Dropdown>
+            {confirmation.dialog}
             {opened && record !== null && (
                 <Modal
                     open={scope.active}
