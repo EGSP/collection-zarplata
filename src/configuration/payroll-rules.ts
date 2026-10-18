@@ -75,6 +75,7 @@ const goodsLines = (
     return context.employeesOf(part.shift).map((employee) => ({
         employee, kind: event.kind, document: event.document, date: event.date, sale, goods: goods.name,
         base: signed(base), rate, amount: signed(amount), rule: sign === 1 ? rule : `Возврат: ${rule.charAt(0).toLowerCase()}${rule.slice(1)}`,
+        installmentDate: part.installmentDate, installmentClosedAt: part.installmentClosedAt,
     }));
 };
 
@@ -169,7 +170,7 @@ const shiftBonus: PayrollRule = Effect.gen(function* () {
         const rule = `Выручка смены ${rubles(amount)} ≥ ${rubles(bonusTurnover)} → ${rubles(bonusAmount)} каждому`;
         return context.employeesOf(shift.guid).map((employee): PayrollLine => ({
             employee, kind: kinds.shiftBonus, document: objectReference({ kind: 'document', name: 'shift' }, shift.guid), date: shift.date,
-            sale: null, goods: null, base: amount, rate: null, amount: bonusAmount, rule,
+            sale: null, goods: null, base: amount, rate: null, amount: bonusAmount, rule, installmentDate: null, installmentClosedAt: null,
         }));
     });
 });

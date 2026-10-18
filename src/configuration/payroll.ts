@@ -141,7 +141,7 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
                     kind: 'money', amount: head.amount - byInstallment, shift: head.shift, rate: { name: null, percentage: 0 },
                     // Непроведённая продажа ничего не начисляет: возврат по ней тоже не проводится.
                     countedDay: head.posted ? dayOf(head.date) : null,
-                    document: objectReference({ kind: 'document', name: 'sale' }, head.guid), date: head.date,
+                    document: objectReference({ kind: 'document', name: 'sale' }, head.guid), date: head.date, installmentDate: null, installmentClosedAt: null,
                 },
                 ...saleInstallments.map((installment): SalePart => {
                     const own = installment.type === ownInstallment;
@@ -152,6 +152,7 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
                         rate: (installment.rate === null ? undefined : rates.get(installment.rate)) ?? { name: null, percentage: 0 },
                         countedDay: date === null ? null : dayOf(date),
                         document: objectReference({ kind: 'document', name: 'saleInstallment' }, installment.guid), date,
+                        installmentDate: installment.date, installmentClosedAt: installment.closedAt,
                     };
                 }),
             ];

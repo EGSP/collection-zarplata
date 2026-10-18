@@ -23,7 +23,7 @@ import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
 import { installmentTypes, ownInstallment, ownInstallmentRate } from '../installments.js';
 import { rubles } from '../money.js';
-import { cash, installmentMethod, paymentColumns, paymentMethods } from '../payments.js';
+import { cash, installmentMethod, paymentColumns, paymentMethods, receiverField } from '../payments.js';
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
 import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
@@ -280,7 +280,11 @@ const installmentTarget = { kind: 'document', name: 'saleInstallment' };
  * Действие «Продать с рассрочкой» проводит продажу и сразу оформляет и проводит рассрочку по ней
  * на сумму оплат способом «Рассрочка» с типом, покупателем и ответственным из входных данных.
  * Всё выполняется в одной транзакции: если рассрочка не проведётся, например без ответственного
- * у собственной рассрочки, проведение продажи тоже отменится. Права нужны те же, что у вложенных
+ * у собственной рассрочки, проведение продажи тоже отменится. Если продавец указал первоначальный
+ * взнос, рассрочка оформляется сразу с ним первой строкой взносов: деньги взноса приняты в момент
+ * продажи, поэтому у взноса смена продажи. Взнос меньше суммы рассрочки: при оплате всей суммы
+ * рассрочка не нужна. Банковскую рассрочку действие проводит и закрывает действием рассрочки
+ * «Оплата банком»: банк перечисляет остаток сразу. Права нужны те же, что у вложенных
  * действий: проведение продажи, запись и проведение рассрочки по продаже. Рассрочка записывается
  * вложенным `save`, а оно проверяется по правам того же пользователя, поэтому пользователю нужны
  * права на действие, на чтение продажи и на запись рассрочки по продаже.
@@ -352,28 +356,46 @@ export const Sale = sale
             .field('person', (field) => field.reference(PhysicalPersons).title('Покупатель').required().width('free'))
             .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник').width('long'))
             // Ставку выбирают у банковской рассрочки; собственной действие проставляет ставку «Собственная» само.
-            .field('rate', (field) => field.reference(InstallmentRates).title('Ставка рассрочки')))
+            .field('rate', (field) => field.reference(InstallmentRates).title('Ставка рассрочки'))
+            // Первоначальный взнос необязателен: без суммы рассрочка оформляется без взносов.
+            .field('initialMethod', (field) => field.string().title('Способ взноса').choices(paymentMethods).initial(cash))
+            .field('initialAmount', (field) => field.money().title('Первоначальный взнос').minimum(1))
+            .field('initialReceiver', receiverField))
         .handle((input) => Effect.gen(function* () {
             const dispatcher = yield* ActionDispatcher;
             const record = (yield* dispatcher.execute({ target, action: 'get', payload: { guid: input.sale } })) as SaleRecord;
             const amount = installmentAmount(record);
             if (amount <= 0) return yield* rejected(`В продаже нет оплаты способом «${installmentMethod}»: проведите её без рассрочки`);
+            // Необязательные поля, не переданные в запросе, приходят в действие как `undefined`.
+            const initialAmount = input.initialAmount ?? null;
+            if (initialAmount !== null && initialAmount >= amount) {
+                return yield* rejected(`Первоначальный взнос должен быть меньше суммы рассрочки ${rubles(amount)}: при оплате всей суммы рассрочка не нужна`);
+            }
             const rate = input.type === ownInstallment ? yield* ownInstallmentRate : input.rate ?? null;
             // Продажа проводится первой: рассрочка оформляется на итог регистра, который пишет её проведение.
             const posted = yield* dispatcher.execute({ target, action: 'post', payload: { guid: record.guid } });
+            // Первоначальный взнос — обычный взнос рассрочки, принятый в момент продажи: его деньги
+            // приняла смена продажи, и регистр «Поступления денег» получит их по способу взноса.
+            const now = new Date().toISOString();
+            const payments = initialAmount === null ? [] : [{
+                date: now, method: input.initialMethod ?? cash, amount: initialAmount,
+                receiver: input.initialReceiver ?? null, shift: record.shift,
+            }];
             // Рассрочка относится к смене продажи: её оформляют в момент продажи, и выдаёт долг та же смена.
             const installment = (yield* dispatcher.execute({
                 target: installmentTarget, action: 'save',
                 payload: {
                     fields: {
-                        date: new Date().toISOString(), sale: record.guid, shift: record.shift, amount, payments: [],
+                        date: now, sale: record.guid, shift: record.shift, amount, payments,
                         type: input.type, person: input.person, rate,
                         // Необязательное поле, не переданное в запросе, приходит в действие как `undefined`, а запись принимает `null`.
                         responsibleEmployee: input.responsibleEmployee ?? null,
                     },
                 },
             })) as { readonly guid: string };
-            yield* dispatcher.execute({ target: installmentTarget, action: 'post', payload: { guid: installment.guid } });
+            // Банковскую рассрочку банк оплачивает сразу: действие проводит её, вносит остаток и закрывает.
+            // Собственная проводится и остаётся открытой до взносов покупателя.
+            yield* dispatcher.execute({ target: installmentTarget, action: input.type === ownInstallment ? 'post' : 'settleByBank', payload: input.type === ownInstallment ? { guid: installment.guid } : { installment: installment.guid } });
             return posted;
         })))
     // Проведение объявлено последним: его обработчик ссылается на регистр «Продажи за вычетом возвратов», а тот читает

@@ -31,7 +31,7 @@ const basesOptions: TablePartOptions = {
  */
 const goodsOptions: TablePartOptions = {
     fixedRows: true,
-    readOnlyColumns: ['name', 'code', 'comment', 'postedIn1C', 'cost', 'discount', 'total', 'sale'],
+    readOnlyColumns: ['name', 'code', 'size', 'comment', 'postedIn1C', 'cost', 'discount', 'total', 'sale'],
 };
 
 /**

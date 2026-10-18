@@ -25,7 +25,9 @@ export const roles = [
             Rights.document.weighing.read, Rights.document.weighing.write, Rights.document.weighing.post, Rights.document.weighing.actions.applySale,
             Rights.document.refund.read, Rights.document.refund.write, Rights.document.refund.post, Rights.document.refund.actions.returnedGoods,
             // Рассрочку по продаже создаёт действие продажи вложенной записью: одного права на действие недостаточно.
-            Rights.document.saleInstallment.read, Rights.document.saleInstallment.write, Rights.document.saleInstallment.post, Rights.document.saleInstallment.actions.pay)
+            Rights.document.saleInstallment.read, Rights.document.saleInstallment.write, Rights.document.saleInstallment.post, Rights.document.saleInstallment.actions.pay,
+            // Банковскую рассрочку при продаже закрывает «Оплата банком»: без права продажа в неё не пройдёт.
+            Rights.document.saleInstallment.actions.settleByBank)
         // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
         .grant(Rights.register.salesNetOfReturns.read, Rights.register.installmentDebts.read, Rights.register.moneyReceipts.read, Rights.register.unarrangedInstallments.read)
         // Продавцы видят начисление всех сотрудников, но период не закрывают: права на «Закрыть период» нет.

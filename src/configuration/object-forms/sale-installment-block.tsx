@@ -1,6 +1,7 @@
 import { Button, Flex, Radio, Typography } from 'antd';
 import type { ComponentType } from 'react';
-import { FieldInput, FluidField, Icons, TablePartTitle, useObjectView, useRecord, useReferencePresentation, type ObjectView } from '../../web/sdk';
+import { FieldInput, FluidField, Icons, TablePartTitle, useObjectView, useRecord, useReferencePresentation, type FormField, type ObjectView } from '../../web/sdk';
+import { PaymentMethodInput } from '../form-elements/payment-method-input';
 import { Objects } from '../objects.generated';
 
 /** Данные рассрочки, которые продавец вводит на форме продажи: их получает действие «Продать с рассрочкой». */
@@ -10,10 +11,22 @@ export interface SaleInstallmentTerms {
     readonly responsibleEmployee: string | null;
     /** Ставка банковской рассрочки; собственной ставку проставляет сервер. */
     readonly rate: string | null;
+    /** Способ первоначального взноса: «Наличные» или «Безналичные». */
+    readonly initialMethod: string | null;
+    /** Сумма первоначального взноса; без суммы рассрочка оформляется без взносов. */
+    readonly initialAmount: number | null;
+    /** «Куда оплачено» у первоначального взноса: текст или ссылка на приёмник оплат. */
+    readonly initialReceiver: unknown;
 }
 
-/** Данные рассрочки до ввода: ничего не выбрано. */
-export const emptyInstallmentTerms: SaleInstallmentTerms = { type: null, person: null, responsibleEmployee: null, rate: null };
+/**
+ * Данные рассрочки до ввода: ничего не выбрано, способ взноса — «Наличные», как у новой продажи.
+ * Значение совпадает с `cash` из `payments.ts`; серверный модуль в клиент не импортируется.
+ */
+export const emptyInstallmentTerms: SaleInstallmentTerms = {
+    type: null, person: null, responsibleEmployee: null, rate: null,
+    initialMethod: 'Наличные', initialAmount: null, initialReceiver: null,
+};
 
 /** Собственная рассрочка: её ведёт магазин, и ответственный сотрудник обязателен. */
 const ownInstallment = 'Собственная';
@@ -23,12 +36,13 @@ const ownInstallment = 'Собственная';
  * но форма проверяет их до записи продажи: отказ действия после записи оставил бы продажу
  * записанной и перевёл бы форму на её страницу, где блока рассрочки уже нет.
  */
-export function installmentTermsProblems(terms: SaleInstallmentTerms): ReadonlyArray<string> {
+export function installmentTermsProblems(terms: SaleInstallmentTerms, installmentAmount: number): ReadonlyArray<string> {
     return [
         ...(terms.type === null ? ['Выберите тип рассрочки'] : []),
         ...(terms.person === null ? ['Укажите покупателя'] : []),
         ...(terms.type === ownInstallment && terms.responsibleEmployee === null ? ['Выберите ответственного сотрудника собственной рассрочки'] : []),
         ...(terms.type !== null && terms.type !== ownInstallment && terms.rate === null ? ['Выберите ставку банковской рассрочки'] : []),
+        ...(terms.initialAmount !== null && terms.initialAmount >= installmentAmount ? ['Первоначальный взнос должен быть меньше суммы рассрочки'] : []),
     ];
 }
 
@@ -56,6 +70,11 @@ interface SaleInstallmentBlockProperties {
     readonly disabled: boolean;
     /** Незаполненные данные, о которых блок сообщает под полями; пусто, пока продавец не пытался продать. */
     readonly problems: ReadonlyArray<string>;
+    /**
+     * Поля входа действия «Продать с рассрочкой». Из них блок берёт описания полей взноса: способы
+     * оплаты и варианты «Куда оплачено» объявлены на сервере один раз.
+     */
+    readonly input: ReadonlyArray<FormField>;
 }
 
 /**
@@ -69,10 +88,18 @@ interface SaleInstallmentBlockProperties {
  * смены продажи нажатием на ФИО: повторное нажатие снимает выбор. Ответственный нужен только
  * собственной рассрочке; без него сервер откажет при продаже, и продажа не проведётся.
  *
+ * Первоначальный взнос вводится как обычный взнос: способ, сумма и «Куда оплачено». Действие
+ * оформляет рассрочку сразу с этим взносом, поэтому остаток рассрочки после продажи уже уменьшен.
+ * Без суммы взноса рассрочка оформляется без взносов.
+ *
  * Значения хранит форма продажи, а не поля документа: у продажи таких полей нет, их получает
  * действие «Продать с рассрочкой».
  */
-export function SaleInstallmentBlock({ terms, onChange, shift, disabled, problems }: SaleInstallmentBlockProperties) {
+export function SaleInstallmentBlock({ terms, onChange, shift, disabled, problems, input }: SaleInstallmentBlockProperties) {
+    const inputField = (name: string) => input.find((field) => field.name === name);
+    const method = inputField('initialMethod');
+    const amount = inputField('initialAmount');
+    const receiver = inputField('initialReceiver');
     return (
         <Flex vertical gap="middle">
             <TablePartTitle>Рассрочка</TablePartTitle>
@@ -101,6 +128,21 @@ export function SaleInstallmentBlock({ terms, onChange, shift, disabled, problem
                 <ResponsibleEmployees shift={shift} selected={terms.responsibleEmployee} disabled={disabled}
                     onSelect={(employee) => onChange({ ...terms, responsibleEmployee: employee })} />
             </Flex>
+            {method !== undefined && amount !== undefined && receiver !== undefined && (
+                <Flex vertical gap="small">
+                    <Typography.Text type="secondary">Первоначальный взнос</Typography.Text>
+                    <PaymentMethodInput field={method} value={terms.initialMethod} disabled={disabled}
+                        onChange={(entered) => onChange({ ...terms, initialMethod: typeof entered === 'string' ? entered : null })} />
+                    <FluidField label="Сумма">
+                        <FieldInput field={amount} value={terms.initialAmount} disabled={disabled}
+                            onChange={(entered) => onChange({ ...terms, initialAmount: typeof entered === 'number' ? entered : null })} />
+                    </FluidField>
+                    <FluidField label={receiver.title} free>
+                        <FieldInput field={receiver} value={terms.initialReceiver} disabled={disabled}
+                            onChange={(entered) => onChange({ ...terms, initialReceiver: entered ?? null })} />
+                    </FluidField>
+                </Flex>
+            )}
             {problems.map((problem) => <Typography.Text key={problem} type="danger">{problem}</Typography.Text>)}
         </Flex>
     );

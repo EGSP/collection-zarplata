@@ -7,7 +7,7 @@
  * Проверку переопределений (существование имён, однозначность групп) уже выполнил `commit()`,
  * поэтому построение не завершается ошибкой.
  */
-import { readRight, requiredRight, type Right } from '../authorization/rights.js';
+import { platformRights, readRight, requiredRight, type Right } from '../authorization/rights.js';
 import type { FieldDescription, FormOverride, ObjectDescription, RecordOpeningMode } from '../metadata/descriptions.js';
 import { formHiddenStandardFields } from '../metadata/standard-fields.js';
 import {
@@ -153,6 +153,8 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
         .filter((name) => !readOnly.has(name));
 
     const actions: ReadonlyArray<FormAction> = [
+        // Имя с точками отделяет служебную команду от имён действий конфигурации.
+        { name: 'platform.journal.history', title: 'Журнал действий', standard: true, opens: 'journal', input: [] },
         ...standardFormActions[object.kind].map((action) => ({ ...action, standard: true, input: [] })),
         ...object.actions.map((action) => ({
             name: action.name,
@@ -212,13 +214,14 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
 /**
  * Описание объекта для пользователя с учётом его прав. Возвращает `null`, если у пользователя
  * нет права чтения: такой объект клиенту не показывается вовсе. Из действий формы остаются
- * только те, которые диспетчер примет от этого пользователя: право для действия определяет та же
- * функция, что и в диспетчере. Форма без действия `save` доступна только для просмотра.
+ * только разрешённые команды. Право изменения определяет та же функция, что и в диспетчере;
+ * просмотр журнала проверяется по праву платформы. Форма без `save` доступна только для просмотра.
  */
 export function restrictObjectView(object: ObjectDescription, view: ObjectView, allows: (right: Right) => boolean): ObjectView | null {
     if (!allows(readRight(object))) return null;
     if (view.form === null) return view;
     const actions = view.form.actions.filter((action) => {
+        if (action.opens === 'journal') return allows(platformRights.journal.read);
         const right = requiredRight(object, action.name);
         return right !== undefined && allows(right);
     });

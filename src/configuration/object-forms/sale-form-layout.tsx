@@ -16,9 +16,9 @@ import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecord, useRe
  * заполняет форма отвеса, когда открывает продажу из него, а продавцу он не нужен.
  */
 const goodsOptions: TablePartOptions = {
-    columnWidths: { code: 110, postedIn1C: 130, cost: 120, discount: 110, total: 120 },
+    columnWidths: { code: 110, size: 100, postedIn1C: 130, cost: 120, discount: 110, total: 120 },
     columnShares: { name: 1, comment: 1.6 },
-    columnOrder: ['name', 'code', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
+    columnOrder: ['name', 'code', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
     columnInputs: { postedIn1C: PostedIn1CSwitch },
     addTitle: 'Товар',
     initialRow: true,
@@ -141,11 +141,13 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
     const sellWithInstallment = state.view.actions.find((action) => action.name === 'sellWithInstallment');
     // Без права на действие продажа с рассрочкой проводится как обычная, а рассрочку оформляют потом на форме продажи.
     const withInstallment = isNew && sellWithInstallment !== undefined && Array.isArray(payments) && payments.some((line: PaymentLine) => isInstallment(line));
-    const problems = withInstallment && termsChecked ? installmentTermsProblems(terms) : [];
+    // Сумма рассрочки — сумма оплаты способом «Рассрочка»: первоначальный взнос должен быть меньше неё.
+    const installmentAmount = Array.isArray(payments) ? payments.filter((line: PaymentLine) => isInstallment(line)).reduce((total: number, line: PaymentLine) => total + (line.amount as number), 0) : 0;
+    const problems = withInstallment && termsChecked ? installmentTermsProblems(terms, installmentAmount) : [];
     const runSell = () => {
         if (withInstallment) {
             setTermsChecked(true);
-            if (installmentTermsProblems(terms).length > 0) return Promise.resolve();
+            if (installmentTermsProblems(terms, installmentAmount).length > 0) return Promise.resolve();
             return state.run(sellWithInstallment, (saved) => ({ sale: saved['guid'], ...terms }));
         }
         return sell === undefined ? Promise.resolve() : state.run(sell);
@@ -169,7 +171,7 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
                         </div>
                         {withInstallment && (
                             <div style={{ flex: '1 1 320px', maxWidth: 480 }}>
-                                <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={state.running !== null} problems={problems} />
+                                <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={state.running !== null} problems={problems} input={sellWithInstallment?.input ?? []} />
                             </div>
                         )}
                     </Flex>

@@ -21,6 +21,8 @@ const total = formula.round(formula.divide(
 export const Goods = tablePart((part) => part
     .field('name', (field) => field.string().title('Название').required().maximumLength(300))
     .field('code', (field) => field.string().title('Код').maximumLength(50))
+    // Размер — текст, а не число: у колец, цепочек и браслетов он записывается по-разному.
+    .field('size', (field) => field.string().title('Размер').maximumLength(50))
     .field('comment', (field) => field.string().title('Комментарий').maximumLength(500))
     .field('postedIn1C', (field) => field.boolean().title('Проведено в 1С'))
     .field('cost', (field) => field.money().title('Стоимость').minimum(0).required())

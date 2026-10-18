@@ -2,10 +2,10 @@ import { RecordTablePart, useActionResult, useFormData, useFormValue, type Recor
 import { Objects } from '../objects.generated';
 
 /** Поля товара, по которым строка возврата признаётся копией строки продажи. */
-const lineKey = (line: RecordData) => JSON.stringify([line.name, line.code, line.comment, line.cost, line.discount]);
+const lineKey = (line: RecordData) => JSON.stringify([line.name, line.code, line.size ?? null, line.comment, line.cost, line.discount]);
 
 /** Строка возврата из строки продажи: копия без отметки «Проведено в 1С». */
-const copyOf = (row: RecordData, sale: string) => ({ name: row.name as string, code: row.code as string | null, comment: row.comment as string | null, postedIn1C: false, cost: row.cost as number, discount: row.discount as number | null, total: row.total as number, sale });
+const copyOf = (row: RecordData, sale: string) => ({ name: row.name as string, code: row.code as string | null, size: (row.size ?? null) as string | null, comment: row.comment as string | null, postedIn1C: false, cost: row.cost as number, discount: row.discount as number | null, total: row.total as number, sale });
 
 /**
  * Товары продажи под строкой основания возврата. Флажок у товара добавляет его копию в «Товары
@@ -16,13 +16,13 @@ const copyOf = (row: RecordData, sale: string) => ({ name: row.name as string, c
  * и отметить их нельзя. Открытый на форме возврат в них не входит: его строки показывают флажки.
  *
  * Строка возврата не хранит номер исходной строки продажи, поэтому связь определяется по
- * содержимому: код, название, комментарий, стоимость и скидка. Одинаковые строки продажи
+ * содержимому: код, название, размер, комментарий, стоимость и скидка. Одинаковые строки продажи
  * считаются по порядку: сначала идут возвращённые ранее, затем отмеченные в этом возврате.
  * Если, например, в продаже три одинаковые куртки, одна уже возвращена, а в возврате отмечены
  * две копии, то первая строка серая, вторая и третья отмечены. Снятие флажка убирает последнюю
  * копию, а не ту, что стоит рядом с флажком; для одинаковых товаров это неразличимо.
  *
- * Копия переносит код, комментарий, стоимость и скидку, итог форма пересчитывает сама. Отметка
+ * Копия переносит код, размер, комментарий, стоимость и скидку, итог форма пересчитывает сама. Отметка
  * «Проведено в 1С» снята: возврат является новым документом.
  */
 export function RefundSaleGoods({ sale }: { readonly sale: string }) {
