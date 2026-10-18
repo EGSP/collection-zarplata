@@ -64,7 +64,9 @@ export function ActionDialog({ action, onExecute, onClose }: ActionDialogPropert
                 if (!executing) onClose();
             }}
         >
-            <Form form={form} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])) }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
+            {/* Окно ведёт собственный ввод: недоступность формы продажи не должна наследоваться
+                его полями. Во время выполнения запроса блокируется уже сам ввод окна. */}
+            <Form form={form} disabled={executing} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])) }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
                 <ComputedValues view={{ fields: action.input, tableParts: parts }} />
                 {action.input.map((field) => (
                     <Form.Item {...{ [fieldAttribute]: field.name }} key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>

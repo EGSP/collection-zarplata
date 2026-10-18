@@ -32,8 +32,9 @@ export function objectPath(target: PerformTarget): string {
 }
 
 /** Адрес формы существующей записи: `/catalog/sample/<guid>`. */
-export function recordPath(target: PerformTarget, guid: string): string {
-    return `${objectPath(target)}/${guid}`;
+export function recordPath(target: PerformTarget, guid: string, original = false): string {
+    // Явный режим переживает повторную обработку маршрута и перезагрузку страницы.
+    return `${objectPath(target)}/${guid}${original ? '?original=1' : ''}`;
 }
 
 /** Адрес формы новой записи: `/catalog/sample/new`. */

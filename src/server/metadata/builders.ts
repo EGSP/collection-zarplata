@@ -15,7 +15,7 @@
  * Свойства с префиксом `~` служебные. Их читают `commit()` и выводы типов, а в подсказках
  * редактора они стоят в конце списка и не мешают методам описания.
  */
-import type { PresentationPart } from './descriptions.js';
+import type { ObjectReferenceValue, PresentationPart } from './descriptions.js';
 import type { Effect } from 'effect';
 import { commitObject } from './commit.js';
 import type { ActionConfirmation, ActionConfirmationTone, ActionPlacement, FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RecordOpeningMode, RegisterConstraintDescription, RegisterMovements } from './descriptions.js';
@@ -92,6 +92,8 @@ export interface ObjectState {
     readonly tableParts: ReadonlyArray<TablePartEntry>;
     readonly actions: ReadonlyArray<ActionEntry>;
     readonly form: ReadonlyArray<FormOverride> | null;
+    /** Серверное правило выбора формы существующей записи; null оставляет исходную запись. */
+    readonly opening: ((record: never) => ObjectReferenceValue | null) | null;
     readonly policies: ReadonlyArray<PolicyDescription>;
     /** Имя поля-ссылки, по которому строится представление записи; задаётся только у справочника. */
     readonly presentation: string | null;
@@ -525,6 +527,13 @@ export interface RecordObjectBuilder<
     policy(policy: Policy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
 
     /**
+     * Выбирает запись для открытия формы. Получает сохранённые поля и табличные части;
+     * null оставляет исходную запись. Не меняет значение ссылки и не применяется при создании.
+     * Функция синхронна: платформа сама читает записи и проверяет права всей цепочки.
+     */
+    opening(handler: (record: ObjectRecord<Kind, Fields, Parts>) => ObjectReferenceValue | null): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+
+    /**
      * Подбор записей объекта: у каждого поля ссылки на объект появляется кнопка, которая открывает
      * окно с поиском и таблицей. Колонки и функцию поиска задаёт `define`; клиент только показывает
      * строки, которые вернула функция. Повторный вызов заменяет подбор.
@@ -767,6 +776,10 @@ class ObjectBuilderImplementation {
         return this.with({ form: define(new FormBuilder())['~overrides'] });
     }
 
+    opening(handler: (record: never) => ObjectReferenceValue | null): this {
+        return this.with({ opening: handler });
+    }
+
     policy(policy: Policy<never>): this {
         const description: PolicyDescription = {
             name: policy.name,
@@ -830,7 +843,7 @@ export function isObjectBuilder(value: unknown): value is ObjectBuilder {
 }
 
 function emptyState(kind: ObjectKind, name: string): ObjectState {
-    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, constraints: [], lookup: null, standardFieldsAdded: false };
+    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, opening: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, constraints: [], lookup: null, standardFieldsAdded: false };
 }
 
 // Функции ниже приводят реализацию к интерфейсу через unknown: точные типы полей существуют

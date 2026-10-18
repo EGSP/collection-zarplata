@@ -577,6 +577,7 @@ function validateObject(
         tableParts,
         actions,
         form: state.form === null ? null : { overrides: state.form },
+        opening: state.opening,
         policies: state.policies,
         presentation: describePresentation(state, fields, problems),
         posting: state.posting,

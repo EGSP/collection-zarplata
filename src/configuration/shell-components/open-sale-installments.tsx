@@ -77,7 +77,7 @@ function Debtor({ person, rows, persons, sales, level }: { readonly person: stri
             </Button>
             {expanded && rows.map((row) => (
                 <Button key={row.guid} type="text" size="small" block style={{ paddingInlineStart: 32 }}
-                    onClick={() => void (sales === undefined ? openRecord(Objects.document.saleInstallment, row.guid) : openRecord(Objects.document.sale, row.sale))}>
+                    onClick={(event) => void openRecord(Objects.document.saleInstallment, row.guid, 'tab', { original: event.shiftKey })}>
                     <Flex justify="space-between" align="center" gap="small" style={{ width: '100%', minWidth: 0 }}>
                         {/* Серый текст на ярко-оранжевом фоне теряет контраст, поэтому там продажа выводится основным цветом. */}
                         <Typography.Text {...(level === 2 ? {} : { type: 'secondary' as const })} ellipsis style={{ minWidth: 0 }}>{sales === undefined ? 'Рассрочка' : <Presentation view={sales} guid={row.sale} />}</Typography.Text>
@@ -92,7 +92,8 @@ function Debtor({ person, rows, persons, sales, level }: { readonly person: stri
 /**
  * Чтение монтируется только при доступном описании объекта. Рассрочки группируются по покупателю
  * в порядке первой рассрочки: у покупателя может быть несколько рассрочек, и продавцу важен его
- * общий долг. Без права читать продажи строка рассрочки открывает саму рассрочку.
+ * общий долг. Строка всегда передаёт исходную рассрочку общему серверному правилу открытия;
+ * отсутствие права читать продажу завершает переход отказом. Shift открывает оригинал.
  */
 function AvailableSaleInstallments() {
     const persons = useObjectView(Objects.catalog.physicalPersons);
