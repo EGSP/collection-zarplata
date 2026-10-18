@@ -17,6 +17,7 @@ import type { FormAction, FormElementReference, FormField, FormGroup, FormTableP
 import { ApiError } from '../common/api';
 import { useAction } from '../data-provider/actions';
 import { recordGuid, type RecordData } from '../data-provider/records';
+import { RecordMoreActions } from '../journal/record-journal';
 import { recordTitle, useRecordPresentation } from '../references/presentation';
 import { formFieldPaths, serverRejectionMessage } from '../widgets/validation';
 import { useWindowScope } from '../window/window-scope';
@@ -206,6 +207,8 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
      * от самой формы и от ограничений её элементов. По этой же проверке работают сочетания клавиш.
      */
     const isVisible = (action: FormAction): boolean => {
+        // Команды просмотра выводит меню «Ещё»: они не должны сохранять или изменять запись.
+        if (action.opens !== undefined) return false;
         if (restrictions.isActionHidden(action.name) || !actionApplies(action, saved)) return false;
         // Собственное действие выполняется над записанной записью и после него запись читается заново.
         if (!action.standard) return saved !== null && reload !== null;
@@ -217,7 +220,7 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
     };
 
     const runByName = (name: string, input: FormValues | null): Promise<unknown> => {
-        const action = view.actions.find((candidate) => candidate.name === name);
+        const action = view.actions.find((candidate) => candidate.name === name && candidate.opens === undefined);
         return action === undefined ? Promise.reject(new Error(`Действия «${name}» нет среди действий формы «${object.title}»`)) : controller.run(action, input);
     };
 
@@ -465,6 +468,7 @@ export function RecordFormActions({ state, titles = {}, buttons = {} }: RecordFo
                     {compact(action) ? '' : title(action)}
                 </ActionButton>
             ))}
+            <RecordMoreActions object={state.object} record={state.record} />
             <Button onClick={close}>{titles.close ?? 'Закрыть'}</Button>
         </>
     );

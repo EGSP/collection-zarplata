@@ -19,50 +19,14 @@ import { ActionContext } from '../data/action-context.js';
 import { DataNotFoundError, DataValidationError } from '../data/data.errors.js';
 import { guidValue, objectValue, pageOptions, stringValue, type RecordValue } from '../data/records.js';
 import { informationKey } from '../data/information-key.js';
+import type { JournalChanges, JournalEntry, JournalTarget, JournalTraceNode } from './descriptions.js';
+export type { JournalChanges, JournalEntry, JournalTarget, JournalTraceNode } from './descriptions.js';
 
 /** Служебная таблица журнала; её структуру описывает модуль схемы. */
 const journalTable = 'platform_journal';
 
-/**
- * Изменённые поля и табличные части: `{ "поле": { "before": …, "after": … } }`. Табличная часть
- * записывается целиком, списком строк до и после действия: строки не имеют собственного
- * идентификатора, и сопоставить отдельные строки до и после замены нельзя.
- */
-export type JournalChanges = Record<string, { readonly before: unknown; readonly after: unknown }>;
-
-/** Объект, над которым выполнено действие. `guid` пуст у собственного действия, которое не относится к одной записи. */
-export interface JournalTarget {
-    readonly kind: string;
-    readonly name: string;
-    readonly guid: string | null;
-    /** Полный ключ сведений; для объектов с guid отсутствует. */
-    readonly key?: RecordValue;
-}
-
-/** Строка журнала в ответе API: колонки таблицы, `changes` уже разобран из JSON. */
-export interface JournalEntry {
-    readonly guid: string;
-    readonly occurredAt: string;
-    readonly userGuid: string | null;
-    readonly traceGuid: string;
-    readonly actionGuid: string;
-    readonly parentActionGuid: string | null;
-    readonly targetKind: string;
-    readonly targetName: string;
-    readonly targetGuid: string | null;
-    /** Измерения записи сведений; для других объектов null. */
-    readonly targetKey: RecordValue | null;
-    readonly action: string;
-    readonly changes: JournalChanges | null;
-}
-
-/** Узел дерева цепочки: действие и вызванные им вложенные действия в порядке выполнения. */
-export interface JournalTraceNode extends JournalEntry {
-    readonly children: readonly JournalTraceNode[];
-}
-
 /** Строка таблицы до разбора `changes`. */
-type JournalRow = Omit<JournalEntry, 'changes' | 'targetKey'> & { readonly changes: string | null; readonly targetKey: string | null };
+type JournalRow = Omit<JournalEntry, 'changes' | 'targetKey' | 'userName'> & { readonly changes: string | null; readonly targetKey: string | null };
 
 /** Пустое значение поля или табличной части: такие значения у нового объекта в журнал не попадают. */
 function isEmpty(value: unknown): boolean {
@@ -122,13 +86,30 @@ export function writeJournal(entry: {
     });
 }
 
-function entryFromRow(row: JournalRow): JournalEntry {
+function entryFromRow(row: JournalRow, names: ReadonlyMap<string, string>): JournalEntry {
     return {
         ...row,
+        userName: row.userGuid === null ? null : names.get(row.userGuid) ?? null,
         targetKey: row.targetKey === null ? null : JSON.parse(row.targetKey) as RecordValue,
         changes: row.changes === null ? null : JSON.parse(row.changes) as JournalChanges,
     };
 }
+
+/** Имена читаются одним запросом без PIN и остальных данных учётной записи. */
+const entriesFromRows = Effect.fn('journal.entriesFromRows')(function* (rows: readonly JournalRow[]) {
+    const database = yield* Database;
+    const identifiers = [...new Set(rows.flatMap((row) => row.userGuid === null ? [] : [row.userGuid]))];
+    const names = new Map<string, string>();
+    // Ограничиваем число параметров и для trace, у которого нет размера страницы.
+    for (let offset = 0; offset < identifiers.length; offset += 500) {
+        const users = yield* database.all<{ guid: string; name: string }>(select('platform_users', {
+            columns: ['guid', 'name'],
+            where: [{ any: identifiers.slice(offset, offset + 500).map((guid) => ({ column: 'guid', operator: '=' as const, value: guid })) }],
+        }));
+        for (const user of users) names.set(user.guid, user.name);
+    }
+    return rows.map((row) => entryFromRow(row, names));
+});
 
 /**
  * Страница строк по отбору, новые действия первыми. `rowid` различает действия, начатые в одну
@@ -146,7 +127,7 @@ function page(where: readonly SqlCondition[], payload: RecordValue): Effect.Effe
             limit: pageSize,
             offset,
         }));
-        return { items: rows.map(entryFromRow), total: count?.total ?? 0, page, pageSize };
+        return { items: yield* entriesFromRows(rows), total: count?.total ?? 0, page, pageSize };
     });
 }
 
@@ -191,7 +172,8 @@ function trace(payload: RecordValue): Effect.Effect<unknown, DatabaseError, Data
             where: [{ column: 'traceGuid', operator: '=', value: traceGuid }],
             orderBy: [{ column: 'occurredAt', direction: 'ASC' }, { column: 'rowid', direction: 'ASC' }],
         }));
-        const nodes = new Map(rows.map((row) => [row.actionGuid, { ...entryFromRow(row), children: [] as JournalTraceNode[] }]));
+        const entries = yield* entriesFromRows(rows);
+        const nodes = new Map(entries.map((entry) => [entry.actionGuid, { ...entry, children: [] as JournalTraceNode[] }]));
         const actions: JournalTraceNode[] = [];
         for (const node of nodes.values()) {
             const parent = node.parentActionGuid === null ? undefined : nodes.get(node.parentActionGuid);
