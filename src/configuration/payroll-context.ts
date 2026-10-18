@@ -36,6 +36,13 @@ export interface PayrollLine {
     readonly amount: number;
     /** Применённое правило словами: по нему видно, почему начислена эта сумма. */
     readonly rule: string;
+    /**
+     * Дата открытия рассрочки, если строка начислена частью-рассрочкой или вычтена возвратом
+     * по ней; иначе `null`. По ней страница «Зарплата» показывает бонусы по рассрочкам отдельно.
+     */
+    readonly installmentDate: string | null;
+    /** Дата закрытия рассрочки строки; `null`, если строка не по рассрочке или рассрочка не закрыта. */
+    readonly installmentClosedAt: string | null;
 }
 
 /** Описание правила для пользователя: окно правил на странице «Зарплата». */
@@ -63,6 +70,10 @@ export interface SalePart {
     readonly document: ObjectReferenceValue;
     /** Дата начисления части; `null` вместе с `countedDay`. */
     readonly date: string | null;
+    /** Дата открытия рассрочки: у собственной она отличается от даты начисления. У части деньгами `null`. */
+    readonly installmentDate: string | null;
+    /** Дата закрытия рассрочки; `null`, пока она открыта, и у части деньгами. */
+    readonly installmentClosedAt: string | null;
 }
 
 /** Товар продажи или возврата. */

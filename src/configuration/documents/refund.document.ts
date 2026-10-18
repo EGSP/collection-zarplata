@@ -114,7 +114,7 @@ export const Refund = refund
         .handle((input) => Effect.gen(function* () {
             const database = yield* Database;
             const lines = yield* database.all(query(refund).tablePart('goods').select({
-                columns: ['ownerGuid', 'name', 'code', 'comment', 'cost', 'discount'],
+                columns: ['ownerGuid', 'name', 'code', 'size', 'comment', 'cost', 'discount'],
                 where: [{ column: 'sale', operator: '=', value: input.sale }],
                 orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
             }));
@@ -128,5 +128,5 @@ export const Refund = refund
                 ],
             }))).map((row) => row.guid));
             owners.delete(input.excludedRefund ?? '');
-            return lines.filter((line) => owners.has(line.ownerGuid)).map(({ name, code, comment, cost, discount }) => ({ name, code, comment, cost, discount }));
+            return lines.filter((line) => owners.has(line.ownerGuid)).map(({ name, code, size, comment, cost, discount }) => ({ name, code, size, comment, cost, discount }));
         })));

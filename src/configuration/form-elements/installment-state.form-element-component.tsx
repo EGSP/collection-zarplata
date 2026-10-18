@@ -36,6 +36,11 @@ const ownInstallmentRateName = 'Собственная';
  *
  * Условие берётся из записанного состояния: рассрочка становится закрытой после ответа сервера.
  *
+ * Банковскую рассрочку банк оплачивает целиком, поэтому у открытой банковской рассрочки вместо
+ * «Внести», «Закрыть» и стандартного проведения элемент выводит кнопку «Оплата банком»: действие
+ * проводит рассрочку, вносит остаток и закрывает её. Пока тип не выбран, рассрочка считается
+ * собственной по кнопкам: действие без типа отказало бы.
+ *
  * Собственной рассрочке без ставки элемент проставляет ставку «Собственная» (0 %): при выборе типа,
  * в том числе у черновика, созданного действием «Оформить рассрочку». Выбранную ставку он не
  * заменяет, поэтому её можно изменить.
@@ -52,7 +57,9 @@ export default function InstallmentState() {
     const saved = form.saved;
     const closed = (saved?.closedAt ?? null) !== null;
     const posted = saved?.posted === true;
-    const own = useFormValue(installments, 'type') === ownInstallment;
+    const type = useFormValue(installments, 'type');
+    const own = type === ownInstallment;
+    const bank = type !== null && !own;
     const rate = useFormValue(installments, 'rate');
     const closings = useRecordList(Objects.document.periodClosing, {
         permanentFilter: [{ field: 'posted', operator: 'equals', value: true }, { field: 'deletedAt', operator: 'equals', value: null }],
@@ -72,12 +79,13 @@ export default function InstallmentState() {
     }, [closed, own, ownRate, rate, form]);
     useFormRestrictions(installments, closed
         ? { readOnly: true, hiddenActions: ['pay', 'close', 'post', 'unpost', 'markDeleted'] }
-        : { readOnlyFields: inClosedPeriod ? ['payments', 'rate'] : ['payments'], hiddenActions: ['pay', 'close'] });
+        : { readOnlyFields: inClosedPeriod ? ['payments', 'rate'] : ['payments'], hiddenActions: bank ? ['pay', 'close', 'post', 'settleByBank'] : ['pay', 'close', 'settleByBank'] });
     // У новой рассрочки состояния ещё нет, а действиям нужен `guid` записанной.
     if (saved === null) return null;
 
     const pay = form.view.actions.find((action) => action.name === 'pay');
     const close = form.view.actions.find((action) => action.name === 'close');
+    const settle = form.view.actions.find((action) => action.name === 'settleByBank');
     // Без взносов подсказывать нечего: такую рассрочку политика не даст закрыть, потому что остаток не нулевой.
     const suggestedClosing = lastPaymentDate(saved.payments);
     return (
@@ -85,8 +93,12 @@ export default function InstallmentState() {
             <Typography.Text strong>
                 {closed ? <>Закрыта <FieldDisplay field={{ kind: 'dateTime', target: null }} value={saved.closedAt} /></> : posted ? 'Открыта' : 'Не проведена'}
             </Typography.Text>
-            {!closed && posted && pay !== undefined && <Button onClick={() => setPaying(true)}>{pay.title}</Button>}
-            {!closed && posted && close !== undefined && <Button onClick={() => setClosing(true)}>{close.title}</Button>}
+            {!closed && posted && !bank && pay !== undefined && <Button onClick={() => setPaying(true)}>{pay.title}</Button>}
+            {!closed && posted && !bank && close !== undefined && <Button onClick={() => setClosing(true)}>{close.title}</Button>}
+            {/* Об отказе сообщает уведомление формы, поэтому ошибка вызова здесь не обрабатывается. */}
+            {!closed && bank && settle !== undefined && (
+                <Button type="primary" onClick={() => { form.runAction('settleByBank', { installment: saved.guid }).catch(() => undefined); }}>{settle.title}</Button>
+            )}
             {paying && pay !== undefined && (
                 <ActionDialog
                     action={{ ...pay, input: pay.input.filter((field) => field.name !== 'installment') }}

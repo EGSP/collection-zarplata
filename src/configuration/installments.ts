@@ -4,6 +4,8 @@
  * `sale-installment.document.ts` добавляет сумму, ссылку на продажу и собственные движения.
  *
  * У рассрочки два состояния, открыта и закрыта; закрытая не изменяется и взносов не принимает.
+ * Банковскую рассрочку банк оплачивает целиком сразу: действие «Оплата банком» проводит её, вносит
+ * остаток одним безналичным взносом и закрывает.
  * Остаток хранится вычисляемым полем шапки: по нему работают блок незакрытых рассрочек и условие
  * закрытия. Проведённая рассрочка записывает в регистр «Долги по рассрочкам» свою сумму
  * и взносы, а в регистр «Поступления денег» каждый взнос по его способу.
@@ -34,8 +36,8 @@ import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { Rights } from './configuration.generated.js';
 import { Shift } from './documents/shift.document.js';
 import { rubles } from './money.js';
-import { closedPeriodPolicy } from './policies/closed-period.js';
-import { paymentMethods, Payments, receiverField } from './payments.js';
+import { closedPeriodPolicy, dayOf, lastClosedThrough } from './policies/closed-period.js';
+import { cash, paymentMethods, Payments, receiverField } from './payments.js';
 import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
 
@@ -44,6 +46,9 @@ type InstallmentName = 'saleInstallment';
 
 /** Рассрочка, за которую отвечает магазин: у неё обязателен ответственный сотрудник. */
 export const ownInstallment = 'Собственная';
+
+/** Безналичная оплата: так банк перечисляет магазину сумму банковской рассрочки. */
+const cashless = paymentMethods.find((method) => method !== cash)!;
 
 /**
  * Типы рассрочки: банковская оформляется через банк, собственную магазин ведёт сам. Объявлены
@@ -199,6 +204,9 @@ const changedInstallmentDates = (existingRecord: InstallmentRecord | null, propo
  *
  * Запись с датой закрытия политика не отличает от закрытия действием «Закрыть»: так рассрочку
  * закрывает само действие. Поэтому условие закрытия и право на него проверяются здесь.
+ * Собственную рассрочку закрывают правом на «Закрыть», банковскую — правом на «Оплата банком»:
+ * её закрывает только это действие, и продавцу, который продаёт в банковскую рассрочку,
+ * право закрывать собственные рассрочки не нужно.
  * Ответственный обязателен только у собственной рассрочки, в том числе при вложенной записи
  * взноса или закрытия. `Rights` читается при выполнении: при загрузке документа реестр ещё не готов.
  * Предел взносов политика не проверяет: его задаёт ограничение регистра «Долги по рассрочкам».
@@ -208,7 +216,7 @@ const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => (
     save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
         if (existingRecord !== null && existingRecord.closedAt !== null) return yield* rejected(closedRejection);
         const closes = (existingRecord?.closedAt ?? null) === null && (proposedRecord.closedAt ?? null) !== null;
-        if (closes) yield* requireRight(Rights.document[name].actions.close);
+        if (closes) yield* requireRight(proposedRecord.type === ownInstallment ? Rights.document[name].actions.close : Rights.document[name].actions.settleByBank);
         // Рассрочку по продаже действие продажи создаёт без типа и физического лица, поэтому
         // её черновик записывается без них.
         if (proposedRecord.posted) yield* checkCustomer(proposedRecord);
@@ -240,6 +248,13 @@ const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => (
  * и на действие, и на запись рассрочки. Непроведённую рассрочку оба действия отклоняют: её запись
  * движений не меняет, взнос не попал бы в регистры, а предел взносов не проверился бы.
  *
+ * Действие «Оплата банком» принимает только банковскую рассрочку. Непроведённую оно сначала
+ * проводит, затем добавляет взнос на весь остаток: дата — дата рассрочки, способ «Безналичные»,
+ * «Куда оплачено» — название ставки, то есть банка, смена — смена рассрочки. Той же датой
+ * рассрочка закрывается. Банк перечисляет деньги при оформлении, поэтому дата рассрочки, а не
+ * текущая: иначе деньги попали бы в поступления другого дня. Если дата рассрочки уже в закрытом
+ * периоде, взнос и закрытие датируются текущим моментом: закрытый период не меняется.
+ *
  * Тип результата несёт поля документа и имена действий: по ним строятся права `Rights`
  * и ссылки `Objects`.
  */
@@ -248,7 +263,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
     title: string,
     extend: (base: HeadBuilder<Name>) => DocumentBuilder<Name, Fields, Parts>,
     additionalMovements: (record: ObjectRecord<'document', Fields, Parts>) => ReadonlyArray<RegisterMovements> = () => [],
-): DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close'> {
+): DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close' | 'settleByBank'> {
     // Общая часть читает только общие поля, поэтому дальше документ виден как билдер с ними одними.
     // Приведение нужно, потому что для обобщённых `Fields` компилятор не проверяет имена новых полей.
     const base = tail(extend(head(name, title)) as unknown as DocumentBuilder<Name, HeadFields & AmountField, {}>);
@@ -327,8 +342,34 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
                 if (!record.posted) return yield* rejected(`${notPosted}, чтобы закрыть её`);
                 // Условие закрытия и допустимость даты проверяет политика: она же отклонит запись формы с датой закрытия.
                 return yield* write(record, { closedAt: input.closedAt });
+            })))
+        .action('settleByBank', (action) => action
+            .title('Оплата банком')
+            .input((input) => input.field('installment', (field) => field.reference(base).title('Рассрочка').required()))
+            .handle((input) => Effect.gen(function* () {
+                const dispatcher = yield* ActionDispatcher;
+                const found = yield* read(input.installment);
+                if (found.closedAt !== null) return yield* rejected('Рассрочка уже закрыта');
+                if ((found.type ?? null) === null) return yield* rejected('Укажите тип рассрочки');
+                if (found.type === ownInstallment) return yield* rejected('Собственную рассрочку банк не оплачивает: её закрывают после взносов покупателя');
+                // Проведение проверяет покупателя и ставку и записывает долг: взнос банка его погасит.
+                if (!found.posted) yield* dispatcher.execute({ target, action: 'post', payload: { guid: found.guid } });
+                const record = yield* read(input.installment);
+                const database = yield* Database;
+                const rate = record.rate === null ? undefined : yield* database.get(query(InstallmentRates).select({
+                    columns: ['name'],
+                    where: [{ column: 'guid', operator: '=', value: record.rate }],
+                    limit: 1,
+                }));
+                const closedThrough = yield* lastClosedThrough;
+                const date = closedThrough !== null && dayOf(record.date) <= closedThrough ? new Date().toISOString() : record.date;
+                // Взнос без суммы не записывается: остаток уже погашен первоначальным взносом.
+                const payments = record.balance > 0
+                    ? [...record.payments, { date, method: cashless, amount: record.balance, receiver: rate === undefined ? null : { type: 'string' as const, value: rate.name }, shift: record.shift }]
+                    : record.payments;
+                return yield* write(record, { payments, closedAt: date });
             })));
     // Точный тип существует только на уровне типов: билдер хранит поля документа в состоянии,
     // а общая часть добавлена к тем же полям.
-    return complete as unknown as DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close'>;
+    return complete as unknown as DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close' | 'settleByBank'>;
 }

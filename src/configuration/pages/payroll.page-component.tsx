@@ -41,8 +41,23 @@ function Money({ value }: { readonly value: number }) {
     return <FieldDisplay field={{ kind: 'money', target: null }} value={value} />;
 }
 
-/** Расшифровка начисления сотрудника: строка на каждый товар каждой части продажи или возврата и строки бонусов. */
-function EmployeeLines({ lines }: { readonly lines: ReadonlyArray<PayrollLine> }) {
+/** Строка начислена рассрочкой или вычтена возвратом по ней: у неё есть дата открытия рассрочки. */
+const byInstallment = (line: PayrollLine) => line.installmentDate !== null;
+
+/** Сумма начислений строк. */
+const totalOf = (lines: ReadonlyArray<PayrollLine>) => lines.reduce((sum, line) => sum + line.amount, 0);
+
+/** Дата со временем в том же виде, что в формах. */
+function Moment({ value }: { readonly value: string | null }) {
+    return <FieldDisplay field={{ kind: 'dateTime', target: null }} value={value} />;
+}
+
+/**
+ * Таблица строк расшифровки. У таблицы рассрочек вместо даты начисления стоят даты открытия
+ * и закрытия рассрочки: по ним видно, когда рассрочку оформили и закрыта ли она. Дату возврата
+ * по товару из рассрочки показывает ссылка на возврат в колонке «Документ».
+ */
+function LinesTable({ lines, installments }: { readonly lines: ReadonlyArray<PayrollLine>; readonly installments: boolean }) {
     return (
         <Table
             size="small"
@@ -50,7 +65,10 @@ function EmployeeLines({ lines }: { readonly lines: ReadonlyArray<PayrollLine> }
             rowKey={(line) => `${line.document.guid}-${line.goods}-${line.kind}-${line.date}-${line.base}-${line.rule}`}
             dataSource={[...lines]}
             columns={[
-                { title: 'Дата', key: 'date', render: (_value, line) => <FieldDisplay field={{ kind: 'dateTime', target: null }} value={line.date} /> },
+                ...installments ? [
+                    { title: 'Рассрочка открыта', key: 'installmentDate', render: (_value: unknown, line: PayrollLine) => <Moment value={line.installmentDate} /> },
+                    { title: 'Рассрочка закрыта', key: 'installmentClosedAt', render: (_value: unknown, line: PayrollLine) => <Moment value={line.installmentClosedAt} /> },
+                ] : [{ title: 'Дата', key: 'date', render: (_value: unknown, line: PayrollLine) => <Moment value={line.date} /> }],
                 { title: 'Вид', dataIndex: 'kind', key: 'kind' },
                 { title: 'Документ', key: 'document', render: (_value, line) => <RecordLink reference={line.document} /> },
                 { title: 'Товар', dataIndex: 'goods', key: 'goods' },
@@ -59,14 +77,54 @@ function EmployeeLines({ lines }: { readonly lines: ReadonlyArray<PayrollLine> }
                 { title: 'Начислено', key: 'amount', align: 'right', render: (_value, line) => <Money value={line.amount} /> },
                 { title: 'Правило', dataIndex: 'rule', key: 'rule' },
             ]}
+            summary={() => (
+                <Table.Summary.Row>
+                    <Table.Summary.Cell index={0} colSpan={installments ? 7 : 6}><Typography.Text strong>Итого</Typography.Text></Table.Summary.Cell>
+                    <Table.Summary.Cell index={1} align="right"><Typography.Text strong><Money value={totalOf(lines)} /></Typography.Text></Table.Summary.Cell>
+                    <Table.Summary.Cell index={2} />
+                </Table.Summary.Row>
+            )}
         />
     );
 }
 
-/** Начисление периода: итоги сотрудников, строка раскрывается в расшифровку. */
+/**
+ * Расшифровка начисления сотрудника: строка на каждый товар каждой части продажи или возврата
+ * и строки бонусов. Бонусы по рассрочкам выведены отдельной таблицей с датами открытия
+ * и закрытия рассрочки; возврат товара из рассрочки стоит в ней же, потому что вычитает бонус
+ * рассрочки. Расшифровка стоит с отступом внутри таблицы сотрудников: так видно, к какой строке
+ * она относится.
+ */
+function EmployeeLines({ lines }: { readonly lines: ReadonlyArray<PayrollLine> }) {
+    const installments = lines.filter(byInstallment);
+    const others = lines.filter((line) => !byInstallment(line));
+    return (
+        <Flex vertical gap="small" style={{ padding: '8px 16px 16px 48px' }}>
+            {others.length > 0 && (
+                <>
+                    <Typography.Title level={5} style={{ margin: 0 }}>Бонусы за продажи</Typography.Title>
+                    <LinesTable lines={others} installments={false} />
+                </>
+            )}
+            {installments.length > 0 && (
+                <>
+                    <Typography.Title level={5} style={{ margin: '8px 0 0' }}>Бонусы за закрытые рассрочки</Typography.Title>
+                    <LinesTable lines={installments} installments />
+                </>
+            )}
+        </Flex>
+    );
+}
+
+/**
+ * Начисление периода: итоги сотрудников, строка раскрывается в расшифровку. Начисленное
+ * разделено на бонусы за продажи (с бонусами за выручку смены) и бонусы за рассрочки; их сумма равна «Начислено».
+ */
 function PayrollTable({ result }: { readonly result: PayrollResult }) {
     const employees = useObjectView(Objects.catalog.employees);
     const total = result.employees.reduce((sum, row) => sum + row.amount, 0);
+    const installmentLines = result.lines.filter(byInstallment);
+    const installmentsOf = (employee: string) => totalOf(installmentLines.filter((line) => line.employee === employee));
     return (
         <Table
             size="small"
@@ -77,6 +135,8 @@ function PayrollTable({ result }: { readonly result: PayrollResult }) {
             columns={[
                 // Без права читать сотрудников сервер их описание не отдаёт.
                 { title: 'Сотрудник', key: 'employee', render: (_value, row) => employees === undefined ? 'Нет доступа' : <EmployeeName view={employees} guid={row.employee} /> },
+                { title: 'За продажи', key: 'sales', align: 'right', render: (_value, row) => <Money value={row.amount - installmentsOf(row.employee)} /> },
+                { title: 'За закрытые рассрочки', key: 'installments', align: 'right', render: (_value, row) => <Money value={installmentsOf(row.employee)} /> },
                 { title: 'Начислено', key: 'amount', align: 'right', render: (_value, row) => <Money value={row.amount} /> },
             ]}
             summary={() => (
@@ -84,7 +144,9 @@ function PayrollTable({ result }: { readonly result: PayrollResult }) {
                     {/* Первая ячейка стоит под колонкой кнопок раскрытия. */}
                     <Table.Summary.Cell index={0} />
                     <Table.Summary.Cell index={1}><Typography.Text strong>Итого</Typography.Text></Table.Summary.Cell>
-                    <Table.Summary.Cell index={2} align="right"><Typography.Text strong><Money value={total} /></Typography.Text></Table.Summary.Cell>
+                    <Table.Summary.Cell index={2} align="right"><Typography.Text strong><Money value={total - totalOf(installmentLines)} /></Typography.Text></Table.Summary.Cell>
+                    <Table.Summary.Cell index={3} align="right"><Typography.Text strong><Money value={totalOf(installmentLines)} /></Typography.Text></Table.Summary.Cell>
+                    <Table.Summary.Cell index={4} align="right"><Typography.Text strong><Money value={total} /></Typography.Text></Table.Summary.Cell>
                 </Table.Summary.Row>
             )}
         />
@@ -141,7 +203,7 @@ export default function PayrollPage() {
                 ) : (
                     <Flex vertical gap="middle">
                         <Typography.Text>
-                            Незакрытый период {result.periodStart === null ? 'с начала учёта' : <>с <FieldDisplay field={dayField} value={result.periodStart} /></>} по <FieldDisplay field={dayField} value={result.closedThrough} />. Правила: {result.rules}.
+                            Незакрытый период {result.periodStart === null ? 'с начала учёта' : <>с <FieldDisplay field={dayField} value={result.periodStart} /></>} по <FieldDisplay field={dayField} value={result.closedThrough} />.
                         </Typography.Text>
                         {result.employees.length === 0
                             ? <Typography.Text type="secondary">Начислений в периоде нет</Typography.Text>

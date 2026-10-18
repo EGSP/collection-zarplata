@@ -25,9 +25,9 @@ const hung = 'Вывешено';
  * строки в «Вывешено». Новая строка получает состояние «В отвесе» начальным значением.
  */
 const newGoodsOptions: TablePartOptions = {
-    columnWidths: { code: 110, state: 140 },
+    columnWidths: { code: 110, size: 100, state: 140 },
     columnShares: { name: 1, sale: 1, comment: 1.6 },
-    columnOrder: ['name', 'code', 'state', 'sale', 'comment'],
+    columnOrder: ['name', 'code', 'size', 'state', 'sale', 'comment'],
     hiddenColumns: ['postedIn1C', 'cost', 'discount', 'total'],
     readOnlyColumns: ['state', 'sale'],
     newRow: () => ({ cost: 0 }),
@@ -61,6 +61,7 @@ const dividerStyle = { margin: '0 0 16px' };
 interface WeighingLine {
     readonly name: string;
     readonly code: string | null;
+    readonly size: string | null;
     readonly comment: string | null;
     readonly cost: number;
     readonly discount: number | null;
@@ -157,7 +158,7 @@ function SavedWeighingActions({ state }: { readonly state: RecordFormState }) {
         const goodsOfSale = lines
             .filter((line) => numbers.includes(line.lineNumber))
             // Новый документ ещё не внесён в 1С, поэтому отметка «Проведено в 1С» не переносится.
-            .map((line) => ({ name: line.name, code: line.code, comment: line.comment, postedIn1C: false, cost: line.cost, discount: line.discount, weighingLine: line.lineNumber }));
+            .map((line) => ({ name: line.name, code: line.code, size: line.size, comment: line.comment, postedIn1C: false, cost: line.cost, discount: line.discount, weighingLine: line.lineNumber }));
         // Об ошибке открытия вкладки сообщать нечего: переход по адресу не завершается отказом сервера.
         openRecord(Objects.document.sale, null, 'tab', { initial: { basis: record['guid'], shift: record['shift'], goods: goodsOfSale } }).catch(() => undefined);
     };

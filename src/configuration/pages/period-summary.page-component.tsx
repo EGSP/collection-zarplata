@@ -1,7 +1,7 @@
-import { Alert, Card, ConfigProvider, Divider, Flex, Table, theme, Typography } from 'antd';
+import { Alert, Button, Card, ConfigProvider, Divider, Flex, Table, theme, Typography } from 'antd';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
-import { FieldDisplay, FieldInput, FluidField, Page, RecordLink, useActionResult } from '../../web/sdk';
+import { useEffect, useState } from 'react';
+import { FieldDisplay, FieldInput, FluidField, Page, RecordLink, useActionResult, useRecordList } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PaymentTotals, PeriodSummary, SummaryGoodsBlock } from '../period-summary';
 
@@ -9,6 +9,13 @@ import type { PaymentTotals, PeriodSummary, SummaryGoodsBlock } from '../period-
 function today(): string {
     const date = new Date();
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** Следующий день даты `ГГГГ-ММ-ДД`. Считается в UTC, как на сервере, чтобы переход на летнее время не сдвигал день. */
+function nextDay(day: string): string {
+    const date = new Date(`${day}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + 1);
+    return date.toISOString().slice(0, 10);
 }
 
 /** Поле дня периода: дата без времени. */
@@ -43,11 +50,52 @@ function Block({ title, empty, children }: { readonly title: string; readonly em
     );
 }
 
-/** Колонки сумм по способам оплаты. */
-const paymentColumns = <Row extends { readonly payments: PaymentTotals }>() => [
+/**
+ * Сумма в рассрочку, ещё не погашенная целиком: тёмно-фиолетовая и жирная. Так в колонке видно,
+ * у каких продаж рассрочка не закрыта, а в итоге — полная сумма в рассрочку без учёта взносов.
+ */
+function OpenInstallment({ value }: { readonly value: number }) {
+    const { token } = theme.useToken();
+    return <Typography.Text strong style={{ color: token.purple8 }}><Money value={value} /></Typography.Text>;
+}
+
+/** Ячейка из двух строк: основное значение и пояснение под ним. */
+function TwoLines({ first, second }: { readonly first: ReactNode; readonly second: ReactNode }) {
+    return (
+        <Flex vertical align="flex-end">
+            <span style={{ whiteSpace: 'nowrap' }}>{first}</span>
+            <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal', whiteSpace: 'nowrap' }}>{second}</Typography.Text>
+        </Flex>
+    );
+}
+
+/**
+ * Итог в рассрочку: полная сумма и внесённая часть под ней. Полная сумма выделена: она не учитывает
+ * взносы, и её нельзя принять за полученные деньги.
+ */
+function InstallmentTotal({ total, paid }: { readonly total: number; readonly paid: number }) {
+    return <TwoLines first={<OpenInstallment value={total} />} second={<>внесено <Money value={paid} /></>} />;
+}
+
+/** Итог всех оплат: полная сумма и сумма, в которой от рассрочки учтена только внесённая часть. */
+function GrandTotal({ total, totals, paid }: { readonly total: number; readonly totals: PaymentTotals; readonly paid: number }) {
+    return <TwoLines first={<Money value={total} />} second={<>с внесённым <Money value={totals.cash + totals.cashless + paid} /></>} />;
+}
+
+/** Строка с суммами по способам оплаты; у товара продажи есть ещё признак незакрытой рассрочки. */
+interface PaymentRow {
+    readonly payments: PaymentTotals;
+    readonly installmentOpen?: boolean;
+}
+
+/** Колонки сумм по способам оплаты. Сумма в рассрочку с незакрытой рассрочкой выделена. */
+const paymentColumns = <Row extends PaymentRow>() => [
     { title: 'Наличные', key: 'cash', align: 'right' as const, render: (_value: unknown, row: Row) => <Money value={row.payments.cash} /> },
     { title: 'Безналичные', key: 'cashless', align: 'right' as const, render: (_value: unknown, row: Row) => <Money value={row.payments.cashless} /> },
-    { title: 'Рассрочка', key: 'installment', align: 'right' as const, render: (_value: unknown, row: Row) => <Money value={row.payments.installment} /> },
+    {
+        title: 'В рассрочку', key: 'installment', align: 'right' as const,
+        render: (_value: unknown, row: Row) => row.installmentOpen === true ? <OpenInstallment value={row.payments.installment} /> : <Money value={row.payments.installment} />,
+    },
 ];
 
 /** Заливка зоны таблицы: фон строк, фон заголовка и наведения. */
@@ -79,7 +127,9 @@ function FilledZone({ title, fill, empty, children }: { readonly title: string; 
 /**
  * Товары продаж: строка на товар. Суммы оплат — доли оплат продажи, приходящиеся на товар:
  * продажа хранит оплаты целиком, а отметку «Проведено в 1С» — у каждого товара. Итоговая строка
- * показывает, сколько получено наличными и безналичными и сколько выдано в рассрочку.
+ * показывает, сколько получено наличными и безналичными и сколько выдано в рассрочку. Под суммой
+ * в рассрочку стоит внесённая по ней часть, под общим итогом — итог с внесённой частью вместо
+ * полной суммы в рассрочку.
  */
 function GoodsTable({ block }: { readonly block: SummaryGoodsBlock }) {
     return (
@@ -93,6 +143,7 @@ function GoodsTable({ block }: { readonly block: SummaryGoodsBlock }) {
                 { title: 'Продажа', key: 'sale', render: (_value, row) => <Reference kind="document" name="sale" guid={row.sale} /> },
                 { title: 'Товар', dataIndex: 'name', key: 'name' },
                 { title: 'Код', dataIndex: 'code', key: 'code' },
+                { title: 'Размер', dataIndex: 'size', key: 'size' },
                 ...paymentColumns<SummaryGoodsBlock['rows'][number]>(),
                 { title: 'Итог', key: 'total', align: 'right', render: (_value, row) => <Money value={row.total} /> },
             ]}
@@ -102,19 +153,52 @@ function GoodsTable({ block }: { readonly block: SummaryGoodsBlock }) {
                     <SummaryCell index={1} />
                     <SummaryCell index={2} />
                     <SummaryCell index={3} />
-                    <SummaryCell index={4} align="right"><Money value={block.totals.cash} /></SummaryCell>
-                    <SummaryCell index={5} align="right"><Money value={block.totals.cashless} /></SummaryCell>
-                    <SummaryCell index={6} align="right"><Money value={block.totals.installment} /></SummaryCell>
-                    <SummaryCell index={7} align="right"><Money value={block.total} /></SummaryCell>
+                    <SummaryCell index={4} />
+                    <SummaryCell index={5} align="right"><Money value={block.totals.cash} /></SummaryCell>
+                    <SummaryCell index={6} align="right"><Money value={block.totals.cashless} /></SummaryCell>
+                    <SummaryCell index={7} align="right"><InstallmentTotal total={block.totals.installment} paid={block.installmentPaid} /></SummaryCell>
+                    <SummaryCell index={8} align="right"><GrandTotal total={block.total} totals={block.totals} paid={block.installmentPaid} /></SummaryCell>
                 </Table.Summary.Row>
             )}
         />
     );
 }
 
+/** Строка совокупных итогов продаж. */
+interface AllSalesRow {
+    readonly count: number;
+    readonly payments: PaymentTotals;
+    readonly total: number;
+    readonly installmentPaid: number;
+}
+
 /**
- * Отчёт за период: продажи, товары в отвесе, взносы и должники. Продажи — одна группа из двух зон:
- * проведённое в 1С залито жёлтым, непроведённое — серым, чтобы их нельзя было спутать. Взносы
+ * Совокупные итоги продаж одной строкой: проведённые и не проведённые в 1С товары вместе.
+ * Колонки сумм те же, что в итоговых строках зон, поэтому суммы читаются как их сложение.
+ */
+function AllSalesTable({ totals }: { readonly totals: PeriodSummary['allSales'] }) {
+    const row: AllSalesRow = { count: totals.count, payments: totals.totals, total: totals.total, installmentPaid: totals.installmentPaid };
+    return (
+        <Table<AllSalesRow>
+            size="small"
+            pagination={false}
+            rowKey={() => 'all'}
+            dataSource={[row]}
+            columns={[
+                { title: 'Товаров', key: 'count', render: (_value, line) => line.count },
+                ...paymentColumns<AllSalesRow>().map((column) => column.key === 'installment'
+                    ? { ...column, render: (_value: unknown, line: AllSalesRow) => <InstallmentTotal total={line.payments.installment} paid={line.installmentPaid} /> }
+                    : column),
+                { title: 'Итог', key: 'total', align: 'right', render: (_value, line) => <Typography.Text strong><GrandTotal total={line.total} totals={line.payments} paid={line.installmentPaid} /></Typography.Text> },
+            ]}
+        />
+    );
+}
+
+/**
+ * Отчёт за период: продажи, взносы и должники, товары в отвесе. Продажи — одна группа из трёх зон:
+ * проведённое в 1С залито жёлтым, непроведённое — серым, чтобы их нельзя было спутать. Под ними
+ * синяя зона «Всего» складывает обе. Взносы
  * и должники — одна группа о рассрочках, их таблицы разделены линией.
  */
 function Summary({ summary }: { readonly summary: PeriodSummary }) {
@@ -130,34 +214,11 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                     <FilledZone title="Не проведено в 1С" fill={{ body: token.colorFillQuaternary, header: token.colorFillTertiary }} empty={summary.notPostedIn1C.rows.length === 0}>
                         <GoodsTable block={summary.notPostedIn1C} />
                     </FilledZone>
+                    <FilledZone title="Всего" fill={{ body: token.colorPrimaryBg, header: token.colorPrimaryBgHover }} empty={summary.allSales.count === 0}>
+                        <AllSalesTable totals={summary.allSales} />
+                    </FilledZone>
                 </Flex>
             </Card>
-            <Block title="Товары в отвесе" empty={weighings.rows.length === 0}>
-                <Table
-                    size="small"
-                    pagination={false}
-                    rowKey={(row) => `${row.weighing}-${weighings.rows.indexOf(row)}`}
-                    dataSource={[...weighings.rows]}
-                    columns={[
-                        { title: 'Дата', key: 'date', render: (_value, row) => <Moment value={row.date} /> },
-                        { title: 'Отвес', key: 'weighing', render: (_value, row) => <Reference kind="document" name="weighing" guid={row.weighing} /> },
-                        { title: 'Покупатель', key: 'person', render: (_value, row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                        { title: 'Товар', dataIndex: 'name', key: 'name' },
-                        { title: 'Код', dataIndex: 'code', key: 'code' },
-                        { title: 'Итог', key: 'total', align: 'right', render: (_value, row) => <Money value={row.total} /> },
-                    ]}
-                    summary={() => (
-                        <Table.Summary.Row>
-                            <SummaryCell index={0}>Итого</SummaryCell>
-                            <SummaryCell index={1} />
-                            <SummaryCell index={2} />
-                            <SummaryCell index={3} />
-                            <SummaryCell index={4} />
-                            <SummaryCell index={5} align="right"><Money value={weighings.total} /></SummaryCell>
-                        </Table.Summary.Row>
-                    )}
-                />
-            </Block>
             <Card size="small" title="Рассрочки">
                 <Typography.Text strong>Взносы</Typography.Text>
                 {payments.rows.length === 0 ? <div><Typography.Text type="secondary">Строк нет</Typography.Text></div> : (
@@ -205,7 +266,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                                         { title: 'Продажа', key: 'sale', render: (_value, row) => <Reference kind="document" name="sale" guid={row.sale} /> },
                                         { title: 'Рассрочка', key: 'installment', render: (_value, row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
                                         { title: 'Сумма рассрочки', key: 'amount', align: 'right', render: (_value, row) => <Money value={row.amount} /> },
-                                        { title: 'Долг', key: 'debt', align: 'right', render: (_value, row) => <Money value={row.debt} /> },
+                                        { title: 'Непогашенная часть долга', key: 'debt', align: 'right', render: (_value, row) => <Money value={row.debt} /> },
                                     ]}
                                 />
                             ),
@@ -213,7 +274,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                         columns={[
                             { title: 'Покупатель', key: 'person', render: (_value, row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
                             { title: 'Рассрочек', key: 'count', align: 'right', render: (_value, row) => row.installments.length },
-                            { title: 'Долг', key: 'debt', align: 'right', render: (_value, row) => <Money value={row.debt} /> },
+                            { title: 'Непогашенная часть долга', key: 'debt', align: 'right', render: (_value, row) => <Money value={row.debt} /> },
                         ]}
                         summary={() => (
                             <Table.Summary.Row>
@@ -227,12 +288,32 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                     />
                 )}
             </Card>
+            <Block title="Товары в отвесе" empty={weighings.rows.length === 0}>
+                <Table
+                    size="small"
+                    pagination={false}
+                    rowKey={(row) => `${row.weighing}-${weighings.rows.indexOf(row)}`}
+                    dataSource={[...weighings.rows]}
+                    columns={[
+                        { title: 'Дата', key: 'date', render: (_value, row) => <Moment value={row.date} /> },
+                        { title: 'Отвес', key: 'weighing', render: (_value, row) => <Reference kind="document" name="weighing" guid={row.weighing} /> },
+                        { title: 'Покупатель', key: 'person', render: (_value, row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                        { title: 'Товар', dataIndex: 'name', key: 'name' },
+                        { title: 'Код', dataIndex: 'code', key: 'code' },
+                        { title: 'Размер', dataIndex: 'size', key: 'size' },
+                    ]}
+                />
+            </Block>
         </Flex>
     );
 }
 
 /**
- * Страница «Сводка за период». Период задаётся днями включительно, по умолчанию сегодняшним днём.
+ * Страница «Сводка за период». Период задаётся днями включительно. По умолчанию он начинается
+ * с первого дня незакрытого периода, то есть со дня после последнего проведённого закрытия,
+ * и заканчивается сегодня; без закрытий отчёт строится за сегодня. Кнопки после дат ставят
+ * незакрытый период и сегодняшний день. Начало незакрытого периода подставляется, только пока
+ * пользователь не выбрал дату сам: иначе ответ сервера перезаписал бы его выбор.
  * Отчёт строит сервер действием «Сводка за период»: оно читает данные в одной транзакции,
  * и суммы блоков согласованы между собой. Должники считаются на конец периода: долг рассрочки
  * уменьшают только взносы, внесённые по последний день периода.
@@ -240,6 +321,17 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
 export default function PeriodSummaryPage() {
     const [from, setFrom] = useState<string>(today);
     const [to, setTo] = useState<string>(today);
+    const [chosen, setChosen] = useState(false);
+    const closings = useRecordList(Objects.document.periodClosing, {
+        permanentFilter: [{ field: 'posted', operator: 'equals', value: true }, { field: 'deletedAt', operator: 'equals', value: null }],
+        sort: [{ field: 'closedThrough', direction: 'descending' }],
+        pageSize: 1,
+    });
+    const closedThrough = closings.records[0]?.closedThrough ?? null;
+    const unclosedStart = closedThrough === null ? null : nextDay(closedThrough);
+    useEffect(() => {
+        if (!chosen && unclosedStart !== null) setFrom(unclosedStart);
+    }, [chosen, unclosedStart]);
     const report = useActionResult<PeriodSummary>({ object: Objects.document.periodClosing, action: 'periodSummary', payload: { periodStart: from, periodEnd: to }, enabled: from <= to });
     return (
         <Page title="Сводка за период">
@@ -249,14 +341,17 @@ export default function PeriodSummaryPage() {
                         <div style={{ width: 200 }}>
                             <FluidField label="С" required>
                                 {/* Пустое значение не принимается: отчёт всегда строится за какие-то дни. */}
-                                <FieldInput field={dayField} value={from} onChange={(value) => { if (typeof value === 'string') setFrom(value); }} />
+                                <FieldInput field={dayField} value={from} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setFrom(value); } }} />
                             </FluidField>
                         </div>
                         <div style={{ width: 200 }}>
                             <FluidField label="По" required>
-                                <FieldInput field={dayField} value={to} onChange={(value) => { if (typeof value === 'string') setTo(value); }} />
+                                <FieldInput field={dayField} value={to} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setTo(value); } }} />
                             </FluidField>
                         </div>
+                        {/* Без проведённых закрытий незакрытый период начинается с начала учёта: дня для кнопки нет. */}
+                        <Button disabled={unclosedStart === null} onClick={() => { setChosen(true); if (unclosedStart !== null) setFrom(unclosedStart); setTo(today()); }}>С незакрытого периода</Button>
+                        <Button onClick={() => { setChosen(true); setFrom(today()); setTo(today()); }}>За сегодня</Button>
                     </Flex>
                 </Card>
                 {from > to ? (

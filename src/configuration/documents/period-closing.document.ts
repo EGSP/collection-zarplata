@@ -53,7 +53,11 @@ const closing = periodClosingHead
         .field('base', (field) => field.money().title('База').required())
         .field('rate', (field) => field.number().title('Ставка, %'))
         .field('amount', (field) => field.money().title('Начислено').required())
-        .field('rule', (field) => field.string().title('Правило').required().maximumLength(500)))
+        .field('rule', (field) => field.string().title('Правило').required().maximumLength(500))
+        // Дата открытия рассрочки у строк по рассрочке: у собственной она раньше даты начисления.
+        // Строки закрытий, записанных до появления поля, её не хранят.
+        .field('installmentDate', (field) => field.dateTime().title('Рассрочка открыта'))
+        .field('installmentClosedAt', (field) => field.dateTime().title('Рассрочка закрыта')))
     .listTableParts(['employees']);
 
 type ClosingRecord = RecordOf<typeof closing>;
