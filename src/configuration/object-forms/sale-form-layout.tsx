@@ -109,6 +109,15 @@ function SaleEditingRestrictions({ editing, cancelled }: { readonly editing: boo
     return null;
 }
 
+/**
+ * Черновик продажи продают кнопкой «Продать» под оплатой, как новую продажу. Стандартная кнопка
+ * «Продать с рассрочкой» скрыта: её окно потребовало бы заново выбрать продажу и условия.
+ */
+function DraftRestrictions() {
+    useFormRestrictions(Objects.document.sale, { hiddenActions: ['sellWithInstallment'] });
+    return null;
+}
+
 /** Товар введён, если у строки заполнены обязательные название и стоимость. */
 const isEntered = (line: GoodsLine) => typeof line.name === 'string' && line.name.trim() !== '' && typeof line.cost === 'number';
 
@@ -173,10 +182,13 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
     // Отменённая продажа помечена на удаление и тоже только для просмотра: её не меняют, а оформляют новую.
     const locked = posted || (state.record !== null && (state.record['deletedAt'] ?? null) !== null);
     const changesAvailable = posted && ['saveChanges', 'changesState'].every((name) => state.view.actions.some((action) => action.name === name));
-    const sell = isNew ? state.postAction : undefined;
+    // Продать можно новую продажу и записанный черновик: черновик остаётся, например, когда сервер
+    // отклонил продажу с рассрочкой, и продавец допродаёт его той же кнопкой с условиями рассрочки.
+    const sellable = isNew || !locked;
+    const sell = sellable ? state.postAction : undefined;
     const sellWithInstallment = state.view.actions.find((action) => action.name === 'sellWithInstallment');
-    // Без права на действие продажа с рассрочкой проводится как обычная, а рассрочку оформляют потом на форме продажи.
-    const withInstallment = isNew && sellWithInstallment !== undefined && Array.isArray(payments) && payments.some((line: PaymentLine) => isInstallment(line));
+    // Без права на действие продать с оплатой «Рассрочка» нельзя: обычное проведение такую продажу отклонит.
+    const withInstallment = sellable && sellWithInstallment !== undefined && Array.isArray(payments) && payments.some((line: PaymentLine) => isInstallment(line));
     // Сумма рассрочки — сумма оплаты способом «Рассрочка»: первоначальный взнос должен быть меньше неё.
     const installmentAmount = Array.isArray(payments) ? payments.filter((line: PaymentLine) => isInstallment(line)).reduce((total: number, line: PaymentLine) => total + (line.amount as number), 0) : 0;
     const problems = withInstallment && termsChecked ? installmentTermsProblems(terms, installmentAmount) : [];
@@ -191,6 +203,7 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
     return (
         <RecordFormPage state={state} {...(state.record === null ? { buttons: newSaleButtons } : {})}>
             {locked && <SaleEditingRestrictions editing={posted && editing} cancelled={!posted} />}
+            {!isNew && !locked && <DraftRestrictions />}
             <Card size="small">
                 <FieldGroup elements={recordFormElements(state, header.filter((item) => !isElement(item)))} layout="fluid" {...common} />
                 <div hidden={(basis ?? state.record?.['basis'] ?? null) === null}>

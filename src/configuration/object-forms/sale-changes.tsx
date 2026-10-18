@@ -194,8 +194,8 @@ export interface SaleChangesProperties {
  * Сумма рассрочек следует за оплатой способом «Рассрочка»: изменение этой оплаты распределяется
  * по открытым проведённым рассрочкам (`distribute`). При нескольких таких рассрочках сотрудник
  * может задать суммы сам; экран показывает, сколько распределено и сколько осталось.
- * Сумма, на которую рассрочка не оформлена до изменения, остаётся неоформленной, а новой
- * неоформленной суммы изменение не создаёт. Если прирост оплаты «Рассрочка» некуда распределить,
+ * После изменения оплату «Рассрочка» покрывают рассрочки целиком: неоформленной суммы, на которую
+ * понадобился бы черновик рассрочки, не остаётся. Если прирост оплаты «Рассрочка» некуда распределить,
  * потому что открытых проведённых рассрочек нет (например, продажа была за наличные), экран
  * выводит блок условий новой рассрочки, как форма новой продажи: тип, покупатель, ответственный,
  * ставка и первоначальный взнос. Сохранение оформляет и проводит рассрочку с этими условиями.
@@ -258,8 +258,8 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     const line = installmentLine(payments);
     const previousLine = installmentLine(data?.sale.payments);
     const arrangedBefore = installments.filter((installment) => installment.posted).reduce((total, installment) => total + installment.amount, 0);
-    // Неоформленная до изменения сумма остаётся неоформленной: распределяется только изменение оплаты.
-    const target = line - (previousLine - arrangedBefore);
+    // Оплату «Рассрочка» после изменения покрывают рассрочки целиком, в том числе сумму, не покрытую до изменения.
+    const target = line;
     const paymentsOf = (installment: LinkedInstallment) => editedPayments.get(installment.guid) ?? installment.payments;
     const automatic = useMemo(() => distribute(installments, target - arrangedBefore, paymentsOf), [data, target, editedPayments]);
     const amountOf = (installment: LinkedInstallment): number => manual?.get(installment.guid) ?? (manual === null ? automatic.get(installment.guid) ?? installment.amount : installment.amount);

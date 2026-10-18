@@ -460,7 +460,7 @@ interface InstallmentTerms {
  * относятся к смене продажи. Собственная рассрочка проводится и остаётся открытой, банковскую
  * проводит и закрывает действие рассрочки «Оплата банком».
  */
-const arrangeInstallment = (record: SaleRecord, amount: number, terms: InstallmentTerms) => Effect.gen(function* () {
+const prepareInstallment = (record: SaleRecord, amount: number, terms: InstallmentTerms) => Effect.gen(function* () {
     const dispatcher = yield* ActionDispatcher;
     // Необязательные поля, не переданные в запросе, приходят в действие как `undefined`.
     const initialAmount = terms.initialAmount ?? null;
@@ -490,8 +490,61 @@ const arrangeInstallment = (record: SaleRecord, amount: number, terms: Installme
             },
         },
     })) as { readonly guid: string };
-    yield* dispatcher.execute({ target: installmentTarget, action: terms.type === ownInstallment ? 'post' : 'settleByBank', payload: terms.type === ownInstallment ? { guid: installment.guid } : { installment: installment.guid } });
+    return installment.guid;
 });
+
+/**
+ * Проводит записанную `prepareInstallment` рассрочку. Собственная проводится и остаётся открытой
+ * до взносов покупателя, банковскую проводит и закрывает действие рассрочки «Оплата банком».
+ */
+const completeInstallment = (guid: string, type: string) => Effect.gen(function* () {
+    const dispatcher = yield* ActionDispatcher;
+    yield* dispatcher.execute({ target: installmentTarget, action: type === ownInstallment ? 'post' : 'settleByBank', payload: type === ownInstallment ? { guid } : { installment: guid } });
+});
+
+/** Записывает и сразу проводит рассрочку: продажа уже проведена и учитывает оплату «Рассрочка». */
+const arrangeInstallment = (record: SaleRecord, amount: number, terms: InstallmentTerms) => Effect.gen(function* () {
+    yield* completeInstallment(yield* prepareInstallment(record, amount, terms), terms.type);
+});
+
+/**
+ * Сумма рассрочек по продаже с условиями: без пометки удаления, с типом и физическим лицом.
+ * Проведённые и записанные, но ещё не проведённые, считаются вместе: «Продать с рассрочкой»
+ * записывает рассрочку до проведения продажи и проводит её после. Рассрочки отбираются по описанию
+ * из метаданных: импорт документа рассрочки сюда замкнул бы файлы в кольцо.
+ */
+const arrangedAmount = (sale: string) => Effect.gen(function* () {
+    const metadata = yield* Metadata;
+    const description = metadata.find('document', installmentTarget.name);
+    if (description === undefined) return yield* Effect.die(new Error('В конфигурации нет документа «Рассрочка по продаже»'));
+    const database = yield* Database;
+    const rows = yield* database.all(query(description).select({
+        columns: ['amount', 'type', 'person'],
+        where: [{ column: 'sale', operator: '=', value: sale }, { column: 'deletedAt', operator: '=', value: null }],
+    }));
+    return rows.filter((row) => (row['type'] ?? null) !== null && (row['person'] ?? null) !== null)
+        .reduce((total, row) => total + (typeof row['amount'] === 'number' ? row['amount'] : 0), 0);
+});
+
+/**
+ * Проведённая продажа не оставляет оплату «Рассрочка» без рассрочки (раздел «Правила учёта»):
+ * иначе на неоформленную сумму понадобился бы черновик рассрочки без условий. Поэтому продажу
+ * с такой оплатой проводят только «Продать с рассрочкой», которая записывает рассрочку до
+ * проведения, а обычное проведение, в том числе по Ctrl+Enter, отклоняется. Проверка стоит
+ * на проведении: запись проведённой продажи меняет «Внести изменения», и та сама следит, чтобы
+ * оплату «Рассрочка» покрыли рассрочки.
+ */
+const saleInstallments: Policy<SaleRecord> = {
+    name: 'sale-installments',
+    post: ({ document: record }) => Effect.gen(function* () {
+        const line = installmentAmount(record);
+        if (line <= 0) return;
+        const arranged = yield* arrangedAmount(record.guid);
+        if (arranged < line) {
+            return yield* rejected(`Оплата способом «${installmentMethod}» ${rubles(line - arranged)} не оформлена рассрочкой: продайте кнопкой «Продать + Рассрочка» с условиями рассрочки или выберите другой способ оплаты`);
+        }
+    }),
+};
 
 /** Записывает рассрочку с новыми значениями вложенным `save`: запись проведённой рассрочки проводит её заново. */
 const writeInstallment = ({ existing, fields }: InstallmentWrite) => Effect.gen(function* () {
@@ -507,12 +560,11 @@ const writeInstallment = ({ existing, fields }: InstallmentWrite) => Effect.gen(
  * Способ оплаты на форме выбирает элемент `SalePaymentMode`, оплаты показывает элемент
  * `SalePayments`: при простом способе это сумма и «Куда оплачено», при сложном полная таблица.
  *
- * Неоформленную сумму рассрочки показывает элемент `SaleInstallmentArrangement`; он же выводит
- * кнопку действия «Оформить рассрочку» и передаёт ему `guid` продажи. Стандартную кнопку действия
- * элемент скрывает: её окно потребовало бы выбрать продажу.
+ * Связанные рассрочки и неоформленную сумму показывает элемент `SaleInstallmentArrangement`.
  *
- * Рассрочку создаёт действие на сервере, а не форма новой рассрочки: сумма берётся из итога
- * регистра в той же транзакции, и форма не может подставить устаревшую.
+ * Рассрочку по продаже создают только действия «Продать с рассрочкой» и «Внести изменения», сразу
+ * с типом, покупателем и ставкой: черновика рассрочки без условий нет. Проведённая продажа
+ * не оставляет оплату «Рассрочка» без рассрочки (политика `sale-installments`).
  *
  * Действие «Продать с рассрочкой» проводит продажу и сразу оформляет и проводит рассрочку по ней
  * на сумму оплат способом «Рассрочка» с типом, покупателем и ответственным из входных данных.
@@ -535,6 +587,7 @@ export const Sale = sale
     .policy(salePayments)
     .policy(saleAmount)
     .policy(saleWeighing)
+    .policy(saleInstallments)
     // Продажа закрытого периода вошла в зафиксированное начисление зарплаты и больше не меняется.
     .policy(closedPeriodByDocumentDate())
     // Подбор показывает продажу развёрнуто, а представление в ссылках и вкладках остаётся коротким.
@@ -544,44 +597,6 @@ export const Sale = sale
         .column('goods', (field) => field.string().title('Товары').required())
         .column('amount', (field) => field.money().title('Сумма').required())
         .search(searchSales))
-    .action('createInstallment', (action) => action
-        .title('Оформить рассрочку')
-        .input((input) => input.field('sale', (field) => field.reference(sale).title('Продажа').required()))
-        .handle((input) => Effect.gen(function* () {
-            const dispatcher = yield* ActionDispatcher;
-            const record = (yield* dispatcher.execute({ target, action: 'get', payload: { guid: input.sale } })) as SaleRecord;
-            // Итог есть только у проведённой продажи: непроведённая движений не записала.
-            if (!record.posted) return yield* rejected('Продажа не проведена: сначала проведите её, чтобы оформить рассрочку');
-            // Итог регистра по продаже считается запросом в транзакции действия. Запрос собран
-            // конструктором SQL, а не функцией итогов платформы: её модуль тянет серверный код
-            // в проверку типов клиента, который читает тип продажи.
-            const database = yield* Database;
-            const total = yield* database.get(query(UnarrangedInstallments).sums({
-                groupBy: [],
-                sums: ['amount'],
-                where: [{ column: 'sale', operator: '=', value: record.guid }],
-            }));
-            const amount = total?.amount ?? 0;
-            if (amount <= 0) return yield* rejected('По продаже нет суммы, на которую рассрочка ещё не оформлена');
-            // Рассрочка относится к смене, в которую её оформили, а не к смене продажи: продажа уже
-            // записала свою сумму в свою смену, а долг покупателя выдаёт смена, оформившая рассрочку.
-            const shift = yield* database.get(query(Shift).select({
-                columns: ['guid'],
-                where: [{ column: 'closedAt', operator: '=', value: null }],
-                limit: 1,
-            }));
-            if (shift === undefined) return yield* rejected('Нет открытой смены: откройте смену, чтобы оформить рассрочку');
-            // Физическое лицо берётся из отвеса-основания: покупателя продавец уже ввёл в отвесе.
-            // Необязательное поле, не переданное в запросе, приходит как `undefined`, а не `null`.
-            const basis = record.basis ?? null;
-            const person = basis === null ? null : ((yield* dispatcher.execute({ target: weighingTarget, action: 'get', payload: { guid: basis } })) as { readonly person: string }).person;
-            // Рассрочка создаётся непроведённой: тип и ответственного продавец заполняет в ней сам,
-            // а физическое лицо, если продажа не из отвеса. До проведения итог регистра она не уменьшает.
-            return yield* dispatcher.execute({
-                target: { kind: 'document', name: 'saleInstallment' }, action: 'save',
-                payload: { fields: { date: new Date().toISOString(), sale: record.guid, shift: shift.guid, amount, payments: [], person } },
-            });
-        })))
     .action('sellWithInstallment', (action) => action
         .title('Продать с рассрочкой')
         .input((input) => input
@@ -600,9 +615,12 @@ export const Sale = sale
             const record = (yield* dispatcher.execute({ target, action: 'get', payload: { guid: input.sale } })) as SaleRecord;
             const amount = installmentAmount(record);
             if (amount <= 0) return yield* rejected(`В продаже нет оплаты способом «${installmentMethod}»: проведите её без рассрочки`);
-            // Продажа проводится первой: рассрочка оформляется на итог регистра, который пишет её проведение.
+            // Рассрочка записывается до проведения продажи: проведение проверяет, что оплату «Рассрочка»
+            // покрывает рассрочка с условиями. Проводится рассрочка после продажи: её движение с минусом
+            // в регистре «Неоформленные рассрочки» допустимо только после движения продажи.
+            const installment = yield* prepareInstallment(record, amount, input);
             const posted = yield* dispatcher.execute({ target, action: 'post', payload: { guid: record.guid } });
-            yield* arrangeInstallment(record, amount, input);
+            yield* completeInstallment(installment, input.type);
             return posted;
         })))
     .action('changesState', (action) => action
@@ -666,12 +684,10 @@ export const Sale = sale
             if (arranged > line) {
                 return yield* rejected(`Сумма рассрочек ${rubles(arranged)} больше оплаты способом «${installmentMethod}» ${rubles(line)}`);
             }
-            // Неоформленная до изменения сумма может остаться или уменьшиться, но не вырасти: иначе
-            // рассрочку на неё создал бы черновик «Оформить рассрочку» без типа и покупателя. Прирост
-            // оплаты «Рассрочка», который не распределён по рассрочкам, получает новая рассрочка
-            // с условиями из входных данных, как при продаже с рассрочкой.
-            const unarrangedBefore = Math.max(0, installmentAmount(record) - state.installments.filter((installment) => installment.posted).reduce((total, installment) => total + installment.amount, 0));
-            const newAmount = line - arranged - unarrangedBefore;
+            // Оплату «Рассрочка» после изменения покрывают рассрочки целиком. Часть, которую не покрыли
+            // оформленные рассрочки, получает новая рассрочка с условиями из входных данных, как при
+            // продаже с рассрочкой. Так же оформляется сумма, не покрытая рассрочками до изменения.
+            const newAmount = line - arranged;
             const newType = input.newInstallmentType ?? null;
             const newPerson = input.newInstallmentPerson ?? null;
             if (newAmount > 0 && (newType === null || newPerson === null)) {

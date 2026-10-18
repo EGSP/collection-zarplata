@@ -59,8 +59,8 @@ export const installmentTypes = ['Банковская', ownInstallment];
 /**
  * Начало шапки: поля до суммы. Сумму объявляет документ.
  *
- * Тип и физическое лицо у поля необязательны: рассрочку по продаже создаёт действие продажи,
- * и заполняет их продавец уже в созданном документе. Когда они обязательны, решает политика.
+ * Тип и физическое лицо у поля необязательны: так открываются рассрочки, записанные до того, как
+ * их стали требовать. Записать рассрочку без них не даёт политика.
  */
 const head = <const Name extends InstallmentName>(name: Name, title: string) => document(name)
     .title(title)
@@ -119,7 +119,7 @@ export const ownInstallmentRate = Effect.gen(function* () {
 
 /**
  * Тип и физическое лицо нужны движениям и отчётам, а ставка рассрочки — расчёту зарплаты, поэтому
- * без них рассрочка не проводится. Собственной рассрочке форма и действие «Продать с рассрочкой»
+ * без них рассрочка не записывается и не проводится. Собственной рассрочке форма и действие «Продать с рассрочкой»
  * проставляют ставку «Собственная» (0 %), но её можно заменить, пока рассрочка открыта и её
  * период не закрыт.
  */
@@ -224,9 +224,9 @@ const installmentRules = (name: InstallmentName, cancelledWithBasis: CancelledWi
         if (existingRecord !== null && existingRecord.closedAt !== null) return yield* rejected(closedRejection);
         const closes = (existingRecord?.closedAt ?? null) === null && (proposedRecord.closedAt ?? null) !== null;
         if (closes) yield* requireRight(proposedRecord.type === ownInstallment ? Rights.document[name].actions.close : Rights.document[name].actions.settleByBank);
-        // Рассрочку по продаже действие продажи создаёт без типа и физического лица, поэтому
-        // её черновик записывается без них.
-        if (proposedRecord.posted) yield* checkCustomer(proposedRecord);
+        // Рассрочку создают только с полными данными: черновик без типа, физического лица
+        // и ставки не записывается, иначе долг покупателя остался бы без условий.
+        yield* checkCustomer(proposedRecord);
         if (proposedRecord.type === ownInstallment && (proposedRecord.responsibleEmployee ?? null) === null) {
             return yield* rejected('Укажите ответственного сотрудника собственной рассрочки');
         }
