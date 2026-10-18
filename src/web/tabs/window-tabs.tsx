@@ -75,9 +75,10 @@ function synchronize(state: TabsState, pathname: string, search: string): TabsSt
         const position = settled.tabs.findIndex((candidate) => candidate.id === settled.activeId) + 1;
         return { ...settled, tabs: [...settled.tabs.slice(0, position), tab, ...settled.tabs.slice(position)], activeId: tab.id };
     }
-    // Строку запроса активной вкладки меняет её список, и вкладка её запоминает. Переход на скрытую
-    // вкладку и ссылка без строки запроса состояние списка не несут: вкладка остаётся со своим.
-    const nextSearch = existing.id === settled.activeId && search !== '' ? search : existing.search;
+    // Списки сохраняют отбор при переходе по ссылке без параметров. У форм параметры задают
+    // намерение открытия (original), поэтому их нужно применять и к уже открытой скрытой вкладке.
+    const isRecordForm = /^\/(catalog|document)\/[^/]+\/[^/]+/.test(path);
+    const nextSearch = isRecordForm ? search : (existing.id === settled.activeId && search !== '' ? search : existing.search);
     if (existing.id === settled.activeId && nextSearch === existing.search) return settled;
     return {
         ...settled,

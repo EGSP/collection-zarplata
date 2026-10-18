@@ -1,4 +1,5 @@
 import { calculatedInput } from './computed-values.js';
+import { resolveRecordOpening } from './record-opening.js';
 import { Injectable } from '@nestjs/common';
 import { AuthenticationService } from '../authentication/authentication.service.js';
 import { userDirectoryAction } from '../users/users.js';
@@ -153,6 +154,10 @@ export class DataService {
             }
             if (operation.target.kind === 'platform' && operation.target.name === 'authorization') {
                 return yield* accessTreeAction(operation.action, operation.payload, user, this.rightsGuard, this.metadata.objects);
+            }
+            if (operation.target.kind === 'platform' && operation.target.name === 'records') {
+                if (operation.action !== 'resolveOpening') return yield* new DataNotFoundError({ message: `Действие «${operation.action}» для открытия записей не найдено` });
+                return yield* resolveRecordOpening(operation.payload);
             }
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
             if (description === undefined) {

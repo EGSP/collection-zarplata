@@ -312,6 +312,8 @@ export interface ObjectDescription {
     readonly tableParts: ReadonlyArray<TablePartDescription>;
     readonly actions: ReadonlyArray<ActionDescription>;
     readonly form: FormDescription | null;
+    /** Серверное правило открытия; конкретный тип записи стёрт после сборки описаний. */
+    readonly opening: ((record: never) => ObjectReferenceValue | null) | null;
     readonly policies: ReadonlyArray<PolicyDescription>;
     /**
      * Поле-ссылка, по которому строится представление записи. `null` означает собственное

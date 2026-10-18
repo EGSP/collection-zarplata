@@ -14,7 +14,7 @@ import { Effect } from 'effect';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { Database } from '../../server/database/database.effect.js';
 import { query } from '../../server/database/sql.builder.js';
-import { movements, type Policy, type RecordOf } from '../../server/metadata/index.js';
+import { movements, objectReference, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { installmentDocument } from '../installments.js';
 import { numberAndDate } from '../money.js';
 import { installmentMethod } from '../payments.js';
@@ -94,6 +94,9 @@ const oneInstallmentPerSalePolicy: Policy<RecordOf<typeof saleInstallment>> = {
 };
 
 export const SaleInstallment = saleInstallment
+    // Ссылка продолжает обозначать рассрочку, но обычный переход открывает связанную продажу.
+    // Проверка null сохраняет открытие старых данных без связи; Shift выбирает оригинал на платформе.
+    .opening((record) => record.sale == null ? null : objectReference(Sale, record.sale))
     .policy(oneInstallmentPerSalePolicy)
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     .form((form) => form

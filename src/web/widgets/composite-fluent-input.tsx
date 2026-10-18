@@ -14,11 +14,10 @@
  */
 import { AutoComplete, Button, Flex, Tooltip, Typography, type AutoCompleteProps } from 'antd';
 import { useContext, useMemo, useState } from 'react';
-import { Link } from 'react-router';
 import { compositeReference } from '../../server/metadata/composite';
 import type { CompositeValue } from '../../server/metadata/descriptions';
 import type { ObjectView } from '../../server/ui/descriptions';
-import { recordPath } from '../common/paths';
+import { RecordNavigationLink } from '../references/reference-display';
 import { findObjectView, useMetadata } from '../data-provider/metadata';
 import { useObjectReferencePresentation } from '../references/presentation';
 import { recordSuggestionKey, useRecordSuggestions } from '../references/record-suggestions';
@@ -196,7 +195,7 @@ export function CompositeFluentInput({ field, value, onChange, disabled, id, ref
                 </div>
                 {reference !== null && referenceObject !== undefined && (
                     <Tooltip title={openRecordTitle}>
-                        <Link to={recordPath(referenceObject, reference.guid)}><Button icon={<Icons.open />} aria-label={openRecordTitle} /></Link>
+                        <RecordNavigationLink object={referenceObject} guid={reference.guid}><Button icon={<Icons.open />} aria-label={openRecordTitle} /></RecordNavigationLink>
                     </Tooltip>
                 )}
             </Flex>

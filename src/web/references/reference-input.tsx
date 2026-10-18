@@ -1,6 +1,5 @@
 import { Button, Flex, Input, Select, Tooltip, Typography } from 'antd';
-import { Link } from 'react-router';
-import { recordPath } from '../common/paths';
+import { RecordNavigationLink } from './reference-display';
 import { useContext, useMemo, useState } from 'react';
 import type { ObjectView } from '../../server/ui/descriptions';
 import { useObjectView } from '../data-provider/metadata';
@@ -56,7 +55,7 @@ export function ReferenceInput(properties: InputProperties<FieldValues['referenc
             )}
             {properties.value != null && (
                 <Tooltip title={openRecordTitle}>
-                    <Link to={recordPath(object, properties.value)}><Button icon={<Icons.open />} aria-label={openRecordTitle} /></Link>
+                    <RecordNavigationLink object={object} guid={properties.value}><Button icon={<Icons.open />} aria-label={openRecordTitle} /></RecordNavigationLink>
                 </Tooltip>
             )}
         </Flex>
