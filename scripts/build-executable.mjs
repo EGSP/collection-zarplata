@@ -14,6 +14,27 @@ const outputDirectory = path.join(projectRoot, 'dist', 'executable');
 const outputPath = path.join(outputDirectory, 'collection-zarplata.exe');
 mkdirSync(outputDirectory, { recursive: true });
 
+// Загрузчик Turso ищет нативный модуль относительно import.meta.url, которого в одном сценарии
+// CommonJS нет. Модуль извлекает точка входа, а загрузчик получает путь из переменной окружения.
+const tursoNativeLoader = {
+    name: 'turso-native-loader',
+    setup(buildContext) {
+        buildContext.onLoad({ filter: /@tursodatabase[\\/]database[\\/]index\.js$/ }, (argumentsValue) => {
+            const source = readFileSync(argumentsValue.path, 'utf8');
+            if (!source.includes('createRequire(import.meta.url)')
+                || !source.includes('nativeBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);')) {
+                throw new Error('Загрузчик нативного модуля Turso изменился; проверьте упаковку заново');
+            }
+            return { contents: source
+                .replace('createRequire(import.meta.url)', 'createRequire(process.execPath)')
+                .replace("new URL('.', import.meta.url).pathname", "require('node:path').dirname(process.execPath)")
+                .replace('nativeBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);',
+                    'return require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);'),
+            loader: 'js' };
+        });
+    },
+};
+
 await build({
     entryPoints: [path.join(projectRoot, 'scripts', 'executable-entry.cjs')],
     outfile: path.join(outputDirectory, 'application.cjs'),
@@ -26,32 +47,31 @@ await build({
     // например MetadataService в MetadataService2. Nest подписывает сообщения по имени класса,
     // поэтому исходные имена нужно сохранить.
     keepNames: true,
-    plugins: [{
-        name: 'turso-native-loader',
-        setup(buildContext) {
-            buildContext.onLoad({ filter: /@tursodatabase[\\/]database[\\/]index\.js$/ }, (argumentsValue) => {
-                const source = readFileSync(argumentsValue.path, 'utf8');
-                if (!source.includes('createRequire(import.meta.url)')
-                    || !source.includes('nativeBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);')) {
-                    throw new Error('Загрузчик нативного модуля Turso изменился; проверьте упаковку заново');
-                }
-                return { contents: source
-                    .replace('createRequire(import.meta.url)', 'createRequire(process.execPath)')
-                    .replace("new URL('.', import.meta.url).pathname", "require('node:path').dirname(process.execPath)")
-                    .replace('nativeBinding = require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);',
-                        'return require(process.env.NAPI_RS_NATIVE_LIBRARY_PATH);'),
-                loader: 'js' };
-            });
-        },
-    }],
+    plugins: [tursoNativeLoader],
     external: [
         '@nestjs/microservices', '@nestjs/platform-express', '@nestjs/websockets',
         '@fastify/multipart', '@fastify/view', 'class-validator', 'class-transformer',
     ],
 });
 
+// Рабочий поток снимка базы запускается из ресурса SEA, поэтому собирается отдельным сценарием
+// с тем же загрузчиком Turso. Путь к нативному модулю поток берёт из общего process.env.
+const snapshotWorkerPath = path.join(outputDirectory, 'snapshot-worker.cjs');
+await build({
+    entryPoints: [path.join(projectRoot, 'dist', 'server', 'database', 'snapshot.worker.js')],
+    outfile: snapshotWorkerPath,
+    bundle: true,
+    platform: 'node',
+    target: 'node24',
+    format: 'cjs',
+    define: { 'import.meta.dirname': JSON.stringify('') },
+    plugins: [tursoNativeLoader],
+});
+
 const assets = {
     'turso.node': path.join(projectRoot, 'node_modules', '@tursodatabase', 'database-win32-x64-msvc', 'turso.win32-x64-msvc.node'),
+    // Имя совпадает с snapshotWorkerAsset в src/server/database/database.snapshot.ts.
+    'snapshot-worker.cjs': snapshotWorkerPath,
 };
 // Клиент и сайт документации встраиваются одинаково: каждый файл становится ресурсом,
 // имя которого начинается с имени каталога сборки.

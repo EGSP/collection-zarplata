@@ -77,13 +77,15 @@ function right(...segments: ReadonlyArray<string>): Right {
  * Права платформы, которые не относятся к объектам конфигурации. Журнал показывает изменения
  * всех объектов, поэтому его чтение — отдельное право, а не следствие права чтения объекта.
  * Перепроведение заменяет движения документов всех видов и не вызывает политики проведения,
- * поэтому право проведения отдельных документов его не разрешает.
+ * поэтому право проведения отдельных документов его не разрешает. Резервные копии содержат
+ * всю базу, поэтому их просмотр и создание тоже отдельные права.
  */
 export const platformRights = Object.freeze({
     authorization: Object.freeze({ read: right('platform', 'authorization', 'read') }),
     users: Object.freeze({ read: right('platform', 'users', 'read'), write: right('platform', 'users', 'write') }),
     journal: Object.freeze({ read: right('platform', 'journal', 'read') }),
     documents: Object.freeze({ repost: right('platform', 'documents', 'repost') }),
+    backups: Object.freeze({ read: right('platform', 'backups', 'read'), write: right('platform', 'backups', 'write') }),
 });
 
 /**

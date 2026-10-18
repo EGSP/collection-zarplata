@@ -21,3 +21,5 @@ src/configuration/*.generated.ts
 /tools/1c-xml-import/local-source/
 # Каталоги сборки инструментов, в том числе остатки прежней сборки на Rust
 /tools/**/target/
+# Резервные копии базы при запуске из исходников
+/backups/

@@ -3,6 +3,8 @@ import { Injectable } from '@nestjs/common';
 import { AuthenticationService } from '../authentication/authentication.service.js';
 import { userDirectoryAction } from '../users/users.js';
 import { accessTreeAction } from '../authorization/access-tree.js';
+import { backupAction, backupsTarget } from '../backup/backup.action.js';
+import { BackupService } from '../backup/backup.service.js';
 import { Effect } from 'effect';
 import { platformRights, requiredRight } from '../authorization/rights.js';
 import { CurrentUserRights } from '../authorization/current-user-rights.js';
@@ -80,6 +82,7 @@ export class DataService {
         private readonly database: DatabaseService,
         private readonly rightsGuard: RightsGuardPlatform,
         private readonly authentication: AuthenticationService,
+        private readonly backups: BackupService,
     ) {}
 
     /**
@@ -149,6 +152,10 @@ export class DataService {
             }
             if (operation.target.kind === 'platform' && operation.target.name === 'users') {
                 return yield* userDirectoryAction(operation.action, operation.payload, user, this.rightsGuard, (pin) => this.authentication.pinHash(pin))
+                    .pipe(Effect.provideService(ActionContext, context));
+            }
+            if (operation.target.kind === backupsTarget.kind && operation.target.name === backupsTarget.name) {
+                return yield* backupAction(operation.action, operation.payload, user, this.rightsGuard, this.backups)
                     .pipe(Effect.provideService(ActionContext, context));
             }
             if (operation.target.kind === 'platform' && operation.target.name === 'authorization') {

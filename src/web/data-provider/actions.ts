@@ -78,6 +78,11 @@ export interface ActionQuery<Action extends string = string> {
     readonly payload?: object;
     /** Читать ли результат сейчас. Пока `false`, запрос не отправляется: например, не выбрана продажа. */
     readonly enabled?: boolean;
+    /**
+     * Перечитывать результат через столько миллисекунд, пока значение не `false`. Нужен, когда
+     * сервер меняет данные сам, без действия в клиенте: например, пока идёт резервная копия.
+     */
+    readonly refreshInterval?: number | false;
 }
 
 /** Прочитанный результат действия и его обновление. */
@@ -97,12 +102,12 @@ export interface ActionResult<Result> {
  * Уведомлений нет ни об успехе, ни об отказе: отказ, например нехватка права на действие, оставляет
  * `data` пустым, и экран показывает себя без этих данных. Для изменяющих действий служит `useAction`.
  */
-export function useActionResult<Result = unknown, Action extends string = string>({ object, action, payload = {}, enabled = true }: ActionQuery<Action>): ActionResult<Result> {
+export function useActionResult<Result = unknown, Action extends string = string>({ object, action, payload = {}, enabled = true, refreshInterval = false }: ActionQuery<Action>): ActionResult<Result> {
     const { query } = useCustom<BaseRecord, ApiError>({
         url: `${resourceName(object)}/${action}`,
         method: 'post',
         config: { payload },
-        queryOptions: { enabled },
+        queryOptions: { enabled, refetchInterval: refreshInterval },
         errorNotification: false,
     });
     return {
