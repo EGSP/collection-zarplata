@@ -9,6 +9,7 @@
 - [Структура проекта](docs/project-structure.md)
 - [Метаданные](docs/metadata.md)
 - [База данных](docs/database.md)
+- [Резервное копирование](docs/backup.md)
 - [API данных](docs/single-endpoint.md)
 - [Вход в приложение](docs/authentication.md)
 - [Права (RBAC)](docs/authorization.md)

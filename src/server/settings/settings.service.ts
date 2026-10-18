@@ -3,9 +3,16 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isSea } from 'node:sea';
+import { Cron, Result } from 'effect';
 import { LaunchArguments, pinPattern, portValue } from './launch-arguments.js';
 
 const settingsFileName = 'collection-zarplata.settings.json';
+
+/** Каталог резервных копий рядом с исполняемым файлом или файлом настроек; имя не настраивается. */
+const backupDirectoryName = 'backups';
+
+/** Сколько копий хранить, если в настройках не указано `backup.keep`. */
+const defaultBackupKeep = 30;
 
 /** Порт режима памяти по умолчанию: он не совпадает с портом 3000, на который Vite направляет `/api` в режиме разработки. */
 const memoryDefaultPort = 3100;
@@ -26,12 +33,53 @@ export interface InitialUser {
     readonly roles: ReadonlyArray<string> | undefined;
 }
 
+/**
+ * Резервное копирование файла базы. Каталог задаёт платформа, а не администратор: копии всегда
+ * лежат в `backups` рядом с приложением, и их легко найти при восстановлении.
+ */
+export interface BackupSettings {
+    /** Каталог копий; `undefined` у базы в памяти: копировать нечего, и копирование недоступно. */
+    readonly directory: string | undefined;
+    /** Строки cron, по которым делаются плановые копии. Пустой список оставляет только ручные копии. */
+    readonly schedule: ReadonlyArray<string>;
+    /** Сколько последних копий хранить; более старые удаляются после каждой успешной копии. */
+    readonly keep: number;
+}
+
 interface Settings {
     readonly host: string;
     readonly port: number;
     readonly database: DatabaseLocation;
     readonly pinHmacSecret: string;
     readonly initialUsers: ReadonlyArray<InitialUser>;
+    readonly backup: BackupSettings;
+}
+
+/**
+ * Проверяет строки расписания разбором cron из Effect, тем же, что потом вычисляет сроки копий.
+ * Ошибка называет строку: иначе опечатка незаметно оставила бы базу без плановых копий.
+ */
+function backupSchedule(value: unknown, source: string): ReadonlyArray<string> {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.some((line) => typeof line !== 'string')) {
+        throw new Error(`${source}: backup.schedule должен быть списком строк cron`);
+    }
+    for (const line of value as string[]) {
+        const parsed = Cron.parse(line);
+        if (Result.isFailure(parsed)) throw new Error(`${source}: строка расписания «${line}» не разобрана: ${parsed.failure.message}`);
+    }
+    return value as string[];
+}
+
+/** Читает необязательный блок `backup` файла настроек: расписание и число хранимых копий. */
+function readBackupSettings(value: unknown, directory: string, filePath: string): BackupSettings {
+    const source = `В файле настроек ${filePath}`;
+    if (value === undefined) return { directory: path.join(directory, backupDirectoryName), schedule: [], keep: defaultBackupKeep };
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${source} backup должен быть объектом`);
+    const backup = value as Record<string, unknown>;
+    const keep = backup['keep'] ?? defaultBackupKeep;
+    if (!Number.isInteger(keep) || (keep as number) < 1) throw new Error(`${source} backup.keep должен быть целым числом не меньше 1`);
+    return { directory: path.join(directory, backupDirectoryName), schedule: backupSchedule(backup['schedule'], source), keep: keep as number };
 }
 
 function readSettingsFile(directory: string): Settings {
@@ -84,6 +132,7 @@ function readSettingsFile(directory: string): Settings {
             pin: (initialUser as { pin: string }).pin,
             roles: roles as ReadonlyArray<string> | undefined,
         }],
+        backup: readBackupSettings(settings['backup'], directory, filePath),
     };
 }
 
@@ -122,6 +171,12 @@ function testSettings(launch: LaunchArguments): Settings {
             pin: user.pin,
             roles: user.roles,
         })),
+        // Копии тестовой базы лежат рядом с её файлом, а не в каталоге проекта.
+        backup: {
+            directory: databasePath === undefined ? undefined : path.join(path.dirname(databasePath), backupDirectoryName),
+            schedule: backupSchedule(launch.testBackupSchedule, 'Параметр --test-backup-schedule'),
+            keep: defaultBackupKeep,
+        },
     };
 }
 
@@ -163,6 +218,8 @@ export class SettingsService {
     readonly pinHmacSecret: string;
     /** Первый пользователь из файла настроек либо тестовые пользователи режима памяти. */
     readonly initialUsers: ReadonlyArray<InitialUser>;
+    /** Каталог, расписание и число хранимых резервных копий. */
+    readonly backup: BackupSettings;
     /** PIN тестового пользователя для автовхода; бывает только в тестовых режимах. */
     readonly autoLoginPin: string | undefined;
     /** Срок access-токена и его cookie: `ACCESS_TOKEN_LIFETIME_SECONDS`, по умолчанию 15 минут. */
@@ -180,6 +237,7 @@ export class SettingsService {
         this.database = this.settings.database;
         this.pinHmacSecret = this.settings.pinHmacSecret;
         this.initialUsers = this.settings.initialUsers;
+        this.backup = this.settings.backup;
         this.autoLoginPin = launch.autoLoginPin;
         // Предупреждение видно в журнале запуска: без него вход без PIN выглядел бы как ошибка прав.
         if (this.database.kind === 'file' && launch.database === 'test') {

@@ -22,6 +22,11 @@ export interface LaunchArguments {
      * параметр `--auto-login-pin` или переменная окружения `AUTO_LOGIN_PIN`.
      */
     readonly autoLoginPin: string | undefined;
+    /**
+     * Строки расписания резервного копирования из повторяемого параметра `--test-backup-schedule`.
+     * Нужны, чтобы проверить копирование по расписанию на тестовой базе без файла настроек.
+     */
+    readonly testBackupSchedule: ReadonlyArray<string>;
 }
 
 /** Тестовый пользователь из параметра `--test-pin`. */
@@ -60,6 +65,7 @@ function readArguments(values: readonly string[], autoLoginVariable: string | un
     let testDatabasePath: string | undefined;
     let port: number | undefined;
     const testUsers: TestUser[] = [];
+    const testBackupSchedule: string[] = [];
     let autoLoginPin = autoLoginVariable === '' ? undefined : autoLoginVariable;
     if (autoLoginPin !== undefined && !pinPattern.test(autoLoginPin)) {
         throw new Error(`Переменная окружения AUTO_LOGIN_PIN должна содержать PIN из 4–12 цифр, получено «${autoLoginPin}»`);
@@ -82,10 +88,13 @@ function readArguments(values: readonly string[], autoLoginVariable: string | un
             testUsers.push({ pin: pin!, roles: roles?.split(',') });
         } else if (name === 'auto-login-pin' && pinPattern.test(value)) {
             autoLoginPin = value;
-        } else if (name === 'database' || name === 'test-database' || name === 'port' || name === 'test-pin' || name === 'auto-login-pin') {
-            throw new Error(`Неверное значение параметра запуска ${argument}: ожидается --database=file|memory, --test-database=<файл>, --port=1…65535, --test-pin из 4–12 цифр с необязательными ролями (--test-pin=111111:reader) или --auto-login-pin из 4–12 цифр`);
+        } else if (name === 'test-backup-schedule' && value.trim() !== '') {
+            // Строку cron проверяют настройки вместе со строками из файла: правило разбора одно.
+            testBackupSchedule.push(value.trim());
+        } else if (name === 'database' || name === 'test-database' || name === 'port' || name === 'test-pin' || name === 'auto-login-pin' || name === 'test-backup-schedule') {
+            throw new Error(`Неверное значение параметра запуска ${argument}: ожидается --database=file|memory, --test-database=<файл>, --port=1…65535, --test-pin из 4–12 цифр с необязательными ролями (--test-pin=111111:reader), --auto-login-pin из 4–12 цифр или --test-backup-schedule=<строка cron>`);
         } else {
-            throw new Error(`Неизвестный параметр запуска ${argument}. Допустимы --database, --test-database, --port, --test-pin и --auto-login-pin`);
+            throw new Error(`Неизвестный параметр запуска ${argument}. Допустимы --database, --test-database, --port, --test-pin, --auto-login-pin и --test-backup-schedule`);
         }
     }
     // Режим определяет последний из параметров выбора базы, поэтому после --database=file
@@ -102,7 +111,11 @@ function readArguments(values: readonly string[], autoLoginVariable: string | un
     if (autoLoginPin !== undefined && !testUsers.some((user) => user.pin === autoLoginPin)) {
         throw new Error(`PIN автовхода ${autoLoginPin} должен совпадать с PIN одного из параметров --test-pin`);
     }
-    return { database, testDatabasePath, port, testUsers, autoLoginPin };
+    if (testBackupSchedule.length > 0 && database !== 'test') {
+        // Копировать базу в памяти нечем, а рабочей базе расписание задаёт файл настроек.
+        throw new Error('Параметр --test-backup-schedule допустим только вместе с --test-database');
+    }
+    return { database, testDatabasePath, port, testUsers, autoLoginPin, testBackupSchedule };
 }
 
 /** Разбирает параметры процесса один раз при сборке приложения; ошибка останавливает запуск. */
