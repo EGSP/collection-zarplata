@@ -1,7 +1,7 @@
 import { Button, Card, Divider, Flex, Form } from 'antd';
 import { useEffect, useState } from 'react';
 import { PostedIn1CSwitch } from './posted-in-1c-switch';
-import { emptyInstallmentTerms, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
+import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
 import { Objects } from '../objects.generated';
 import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecord, useRecordForm, type FormElementReference, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
@@ -148,7 +148,7 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
         if (withInstallment) {
             setTermsChecked(true);
             if (installmentTermsProblems(terms, installmentAmount).length > 0) return Promise.resolve();
-            return state.run(sellWithInstallment, (saved) => ({ sale: saved['guid'], ...terms }));
+            return state.run(sellWithInstallment, (saved) => ({ sale: saved['guid'], ...installmentTermsInput(terms) }));
         }
         return sell === undefined ? Promise.resolve() : state.run(sell);
     };

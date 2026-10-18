@@ -42,8 +42,17 @@ export function installmentTermsProblems(terms: SaleInstallmentTerms, installmen
         ...(terms.person === null ? ['Укажите покупателя'] : []),
         ...(terms.type === ownInstallment && terms.responsibleEmployee === null ? ['Выберите ответственного сотрудника собственной рассрочки'] : []),
         ...(terms.type !== null && terms.type !== ownInstallment && terms.rate === null ? ['Выберите ставку банковской рассрочки'] : []),
-        ...(terms.initialAmount !== null && terms.initialAmount >= installmentAmount ? ['Первоначальный взнос должен быть меньше суммы рассрочки'] : []),
+        ...(terms.type === ownInstallment && terms.initialAmount !== null && terms.initialAmount >= installmentAmount ? ['Первоначальный взнос должен быть меньше суммы рассрочки'] : []),
     ];
+}
+
+/**
+ * Данные рассрочки для действия «Продать с рассрочкой». Первоначальный взнос передаётся только
+ * у собственной рассрочки: банковскую банк оплачивает целиком, и сервер отклоняет взнос у неё.
+ * Введённый до смены типа взнос форма хранит, чтобы он вернулся при обратном выборе «Собственная».
+ */
+export function installmentTermsInput(terms: SaleInstallmentTerms): SaleInstallmentTerms {
+    return terms.type === ownInstallment ? terms : { ...terms, initialAmount: null, initialReceiver: null };
 }
 
 /**
@@ -90,7 +99,8 @@ interface SaleInstallmentBlockProperties {
  *
  * Первоначальный взнос вводится как обычный взнос: способ, сумма и «Куда оплачено». Действие
  * оформляет рассрочку сразу с этим взносом, поэтому остаток рассрочки после продажи уже уменьшен.
- * Без суммы взноса рассрочка оформляется без взносов.
+ * Без суммы взноса рассрочка оформляется без взносов. Поля взноса есть только у собственной
+ * рассрочки: банковскую банк оплачивает целиком сам, и взнос покупателя ей не нужен.
  *
  * Значения хранит форма продажи, а не поля документа: у продажи таких полей нет, их получает
  * действие «Продать с рассрочкой».
@@ -128,7 +138,7 @@ export function SaleInstallmentBlock({ terms, onChange, shift, disabled, problem
                 <ResponsibleEmployees shift={shift} selected={terms.responsibleEmployee} disabled={disabled}
                     onSelect={(employee) => onChange({ ...terms, responsibleEmployee: employee })} />
             </Flex>
-            {method !== undefined && amount !== undefined && receiver !== undefined && (
+            {terms.type === ownInstallment && method !== undefined && amount !== undefined && receiver !== undefined && (
                 <Flex vertical gap="small">
                     <Typography.Text type="secondary">Первоначальный взнос</Typography.Text>
                     <PaymentMethodInput field={method} value={terms.initialMethod} disabled={disabled}
