@@ -7,26 +7,24 @@
  * Правила, которые здесь проверяются заранее, повторяет сервер: экран лишь не даёт отправить
  * изменения, которые сервер отклонит, и объясняет причину.
  */
-import { Alert, Button, Divider, Flex, Form, Tag, theme, Typography, type FormInstance } from 'antd';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Alert, Button, Flex, Form, Typography, type FormInstance } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ApiError,
     FieldDisplay,
     FieldInput,
-    Icons,
     saveFields,
-    TablePart,
     useAction,
     useActionConfirmation,
     useActionResult,
     useObjectView,
-    useOpenRecord,
     type FormAction,
     type FormField,
-    type FormTablePart,
     type FormValues,
     type RecordFormState,
 } from '../../web/sdk';
+import { InstallmentDivider, InstallmentPayments, Labelled, LinkedInstallmentForm, installmentTitle, paidAmount, type InstallmentPayment, type LinkedInstallment } from './linked-installment-form';
+import { LinkedInstallmentActions } from './linked-sale-installments';
 import { Objects } from '../objects.generated';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
 
@@ -38,29 +36,6 @@ const installmentMethod = 'Рассрочка';
 
 /** Способ оплаты продажи из нескольких оплат. Совпадает с `complexPayment` продажи. */
 const complexPayment = 'Сложная';
-
-/** Взнос рассрочки в данных экрана. На форме взносов до записи любая ячейка может быть пустой. */
-interface InstallmentPayment {
-    readonly date: string | null;
-    readonly method: string | null;
-    readonly amount: number | null;
-    readonly receiver: unknown;
-    readonly shift: string | null;
-}
-
-/** Рассрочка по продаже в ответе действия `changesState`. */
-interface LinkedInstallment {
-    readonly guid: string;
-    readonly number: string;
-    readonly date: string;
-    readonly type: string | null;
-    readonly person: string | null;
-    readonly responsibleEmployee: string | null;
-    readonly amount: number;
-    readonly closedAt: string | null;
-    readonly posted: boolean;
-    readonly payments: ReadonlyArray<InstallmentPayment>;
-}
 
 /** Ответ действия `changesState`: продажа, её рассрочки и версия данных. */
 interface ChangesState {
@@ -85,12 +60,6 @@ const installmentLine = (payments: unknown): number => Array.isArray(payments)
  * и в сборку клиента не входит.
  */
 const rubles = (kopecks: number) => `${(kopecks / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`;
-
-/** Сумма взносов; строка без суммы ещё не заполнена и в сумму не входит. */
-const paidAmount = (payments: ReadonlyArray<InstallmentPayment>) => payments.reduce((total, payment) => total + (payment.amount ?? 0), 0);
-
-/** Заголовок части рассрочки: номер и дата, как в представлении документа. */
-const installmentTitle = (installment: LinkedInstallment) => `Рассрочка № ${installment.number} от ${new Date(installment.date).toLocaleDateString('ru-RU')}`;
 
 /**
  * Участвует ли рассрочка в распределении: проведена. Непроведённая рассрочка итог регистра
@@ -121,58 +90,7 @@ function distribute(installments: ReadonlyArray<LinkedInstallment>, change: numb
     return amounts;
 }
 
-/** Поле с подписью над ним. */
-function Labelled({ title, children }: { readonly title: string; readonly children: ReactNode }) {
-    return (
-        <Flex vertical gap={4} style={{ minWidth: 180 }}>
-            <Typography.Text type="secondary">{title}</Typography.Text>
-            {children}
-        </Flex>
-    );
-}
-
 const money = { kind: 'money', target: null } as const;
-
-/** Свойства таблицы взносов одной рассрочки. */
-interface InstallmentPaymentsProperties {
-    /** Табличная часть «Взносы» из описания формы рассрочки. */
-    readonly part: FormTablePart;
-    readonly payments: ReadonlyArray<InstallmentPayment>;
-    readonly disabled: boolean;
-    /** Регистрирует форму таблицы, чтобы экран проверил её строки перед записью; возвращает отмену регистрации. */
-    readonly register: (form: FormInstance) => () => void;
-    readonly onChange: (payments: ReadonlyArray<InstallmentPayment>) => void;
-}
-
-/**
- * Взносы рассрочки на экране изменения: стандартная табличная часть со своей формой Ant Design.
- * Своя форма нужна потому, что значения взносов не принадлежат форме продажи: строки разных
- * рассрочек иначе лежали бы в ней по одному пути. Форма не выводит элемент `form`, поэтому
- * стоит внутри формы продажи. Смена взноса скрыта: новый взнос получает открытую смену на сервере,
- * прежний сохраняет свою.
- */
-function InstallmentPayments({ part, payments, disabled, register, onChange }: InstallmentPaymentsProperties) {
-    const [form] = Form.useForm<FormValues>();
-    useEffect(() => register(form), [form]);
-    const rows: unknown = Form.useWatch('payments', { form, preserve: true });
-    // Отчёт о строках идёт только после правки: при монтировании значения равны данным экрана.
-    const reported = useRef(false);
-    useEffect(() => {
-        if (!Array.isArray(rows)) return;
-        if (!reported.current) {
-            reported.current = true;
-            return;
-        }
-        onChange(rows as ReadonlyArray<InstallmentPayment>);
-    }, [rows]);
-    return (
-        <Form form={form} component={false} disabled={disabled} initialValues={{ payments }}>
-            <div style={{ maxWidth: 960 }}>
-                <TablePart part={part} showTitle={false} disabled={disabled} hiddenColumns={['shift']} columnWidths={{ date: 190, method: 160, amount: 150 }} addTitle="Взнос" />
-            </div>
-        </Form>
-    );
-}
 
 /** Свойства экрана изменения. */
 export interface SaleChangesProperties {
@@ -211,8 +129,6 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     const record = state.record;
     const guid = typeof record?.['guid'] === 'string' ? record['guid'] : null;
     const performAction = useAction();
-    const openRecord = useOpenRecord();
-    const { token } = theme.useToken();
     const confirmation = useActionConfirmation();
     const installmentView = useObjectView(Objects.document.saleInstallment);
     const changes = useActionResult<ChangesState>({ object: sales, action: 'changesState', payload: { sale: guid }, enabled: guid !== null });
@@ -292,8 +208,7 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
         if (amountOf(installment) < paid) problems.push(`${installmentTitle(installment)}: сумма ${rubles(amountOf(installment))} меньше взносов ${rubles(paid)}.`);
     }
 
-    /** Разделитель частей экрана: штриховая линия толще и темнее обычной, чтобы границы рассрочек были видны. */
-    const divider = <Divider variant="dashed" style={{ margin: '24px 0', borderTopWidth: 2, borderColor: token.colorTextTertiary }} />;
+    const divider = <InstallmentDivider />;
 
     const field = (name: string): FormField | undefined => installmentView?.form?.fields.find((candidate) => candidate.name === name);
     const paymentsPart = installmentView?.form?.tableParts.find((part) => part.name === 'payments');
@@ -385,84 +300,26 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     return (
         <>
             {installments.map((installment) => {
-                const closed = installment.closedAt !== null;
-                const paid = paidAmount(paymentsOf(installment));
                 const next = amountOf(installment);
-                // Взносы меняются у проведённой рассрочки, в том числе закрытой: непроведённая взносов не принимает.
-                const paymentsEditable = installment.posted;
-                const personField = field('person');
-                const employeeField = field('responsibleEmployee');
                 const amountField = field('amount');
-                return (
-                    <div key={installment.guid}>
-                        {divider}
-                        <Flex vertical gap="middle">
-                            <Flex align="center" gap="middle" wrap>
-                                <Typography.Title level={4} style={{ margin: 0 }}>{installmentTitle(installment)}</Typography.Title>
-                                <Button type="text" icon={<Icons.open />} aria-label="Открыть рассрочку" title="Открыть рассрочку"
-                                    onClick={() => void openRecord(Objects.document.saleInstallment, installment.guid)} />
-                                {installment.type !== null && <Tag style={{ marginInlineEnd: 0 }}>{installment.type}</Tag>}
-                                {!installment.posted && <Tag style={{ marginInlineEnd: 0 }}>Черновик</Tag>}
-                                {closed && <Tag color="green" style={{ marginInlineEnd: 0 }}>Закрыта</Tag>}
-                            </Flex>
-                            {closed && (
-                                <Typography.Text type="secondary">
-                                    Любое изменение снимет с рассрочки закрытие. После сохранения закройте её заново.
-                                </Typography.Text>
-                            )}
-                            <Flex gap="large" wrap>
-                                {personField !== undefined && (
-                                    <Labelled title={personField.title}>
-                                        <div style={{ width: 320 }}>
-                                            <FieldInput field={personField} disabled={saving} value={persons.has(installment.guid) ? persons.get(installment.guid) : installment.person}
-                                                onChange={(value) => setPersons((current) => new Map(current).set(installment.guid, value))} />
-                                        </div>
-                                    </Labelled>
-                                )}
-                                {employeeField !== undefined && (
-                                    <Labelled title={employeeField.title}>
-                                        <div style={{ width: 280 }}>
-                                            <FieldInput field={employeeField} disabled={saving} value={employees.has(installment.guid) ? employees.get(installment.guid) : installment.responsibleEmployee}
-                                                onChange={(value) => setEmployees((current) => new Map(current).set(installment.guid, value))} />
-                                        </div>
-                                    </Labelled>
-                                )}
-                            </Flex>
-                            <Flex gap="large" wrap align="flex-end">
-                                <Labelled title="Сумма до изменения"><FieldDisplay field={money} value={installment.amount} /></Labelled>
-                                <Labelled title="Новая сумма">
-                                    {editableAmounts && distributable(installment) && amountField !== undefined ? (
-                                        <div style={{ width: 160 }}>
-                                            <FieldInput field={amountField} value={next} disabled={saving}
-                                                onChange={(value) => setManual((current) => new Map(current ?? installments.map((candidate) => [candidate.guid, amountOf(candidate)])).set(installment.guid, typeof value === 'number' ? value : null))} />
-                                        </div>
-                                    ) : <FieldDisplay field={money} value={next} />}
-                                </Labelled>
-                                <Labelled title="Изменение">
-                                    <Typography.Text {...(next === installment.amount ? { type: 'secondary' as const } : {})}>
-                                        {next === installment.amount ? 'нет' : `${next > installment.amount ? '+' : '−'}${rubles(Math.abs(next - installment.amount))}`}
-                                    </Typography.Text>
-                                </Labelled>
-                                <Labelled title="Внесено"><FieldDisplay field={money} value={paid} /></Labelled>
-                                <Labelled title="Остаток"><FieldDisplay field={money} value={next - paid} /></Labelled>
-                            </Flex>
-                            {paymentsPart !== undefined && (
-                                <InstallmentPayments
-                                    // Новая версия данных, например после конфликта, показывает взносы заново.
-                                    key={data?.version}
-                                    part={paymentsPart}
-                                    payments={installment.payments}
-                                    disabled={saving || !paymentsEditable}
-                                    register={(form) => {
-                                        paymentForms.current.add(form);
-                                        return () => paymentForms.current.delete(form);
-                                    }}
-                                    onChange={(rows) => setEditedPayments((current) => new Map(current).set(installment.guid, rows))}
-                                />
-                            )}
-                        </Flex>
-                    </div>
-                );
+                return <LinkedInstallmentForm key={installment.guid} installment={installment} fields={installmentView?.form?.fields ?? []}
+                    editing disabled={saving} person={persons.has(installment.guid) ? persons.get(installment.guid) : installment.person}
+                    employee={employees.has(installment.guid) ? employees.get(installment.guid) : installment.responsibleEmployee}
+                    onPersonChange={(value) => setPersons((current) => new Map(current).set(installment.guid, value))}
+                    onEmployeeChange={(value) => setEmployees((current) => new Map(current).set(installment.guid, value))}
+                    amount={next} paid={paidAmount(paymentsOf(installment))}
+                    amountInput={editableAmounts && distributable(installment) && amountField !== undefined ? <div style={{ width: 160 }}>
+                        <FieldInput field={amountField} value={next} disabled={saving}
+                            onChange={(value) => setManual((current) => new Map(current ?? installments.map((candidate) => [candidate.guid, amountOf(candidate)])).set(installment.guid, typeof value === 'number' ? value : null))} />
+                    </div> : undefined}
+                    difference={<Typography.Text {...(next === installment.amount ? { type: 'secondary' as const } : {})}>
+                        {next === installment.amount ? 'нет' : `${next > installment.amount ? '+' : '−'}${rubles(Math.abs(next - installment.amount))}`}
+                    </Typography.Text>}
+                    payments={paymentsPart === undefined ? null : <InstallmentPayments key={data?.version} part={paymentsPart} payments={installment.payments}
+                        disabled={saving || !installment.posted} register={(form) => { paymentForms.current.add(form); return () => paymentForms.current.delete(form); }}
+                        onChange={(rows) => setEditedPayments((current) => new Map(current).set(installment.guid, rows))} />}>
+                    {installmentView !== undefined && <LinkedInstallmentActions installment={installment} view={installmentView} disabled />}
+                </LinkedInstallmentForm>;
             })}
             {newAmount > 0 && (
                 <>

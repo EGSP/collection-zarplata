@@ -22,10 +22,12 @@ import {
     BookOutlined,
     CalendarOutlined,
     CheckCircleOutlined,
+    CheckOutlined,
     CloseOutlined,
     CreditCardOutlined,
     DeleteOutlined,
     DownOutlined,
+    DownloadOutlined,
     EditOutlined,
     ExclamationCircleFilled,
     ExportOutlined,
@@ -122,6 +124,10 @@ export const Icons = {
     refund: RollbackOutlined,
     /** Оформление рассрочки: оплата взносами по графику. */
     installment: CalendarOutlined,
+    /** Приём взноса по рассрочке. */
+    acceptPayment: DownloadOutlined,
+    /** Подтверждение закрытия погашенной рассрочки. */
+    closeInstallment: CheckOutlined,
     // Способы оплаты: переключатель способа показывает значок рядом с названием.
     /** Оплата наличными. */
     cashPayment: WalletOutlined,

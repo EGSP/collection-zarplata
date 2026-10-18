@@ -2,9 +2,10 @@ import { Button, Card, Divider, Flex, Form } from 'antd';
 import { useEffect, useState } from 'react';
 import { PostedIn1CSwitch } from './posted-in-1c-switch';
 import { SaleChanges } from './sale-changes';
+import { LinkedSaleInstallments } from './linked-sale-installments';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
 import { Objects } from '../objects.generated';
-import { FieldGroup, Icons, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, type FormElementReference, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { FieldGroup, Icons, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Вид таблицы товаров. Код и стоимость короткие, поэтому их колонки вдвое уже, чем досталось бы
@@ -156,7 +157,7 @@ const isEntered = (line: GoodsLine) => typeof line.name === 'string' && line.nam
  * Продажу и рассрочки записывает одним запросом действие `saveChanges`. Кнопки нет без права
  * на действие и у продажи, помеченной на удаление.
  */
-function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
+function SaleFormLayout({ state, presentation }: { readonly state: RecordFormState; readonly presentation: FormPresentation }) {
     const items = (title: string) => state.view.groups.find((group) => group.title === title)?.elements ?? [];
     const isElement = (item: string | FormElementReference): item is FormElementReference => typeof item !== 'string';
     const header = items('Продажа');
@@ -181,7 +182,8 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
     const posted = state.record !== null && state.record['posted'] === true && (state.record['deletedAt'] ?? null) === null;
     // Отменённая продажа помечена на удаление и тоже только для просмотра: её не меняют, а оформляют новую.
     const locked = posted || (state.record !== null && (state.record['deletedAt'] ?? null) !== null);
-    const changesAvailable = posted && ['saveChanges', 'changesState'].every((name) => state.view.actions.some((action) => action.name === name));
+    // Совместная форма с рассрочками предназначена для вкладки; модальная карточка показывает продажу.
+    const changesAvailable = presentation === 'page' && posted && ['saveChanges', 'changesState'].every((name) => state.view.actions.some((action) => action.name === name));
     // Продать можно новую продажу и записанный черновик: черновик остаётся, например, когда сервер
     // отклонил продажу с рассрочкой, и продавец допродаёт его той же кнопкой с условиями рассрочки.
     const sellable = isNew || !locked;
@@ -246,6 +248,7 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
                     )}
                 </div>
                 {changesAvailable && editing && <SaleChanges state={state} prepare={beforeSave} onClose={() => setEditing(false)} />}
+                {presentation === 'page' && !editing && typeof state.record?.['guid'] === 'string' && <LinkedSaleInstallments sale={state.record['guid']} />}
             </Card>
         </RecordFormPage>
     );
@@ -253,10 +256,10 @@ function SaleFormLayout({ state }: { readonly state: RecordFormState }) {
 
 /** Форма существующей продажи. Поведение формы стандартное, меняется только раскладка. */
 export function SaleRecordForm(properties: RecordFormProperties) {
-    return <SaleFormLayout state={useRecordForm(properties, saleFormOptions)} />;
+    return <SaleFormLayout state={useRecordForm(properties, saleFormOptions)} presentation={properties.presentation} />;
 }
 
 /** Форма новой продажи с той же раскладкой. */
 export function SaleNewForm(properties: NewFormProperties) {
-    return <SaleFormLayout state={useRecordForm(properties, saleFormOptions)} />;
+    return <SaleFormLayout state={useRecordForm(properties, saleFormOptions)} presentation={properties.presentation} />;
 }
