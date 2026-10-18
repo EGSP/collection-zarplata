@@ -13,11 +13,41 @@ import type { UserRights } from '../authorization/rights-guard.platform.js';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
 import { query } from '../database/sql.builder.js';
-import type { ObjectDescription, ObjectReferenceValue } from '../metadata/descriptions.js';
+import type { ObjectDescription, ObjectReferenceValue, ObjectTarget } from '../metadata/descriptions.js';
 import type { ListColumn } from '../ui/descriptions.js';
 import { columnReference, presentationSource, recordPresentation, referenceKey, type ReferencePresentations } from '../ui/reference-presentation.js';
 import { formatSearchValue, formatDate, formatDateTime } from '../ui/value-format.js';
 import type { RecordValue } from './records.js';
+
+/** Объекты, на записи которых ссылается представление записей объекта: по ссылке или из своих полей и частей. */
+function presentationTargets(object: ObjectDescription): ReadonlyArray<ObjectTarget> {
+    const targets: Array<ObjectTarget> = object.presentation === null ? [] : [object.presentation.target];
+    for (const part of object.presentationParts) {
+        if ('text' in part) continue;
+        const fields = 'tablePart' in part ? object.tableParts.find((candidate) => candidate.name === part.tablePart)?.fields ?? [] : object.fields;
+        const field = fields.find((candidate) => candidate.name === part.field);
+        if (field?.kind === 'reference' && field.target !== null) targets.push(field.target);
+    }
+    return targets;
+}
+
+/**
+ * Порядок чтения объектов: объект идёт после объектов, на которые ссылается его представление.
+ * Циклы представлений отклоняет `commit()`, поэтому порядок существует; ссылки на объекты
+ * вне набора на порядок не влияют.
+ */
+function presentationOrder(objects: ReadonlyArray<ObjectDescription>): ReadonlyArray<ObjectDescription> {
+    const ordered: Array<ObjectDescription> = [];
+    const remaining = [...objects];
+    const waitsFor = (object: ObjectDescription) => presentationTargets(object)
+        .some((target) => remaining.some((other) => other !== object && other.kind === target.kind && other.name === target.name));
+    while (remaining.length > 0) {
+        // Без найденного объекта порядок не важен: в наборе остался цикл, которого не пропускает `commit()`.
+        const index = Math.max(0, remaining.findIndex((object) => !waitsFor(object)));
+        ordered.push(...remaining.splice(index, 1));
+    }
+    return ordered;
+}
 
 /** Кеш и пакетное чтение ссылок списка в транзакции вызывающего действия. */
 export class ListPresentations {
@@ -139,7 +169,11 @@ export class ListPresentations {
                 group.set(reference.guid, reference);
                 groups.set(object, group);
             }
-            for (const [object, group] of groups) {
+            // Группы читаются после тех, на которые ссылаются их представления: ссылки уже
+            // зарезервированы в кеше, и представление смены, прочитанной раньше сотрудников порции,
+            // нашло бы их пустыми и показало «Запись недоступна».
+            for (const object of presentationOrder([...groups.keys()])) {
+                const group = groups.get(object)!;
                 const guids = [...group.keys()];
                 for (let start = 0; start < guids.length; start += 500) {
                     const identifiers = guids.slice(start, start + 500);

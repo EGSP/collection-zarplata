@@ -8,10 +8,12 @@ export interface SaleInstallmentTerms {
     readonly type: string | null;
     readonly person: string | null;
     readonly responsibleEmployee: string | null;
+    /** Ставка банковской рассрочки; собственной ставку проставляет сервер. */
+    readonly rate: string | null;
 }
 
 /** Данные рассрочки до ввода: ничего не выбрано. */
-export const emptyInstallmentTerms: SaleInstallmentTerms = { type: null, person: null, responsibleEmployee: null };
+export const emptyInstallmentTerms: SaleInstallmentTerms = { type: null, person: null, responsibleEmployee: null, rate: null };
 
 /** Собственная рассрочка: её ведёт магазин, и ответственный сотрудник обязателен. */
 const ownInstallment = 'Собственная';
@@ -26,6 +28,7 @@ export function installmentTermsProblems(terms: SaleInstallmentTerms): ReadonlyA
         ...(terms.type === null ? ['Выберите тип рассрочки'] : []),
         ...(terms.person === null ? ['Укажите покупателя'] : []),
         ...(terms.type === ownInstallment && terms.responsibleEmployee === null ? ['Выберите ответственного сотрудника собственной рассрочки'] : []),
+        ...(terms.type !== null && terms.type !== ownInstallment && terms.rate === null ? ['Выберите ставку банковской рассрочки'] : []),
     ];
 }
 
@@ -37,6 +40,9 @@ const installmentTypes: ReadonlyArray<{ readonly value: string; readonly icon: C
     { value: 'Собственная', icon: Icons.ownInstallment },
     { value: 'Банковская', icon: Icons.bankInstallment },
 ];
+
+/** Поле «Ставка рассрочки»: ссылка на справочник ставок, как поле `rate` рассрочки по продаже. */
+const rateField = { kind: 'reference', target: { kind: Objects.catalog.installmentRates.kind, name: Objects.catalog.installmentRates.name } } as const;
 
 /** Поле «Покупатель»: ссылка на физическое лицо, как поле `person` рассрочки по продаже. */
 const personField = { kind: 'reference', target: { kind: Objects.catalog.physicalPersons.kind, name: Objects.catalog.physicalPersons.name } } as const;
@@ -57,7 +63,9 @@ interface SaleInstallmentBlockProperties {
  * «Рассрочка»: на эту сумму при продаже оформляется рассрочка по продаже, и продавцу нужно
  * указать её тип, покупателя и ответственного сотрудника.
  *
- * Тип выбирается кнопками со значками магазина и банка. Ответственного выбирают из состава
+ * Тип выбирается кнопками со значками магазина и банка. У банковской рассрочки выбирают ставку банка:
+ * по ней расчёт зарплаты уменьшает базу начисления. Собственной рассрочке ставку 0 % проставляет
+ * сервер, поэтому поля ставки у неё нет. Ответственного выбирают из состава
  * смены продажи нажатием на ФИО: повторное нажатие снимает выбор. Ответственный нужен только
  * собственной рассрочке; без него сервер откажет при продаже, и продажа не проведётся.
  *
@@ -79,6 +87,11 @@ export function SaleInstallmentBlock({ terms, onChange, shift, disabled, problem
                     label: <Flex gap={6} align="center"><type.icon />{type.value}</Flex>,
                 }))}
             />
+            {terms.type !== null && terms.type !== ownInstallment && (
+                <FluidField label="Ставка рассрочки" required>
+                    <FieldInput field={rateField} value={terms.rate} disabled={disabled} onChange={(rate) => onChange({ ...terms, rate: typeof rate === 'string' ? rate : null })} />
+                </FluidField>
+            )}
             {/* Ширина free, как у поля «Покупатель» в описаниях документов: ФИО не обрезается. */}
             <FluidField label="Покупатель" required free>
                 <FieldInput field={personField} value={terms.person} disabled={disabled} onChange={(person) => onChange({ ...terms, person: typeof person === 'string' ? person : null })} />

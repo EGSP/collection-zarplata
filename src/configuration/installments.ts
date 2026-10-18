@@ -29,10 +29,12 @@ import {
     type TablePartMap,
 } from '../server/metadata/index.js';
 import { Employees } from './catalogs/employees.catalog.js';
+import { InstallmentRates, ownInstallmentRateName } from './catalogs/installment-rates.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { Rights } from './configuration.generated.js';
 import { Shift } from './documents/shift.document.js';
 import { rubles } from './money.js';
+import { closedPeriodPolicy } from './policies/closed-period.js';
 import { paymentMethods, Payments, receiverField } from './payments.js';
 import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
@@ -58,6 +60,8 @@ export const installmentTypes = ['Банковская', ownInstallment];
 const head = <const Name extends InstallmentName>(name: Name, title: string) => document(name)
     .title(title)
     .field('type', (field) => field.string().title('Тип').choices(installmentTypes))
+    // Ставку банка читает расчёт зарплаты: она уменьшает базу начисления и выбирает ступень ставки сотрудника.
+    .field('rate', (field) => field.reference(InstallmentRates).title('Ставка рассрочки'))
     .field('shift', (field) => field.reference(Shift).title('Смена').required())
     .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').width('free'))
     .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник').width('long'));
@@ -94,13 +98,100 @@ const closedRejection = 'Рассрочка закрыта, изменить е�
 const notPosted = 'Рассрочка не проведена: сначала проведите её';
 
 /**
- * Тип и физическое лицо нужны движениям и отчётам, поэтому без них рассрочка не проводится.
+ * Ставка «Собственная» (0 %): её получает собственная рассрочка. Запись создаёт сервер при запуске;
+ * если её удалили или пометили на удалении, рассрочку не оформить, и отказ называет причину.
  */
-const checkCustomer = (record: InstallmentRecord) => {
+export const ownInstallmentRate = Effect.gen(function* () {
+    const database = yield* Database;
+    const rate = yield* database.get(query(InstallmentRates).select({
+        columns: ['guid'],
+        where: [{ column: 'name', operator: '=', value: ownInstallmentRateName }, { column: 'deletedAt', operator: '=', value: null }],
+        limit: 1,
+    }));
+    if (rate === undefined) return yield* rejected(`В справочнике «Ставки по рассрочке» нет ставки «${ownInstallmentRateName}»`);
+    return rate.guid;
+});
+
+/**
+ * Тип и физическое лицо нужны движениям и отчётам, а ставка рассрочки — расчёту зарплаты, поэтому
+ * без них рассрочка не проводится. Собственной рассрочке форма и действие «Продать с рассрочкой»
+ * проставляют ставку «Собственная» (0 %), но её можно заменить, пока рассрочка открыта и её
+ * период не закрыт.
+ */
+const checkCustomer = (record: InstallmentRecord) => Effect.gen(function* () {
     // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
-    if ((record.type ?? null) === null) return Effect.fail(rejected('Укажите тип рассрочки'));
-    if ((record.person ?? null) === null) return Effect.fail(rejected('Укажите физическое лицо рассрочки'));
+    if ((record.type ?? null) === null) return yield* rejected('Укажите тип рассрочки');
+    if ((record.person ?? null) === null) return yield* rejected('Укажите физическое лицо рассрочки');
+    const rate = record.rate ?? null;
+    if (rate === null) return yield* rejected('Выберите ставку рассрочки');
+});
+
+/** Момент значения даты со временем: строки хранятся с часовым поясом клиента, и их сравнение дало бы неверный порядок. */
+const moment = (value: string): number => new Date(value).getTime();
+
+/**
+ * Дата последнего взноса рассрочки; без взносов `null`. Так же её считает форма рассрочки,
+ * когда предлагает дату закрытия: рассрочка погашена этим взносом.
+ */
+const lastPaymentDate = (payments: ReadonlyArray<{ readonly date: string }>): string | null =>
+    payments.reduce<string | null>((latest, payment) => latest === null || moment(payment.date) > moment(latest) ? payment.date : latest, null);
+
+/**
+ * Дата закрытия задаётся пользователем, а не берётся текущей: собственная рассрочка начисляется
+ * в зарплату периодом закрытия, и закрыть погашенную рассрочку нужно датой, когда её погасили.
+ * Поэтому дата не раньше последнего взноса и даты рассрочки и не позже текущего момента:
+ * раньше погашения рассрочка закрыта быть не могла, а будущей датой событие ещё не наступило.
+ */
+const checkClosingDate = (record: InstallmentRecord) => {
+    const closedAt = moment(record.closedAt!);
+    const latest = lastPaymentDate(record.payments);
+    if (latest !== null && closedAt < moment(latest)) return Effect.fail(rejected('Дата закрытия раньше последнего взноса'));
+    if (closedAt < moment(record.date)) return Effect.fail(rejected('Дата закрытия раньше даты рассрочки'));
+    if (closedAt > Date.now()) return Effect.fail(rejected('Дата закрытия ещё не наступила'));
     return Effect.void;
+};
+
+/** Поля шапки, изменение которых меняет рассрочку целиком, а не её взносы или закрытие. */
+const headFields = ['date', 'type', 'rate', 'shift', 'person', 'responsibleEmployee', 'amount', 'sale'] as const;
+
+/** Значения поля для сравнения: необязательное поле, не переданное в запросе, приходит как `undefined`. */
+const comparable = (value: unknown): string => JSON.stringify(value ?? null);
+
+/** Строка взноса для сравнения: колонки по порядку, пустые как `null`. */
+const paymentKey = (payment: InstallmentRecord['payments'][number]): string =>
+    comparable([payment.date, payment.method, payment.amount, payment.receiver, payment.shift]);
+
+/** Все даты учёта рассрочки: её дата, даты взносов и дата закрытия. */
+const installmentDates = (record: InstallmentRecord): string[] => [
+    record.date,
+    ...record.payments.map((payment) => payment.date),
+    ...(record.closedAt ?? null) === null ? [] : [record.closedAt!],
+];
+
+/**
+ * Даты, которые затрагивает запись рассрочки: только у изменённых частей. Рассрочка из закрытого
+ * периода продолжает принимать взносы, поэтому новый взнос проверяется своей датой, а прежние
+ * взносы и дата рассрочки не проверяются, пока не изменились. Изменение шапки затрагивает дату
+ * рассрочки до и после записи; добавленный или удалённый взнос — свою дату; закрытие — свою.
+ */
+const changedInstallmentDates = (existingRecord: InstallmentRecord | null, proposedRecord: InstallmentRecord): string[] => {
+    if (existingRecord === null) return installmentDates(proposedRecord);
+    const fields = (record: InstallmentRecord) => record as unknown as Record<string, unknown>;
+    const headChanged = headFields.some((name) => comparable(fields(existingRecord)[name]) !== comparable(fields(proposedRecord)[name]));
+    const dates = headChanged ? [existingRecord.date, proposedRecord.date] : [];
+    // Взносы сравниваются как мультимножества: совпавшие строки взаимно вычёркиваются.
+    const remaining = existingRecord.payments.map((payment) => ({ key: paymentKey(payment), date: payment.date }));
+    for (const payment of proposedRecord.payments) {
+        const index = remaining.findIndex((candidate) => candidate.key === paymentKey(payment));
+        if (index === -1) dates.push(payment.date);
+        else remaining.splice(index, 1);
+    }
+    // Оставшиеся строки прежней записи удалены или изменены: их даты тоже затронуты.
+    dates.push(...remaining.map((payment) => payment.date));
+    const existingClosedAt = existingRecord.closedAt ?? null;
+    const proposedClosedAt = proposedRecord.closedAt ?? null;
+    if (existingClosedAt !== proposedClosedAt) dates.push(...[existingClosedAt, proposedClosedAt].filter((date): date is string => date !== null));
+    return dates;
 };
 
 /**
@@ -127,6 +218,7 @@ const installmentRules = (name: InstallmentName): Policy<InstallmentRecord> => (
         if ((proposedRecord.closedAt ?? null) !== null && proposedRecord.balance !== 0) {
             return yield* rejected(`Рассрочку можно закрыть, только когда остаток равен нулю, а он равен ${rubles(proposedRecord.balance)}`);
         }
+        if (closes) yield* checkClosingDate(proposedRecord);
     }),
     post: ({ document: record }) => checkCustomer(record),
     markDeleted: ({ record }) => record.closedAt === null ? Effect.void : Effect.fail(rejected(closedRejection)),
@@ -180,6 +272,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
 
     const complete = base
         .policy(installmentRules(name))
+        .policy(closedPeriodPolicy(installmentDates, changedInstallmentDates))
         .posting((record) => Effect.gen(function* () {
             // Политика не пропускает проведение без физического лица; проверка сужает тип поля.
             if (record.person === null) return yield* rejected('Укажите физическое лицо рассрочки');
@@ -225,13 +318,15 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
             })))
         .action('close', (action) => action
             .title('Закрыть')
-            .input((input) => input.field('installment', (field) => field.reference(base).title('Рассрочка').required()))
+            .input((input) => input
+                .field('installment', (field) => field.reference(base).title('Рассрочка').required())
+                .field('closedAt', (field) => field.dateTime().title('Дата закрытия').required()))
             .handle((input) => Effect.gen(function* () {
                 const record = yield* read(input.installment);
                 if (record.closedAt !== null) return yield* rejected('Рассрочка уже закрыта');
                 if (!record.posted) return yield* rejected(`${notPosted}, чтобы закрыть её`);
-                // Условие закрытия проверяет политика: она же отклонит запись формы с датой закрытия.
-                return yield* write(record, { closedAt: new Date().toISOString() });
+                // Условие закрытия и допустимость даты проверяет политика: она же отклонит запись формы с датой закрытия.
+                return yield* write(record, { closedAt: input.closedAt });
             })));
     // Точный тип существует только на уровне типов: билдер хранит поля документа в состоянии,
     // а общая часть добавлена к тем же полям.

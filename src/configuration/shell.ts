@@ -8,6 +8,7 @@
 import { shell } from '../server/ui/shell.js';
 import { Discounts } from './catalogs/discounts.catalog.js';
 import { Employees } from './catalogs/employees.catalog.js';
+import { InstallmentRates } from './catalogs/installment-rates.catalog.js';
 import { Nomenclature } from './catalogs/nomenclature.catalog.js';
 import { PaymentReceivers } from './catalogs/payment-receivers.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
@@ -25,6 +26,8 @@ import { ExternalLinks } from './information-registers/external-links.informatio
 import { SampleCompositeInformation } from './information-registers/sample-composite.information-register.js';
 import { SampleInformation } from './information-registers/sample.information-register.js';
 import { SampleWorkplace } from './pages/sample-workplace.page.js';
+import { Payroll } from './pages/payroll.page.js';
+import { PeriodSummary } from './pages/period-summary.page.js';
 import { SellerWorkplace } from './pages/seller-workplace.page.js';
 import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
@@ -38,10 +41,12 @@ export const applicationShell = shell()
         .group('Рабочие места', [SellerWorkplace])
         .group('Документы', [Sale, Weighing, Refund, SaleInstallment])
         .group('Регистры', [SalesNetOfReturns, InstallmentDebts, MoneyReceipts, UnarrangedInstallments])
-        .group('Справочники', [Discounts, PaymentReceivers]))
+        .group('Справочники', [Discounts, PaymentReceivers, InstallmentRates])
+        .group('Зарплата', [Payroll, PeriodClosing])
+        .group('Отчёты', [PeriodSummary]))
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')
         .group('Справочники', [PhysicalPersons, Employees, Nomenclature, Sample, SampleDelegate])
-        .group('Документы', [Shift, PeriodClosing, SampleDocument, SampleSelection])
+        .group('Документы', [Shift, SampleDocument, SampleSelection])
         .group('Регистры', [SampleRegister, ExternalLinks, SampleInformation, SampleCompositeInformation])
         .group('Рабочие места', [SampleWorkplace]));

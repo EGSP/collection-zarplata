@@ -12,11 +12,12 @@ function useCreatable(object: PerformTarget): boolean {
     return useObjectView(object)?.form?.actions.some((action) => action.name === 'save') === true;
 }
 
+/** Высота тайла действия: такой она была с пояснением в три строки. */
+const actionTileHeight = 168;
+
 /** Свойства тайла действия продавца. */
 interface ActionTileProperties {
     readonly title: string;
-    /** Пояснение под заголовком: что оформляет действие. */
-    readonly description: string;
     /** Подпись кнопки: глагол действия, например «Продать». */
     readonly action: string;
     /** Иконка кнопки из реестра `Icons`; у каждого действия своя. */
@@ -26,15 +27,16 @@ interface ActionTileProperties {
 }
 
 /**
- * Тайл одного действия продавца: заголовок, пояснение и единственная кнопка, открывающая новый
- * документ во вкладке. Списка и общей кнопки «Создать» у тайла нет: продавцу нужно только
+ * Тайл одного действия продавца: заголовок и единственная кнопка, открывающая новый документ
+ * во вкладке. Пояснения нет, но высота тайла прежняя: крупная кнопка остаётся на привычном месте
+ * и в неё легко попасть. Списка и общей кнопки «Создать» у тайла нет: продавцу нужно только
  * оформить операцию, а найти прежние документы можно в разделе «Продажи».
  *
  * Тайла нет у пользователя без права записи документа: кнопка, которая всегда завершается
  * отказом, продавцу не нужна. Оформление тайла повторяет `Tile` из SDK: фон карточки без рамки
  * и скруглённые углы, поэтому тайлы действий и плитки главного экрана выглядят одинаково.
  */
-function ActionTile({ title, description, action, icon: Icon, object }: ActionTileProperties) {
+function ActionTile({ title, action, icon: Icon, object }: ActionTileProperties) {
     const { token } = theme.useToken();
     const openRecord = useOpenRecord();
     if (!useCreatable(object)) return null;
@@ -44,12 +46,9 @@ function ActionTile({ title, description, action, icon: Icon, object }: ActionTi
                 vertical
                 justify="space-between"
                 gap="middle"
-                style={{ height: '100%', padding: token.padding, borderRadius: token.borderRadiusLG, background: token.colorBgContainer }}
+                style={{ height: '100%', minHeight: actionTileHeight, padding: token.padding, borderRadius: token.borderRadiusLG, background: token.colorBgContainer }}
             >
-                <Flex vertical gap="small">
-                    <Typography.Text style={{ fontSize: token.fontSizeHeading4, lineHeight: token.lineHeightHeading4 }}>{title}</Typography.Text>
-                    <Typography.Text type="secondary">{description}</Typography.Text>
-                </Flex>
+                <Typography.Text style={{ fontSize: token.fontSizeHeading4, lineHeight: token.lineHeightHeading4 }}>{title}</Typography.Text>
                 <Button type="primary" size="large" block icon={<Icon />} onClick={() => void openRecord(object, null)}>
                     {action}
                 </Button>
@@ -126,9 +125,9 @@ function OpenShiftWorkplace({ shift }: { readonly shift: OpenShiftState }) {
         <Flex vertical gap="middle">
             <ShiftHeader shift={shift} />
             <Row gutter={[16, 16]}>
-                <ActionTile title="Продажа" description="Продажа товара с оплатой наличными, безналичными или сложной оплатой." action="Продать" icon={Icons.sell} object={Objects.document.sale} />
-                <ActionTile title="Отвес" description="Товар откладывается для покупателя до продажи или вывешивания." action="Отложить товар" icon={Icons.weigh} object={Objects.document.weighing} />
-                <ActionTile title="Возврат" description="Возврат товара по проведённой продаже." action="Оформить возврат" icon={Icons.refund} object={Objects.document.refund} />
+                <ActionTile title="Продажа" action="Продать" icon={Icons.sell} object={Objects.document.sale} />
+                <ActionTile title="Отвес" action="Отложить товар" icon={Icons.weigh} object={Objects.document.weighing} />
+                <ActionTile title="Возврат" action="Оформить возврат" icon={Icons.refund} object={Objects.document.refund} />
             </Row>
             {/* Линия делит экран на действия и справки. Цвет рамки, а не разделителя: на сером фоне
                 страницы стандартная линия Ant Design почти не видна. */}

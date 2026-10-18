@@ -25,6 +25,7 @@ import {
     CloseOutlined,
     CreditCardOutlined,
     DeleteOutlined,
+    DownOutlined,
     ExportOutlined,
     FileTextOutlined,
     FilterOutlined,
@@ -39,6 +40,7 @@ import {
     PlusOutlined,
     ProfileOutlined,
     ReadOutlined,
+    RightOutlined,
     RollbackOutlined,
     SaveOutlined,
     SearchOutlined,
@@ -74,6 +76,10 @@ export const Icons = {
     lookup: SearchOutlined,
     /** Меню остальных действий с элементом. */
     more: MoreOutlined,
+    /** Свёрнутая группа строк: нажатие раскроет её. */
+    expand: RightOutlined,
+    /** Раскрытая группа строк: нажатие свернёт её. */
+    collapse: DownOutlined,
     /** Главная вкладка. */
     home: HomeOutlined,
     /** Документация приложения. */

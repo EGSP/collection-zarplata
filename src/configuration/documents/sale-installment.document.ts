@@ -25,7 +25,7 @@ export const SaleInstallment = installmentDocument('saleInstallment', 'Расс�
 (record) => [movements(UnarrangedInstallments, [{ sale: record.sale, amount: 0 - record.amount }])])
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     .form((form) => form
-        .group('Рассрочка', ['number', 'date', 'sale', 'type', 'shift', 'person', 'responsibleEmployee', 'amount'])
+        .group('Рассрочка', ['number', 'date', 'sale', 'type', 'rate', 'shift', 'person', 'responsibleEmployee', 'amount'])
         .group('Взносы', ['payments', 'balance'])
         .hide('closedAt')
         .hide('posted'));

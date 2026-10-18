@@ -10,6 +10,7 @@ import { SettingsService } from '../settings/settings.service.js';
 import { InitialDataError } from './initial-data.errors.js';
 import { runImportTool } from './import-tool.js';
 import { createInitialUsers } from './initial-users.js';
+import { ownInstallmentRateOperations } from './own-installment-rate.js';
 import { randomEmployeeOperations } from './random-employees.js';
 
 /** Сколько случайных сотрудников создаётся из загруженных физических лиц. */
@@ -41,7 +42,8 @@ export class InitialDataService {
      *
      * ```text
      * пользователи → ┬ физические лица → случайные сотрудники
-     *                └ номенклатура
+     *                ├ номенклатура
+     *                └ ставка собственной рассрочки
      * ```
      *
      * Пользователи нужны утилите для входа. Две ветки импорта независимы и идут параллельно;
@@ -54,6 +56,7 @@ export class InitialDataService {
             Effect.andThen((pin) => Effect.all([
                 this.importCatalog('physical-persons', pin).pipe(Effect.andThen(this.createRandomEmployees(pin))),
                 this.importCatalog('nomenclature', pin),
+                this.createOwnInstallmentRate(pin),
             ], { concurrency: 'unbounded', discard: true })),
             Effect.provideService(Database, this.database.effect),
         );
@@ -83,6 +86,25 @@ export class InitialDataService {
             Effect.tap((summary) => Effect.sync(() => this.logger.log(`Импорт «${mapping}»: ${summary}`))),
             Effect.asVoid,
         );
+    }
+
+    /** Создаёт ставку «Собственная» (0 %), если её нет: её получает каждая собственная рассрочка. */
+    private createOwnInstallmentRate(pin: string) {
+        return Effect.gen(function* (this: InitialDataService) {
+            const operations = yield* ownInstallmentRateOperations;
+            if (operations.length === 0) return;
+            const userGuid = yield* this.authentication.activeUserGuid(pin);
+            if (userGuid === undefined) {
+                return yield* new InitialDataError({ message: 'Начальный пользователь не найден в базе или отключён: его PIN в настройках не совпадает с сохранённым' });
+            }
+            yield* Effect.tryPromise({
+                try: () => this.data.perform(operations, userGuid),
+                catch: (cause) => new InitialDataError({
+                    message: `Не удалось создать ставку собственной рассрочки: ${cause instanceof Error ? cause.message : String(cause)}`,
+                }),
+            });
+            this.logger.log('Создана ставка собственной рассрочки');
+        }.bind(this));
     }
 
     /** Записывает сотрудников одним пакетом: при ошибке любой записи не остаётся ни одного. */
