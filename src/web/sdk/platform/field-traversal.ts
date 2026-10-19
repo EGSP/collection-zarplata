@@ -6,7 +6,7 @@
  * сейчас нет. Табличная часть входит в порядок одной остановкой: внутри неё ячейки обходит она сама.
  */
 import type { KeyboardEvent, RefCallback } from 'react';
-import type { InputHandle } from '../widgets/widget';
+import type { InputHandle } from '../../widgets/widget';
 import { useFieldFocus } from './field-focus';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
 

@@ -11,14 +11,17 @@ import { Alert, Button, Flex, Form, Typography, type FormInstance } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ApiError,
+    Column,
     FieldDisplay,
     FieldInput,
+    Grid,
     saveFields,
     useAction,
     useActionConfirmation,
     useActionResult,
     useObjectView,
     useFormRestrictions,
+    type ColumnCount,
     type FormAction,
     type FormField,
     type FormValues,
@@ -93,6 +96,9 @@ function distribute(installments: ReadonlyArray<LinkedInstallment>, change: numb
 }
 
 const money = { kind: 'money', target: null } as const;
+
+/** Ширина блока новой рассрочки в колонках сетки, как у блока рассрочки на форме продажи. */
+const newInstallmentSpan: ColumnCount = { lg: 6 };
 
 /** Свойства экрана изменения. */
 export interface SaleChangesProperties {
@@ -339,14 +345,19 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
             {newAmount > 0 && (
                 <>
                     {divider}
-                    <Flex vertical gap="middle" style={{ maxWidth: 480 }}>
-                        <Flex align="baseline" gap="middle" wrap>
-                            <Typography.Title level={4} style={{ margin: 0 }}>Новая рассрочка</Typography.Title>
-                            <Typography.Text>на <FieldDisplay field={money} value={newAmount} /></Typography.Text>
-                        </Flex>
-                        <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={saving || termsLocked}
-                            problems={termsChecked ? termsProblems : []} input={sellWithInstallment?.input ?? []} />
-                    </Flex>
+                    {/* Новая рассрочка той же ширины, что блок рассрочки на форме продажи. */}
+                    <Grid>
+                        <Column span={newInstallmentSpan}>
+                            <Flex vertical gap="middle">
+                                <Flex align="baseline" gap="middle" wrap>
+                                    <Typography.Title level={4} style={{ margin: 0 }}>Новая рассрочка</Typography.Title>
+                                    <Typography.Text>на <FieldDisplay field={money} value={newAmount} /></Typography.Text>
+                                </Flex>
+                                <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={saving || termsLocked}
+                                    problems={termsChecked ? termsProblems : []} input={sellWithInstallment?.input ?? []} />
+                            </Flex>
+                        </Column>
+                    </Grid>
                 </>
             )}
             {divider}

@@ -3,8 +3,8 @@
  * форма, и собственная форма конфигурации (`defineObjectForm`): реестр форм проверяет компонент
  * по виду формы в объявлении.
  */
-import type { FormView, ObjectView } from '../../server/ui/descriptions';
-import type { RecordData } from '../data-provider/records';
+import type { FormView, ObjectView } from '../../../server/ui/descriptions';
+import type { RecordData } from '../../data-provider/records';
 import type { FormValues } from './record-values';
 
 /**

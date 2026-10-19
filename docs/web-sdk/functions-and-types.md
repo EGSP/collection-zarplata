@@ -1,7 +1,7 @@
 ---
 covers:
   - src/web/sdk/index.ts
-  - src/web/sdk/object-form-properties.ts
+  - src/web/sdk/platform/object-form-properties.ts
 ---
 
 # Функции и типы Web SDK
@@ -23,6 +23,7 @@ covers:
 | `ApiError` | Отказ API: статус, сообщение, поля и право |
 | `fieldInput`, `FluidField` | Сборка собственного поля ввода для обеих [компоновок](components.md#компоновка-полей) и обёртка поля с подписью в сегменте |
 | `useActionConfirmation` | [Запрос подтверждения действия](hooks.md#выполнение-действий): `confirm(action)` и окно `dialog` |
+| `spacing`, `breakpoints`, `breakpointWidths`, `gridColumns` | Значения раскладки: [шкала отступов, точки перелома](../components.md#шкала-отступов-и-стек), их ширины и число колонок |
 | `Icons`, `Pictograms` | [Реестры значков](../web-sdk.md#иконки-и-пиктограммы) |
 
 `hasOpenDialog` принимает корневой элемент экрана и не учитывает окно, в котором показан сам экран. Иначе форма в модальном окне сочла бы себя перекрытой собственным окном и отключила бы сочетания клавиш.
@@ -35,6 +36,7 @@ covers:
 | `ActionPlacement`, `ActionConfirmation`, `ActionConfirmationTone` | Место показа действия (`buttons`, `more`, `hidden`) и настройка его окна подтверждения (`delay`, `title`, `message`, `tone`) |
 | `ActionResult`, `ActionConfirmationState`, `ActionConfirmationDialogProperties` | Результат [`useActionResult`](hooks.md#выполнение-действий) с `refresh`, результат `useActionConfirmation` и свойства [окна подтверждения](components.md#подтверждение-действия) |
 | `ObjectReference`, `FieldName`, `RecordCondition`, `RecordSort` и связанные | [Ссылки на объекты](../web-sdk.md#типизация-объектов) с точными типами записи и действий |
+| `SpacingStep`, `Breakpoint`, `GridGutter`, `PageModel`, `ColumnCount` | Шаг шкалы отступов, точка перелома, режим зазора сетки, [модель страницы](../components.md#модели-страницы) и число колонок по точкам |
 | `ObjectTarget`, `PerformTarget`, `ListCondition` | Объект и условия запроса |
 | `RecordData`, `FormValues` | Запись общего типа и значения формы |
 | `RecordQuery`, `RecordsQuery` | Результат [`useRecord`](hooks.md#чтение-данных) и [`useRecords`](hooks.md#чтение-данных): записи, `loading` и `error` |

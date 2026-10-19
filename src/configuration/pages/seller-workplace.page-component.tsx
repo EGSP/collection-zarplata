@@ -1,6 +1,6 @@
-import { Alert, Button, Card, Col, Divider, Flex, Result, Row, Spin, theme, Typography } from 'antd';
+import { Alert, Button, Card, Divider, Flex, Result, Spin, theme, Typography } from 'antd';
 import type { ComponentType } from 'react';
-import { ActionButton, FieldDisplay, Icons, Page, RecordLink, useObjectView, useOpenRecord, type PerformTarget } from '../../web/sdk';
+import { ActionButton, Column, FieldDisplay, Grid, Icons, Page, RecordLink, Stack, useObjectView, useOpenRecord, type ColumnCount, type PerformTarget } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { employeeCount, useCurrentShift, type OpenShiftState } from '../shell-components/current-shift-state';
 import OpenSaleInstallments from '../shell-components/open-sale-installments';
@@ -14,6 +14,22 @@ function useCreatable(object: PerformTarget): boolean {
 
 /** Высота тайла действия: такой она была с пояснением в три строки. */
 const actionTileHeight = 168;
+
+/**
+ * Ширины областей рабочего места в колонках сетки. Тайлы действий стоят по два в строке
+ * на среднем контейнере и по четыре начиная с `lg`, как плитки главного экрана. Из справочных
+ * карточек продажи и рассрочки шире отвесов: в их строках стоят товары, ФИО и суммы.
+ */
+const columns = {
+    actionTile: { md: 4 },
+    recentSales: { lg: 6 },
+    installments: { md: 4, lg: 6 },
+    weighings: { md: 4 },
+} satisfies { readonly [area: string]: ColumnCount };
+
+/** Панель открытия смены по центру страницы: шесть колонок со сдвигом к середине строки. */
+const closedShiftSpan: ColumnCount = { md: 6 };
+const closedShiftOffset: ColumnCount = { md: 1, lg: 5 };
 
 /** Свойства тайла действия продавца. */
 interface ActionTileProperties {
@@ -41,7 +57,7 @@ function ActionTile({ title, action, icon: Icon, object }: ActionTileProperties)
     const openRecord = useOpenRecord();
     if (!useCreatable(object)) return null;
     return (
-        <Col xs={24} sm={12} xl={6}>
+        <Column span={columns.actionTile}>
             <Flex
                 vertical
                 justify="space-between"
@@ -53,7 +69,7 @@ function ActionTile({ title, action, icon: Icon, object }: ActionTileProperties)
                     {action}
                 </Button>
             </Flex>
-        </Col>
+        </Column>
     );
 }
 
@@ -94,21 +110,26 @@ function ClosedShift() {
     const openRecord = useOpenRecord();
     const creatable = useCreatable(shifts);
     return (
-        <Flex justify="center" align="center" style={{ minHeight: '60vh' }}>
-            <Card style={{ maxWidth: 480, width: '100%' }}>
-                <Result
-                    icon={<Icons.openShift />}
-                    title="Смена не открыта"
-                    subTitle={creatable ? 'Откройте смену, чтобы оформлять продажи, отвесы, возвраты и рассрочки.' : 'Смену открывает сотрудник с правом записи смен.'}
-                    extra={
-                        creatable && (
-                            <Button type="primary" size="large" icon={<Icons.openShift />} onClick={() => void openRecord(shifts, null, 'dialog')}>
-                                Открыть смену
-                            </Button>
-                        )
-                    }
-                />
-            </Card>
+        // Сетка ставит панель по центру строки, а Flex — по вертикали.
+        <Flex vertical justify="center" style={{ minHeight: '60vh' }}>
+            <Grid>
+                <Column span={closedShiftSpan} offset={closedShiftOffset}>
+                    <Card>
+                        <Result
+                            icon={<Icons.openShift />}
+                            title="Смена не открыта"
+                            subTitle={creatable ? 'Откройте смену, чтобы оформлять продажи, отвесы, возвраты и рассрочки.' : 'Смену открывает сотрудник с правом записи смен.'}
+                            extra={
+                                creatable && (
+                                    <Button type="primary" size="large" icon={<Icons.openShift />} onClick={() => void openRecord(shifts, null, 'dialog')}>
+                                        Открыть смену
+                                    </Button>
+                                )
+                            }
+                        />
+                    </Card>
+                </Column>
+            </Grid>
         </Flex>
     );
 }
@@ -122,22 +143,23 @@ function ClosedShift() {
 function OpenShiftWorkplace({ shift }: { readonly shift: OpenShiftState }) {
     const { token } = theme.useToken();
     return (
-        <Flex vertical gap="middle">
+        <Stack gap={5}>
             <ShiftHeader shift={shift} />
-            <Row gutter={[16, 16]}>
+            <Grid>
                 <ActionTile title="Продажа" action="Продать" icon={Icons.sell} object={Objects.document.sale} />
                 <ActionTile title="Отвес" action="Отложить товар" icon={Icons.weigh} object={Objects.document.weighing} />
                 <ActionTile title="Возврат" action="Оформить возврат" icon={Icons.refund} object={Objects.document.refund} />
-            </Row>
+            </Grid>
             {/* Линия делит экран на действия и справки. Цвет рамки, а не разделителя: на сером фоне
                 страницы стандартная линия Ant Design почти не видна. */}
             <Divider style={{ margin: 0, borderBlockStartWidth: 2, borderColor: token.colorBorder }} />
-            <Flex gap="middle" align="flex-start" wrap>
-                <RecentSales />
-                <OpenSaleInstallments />
-                <OpenWeighings />
-            </Flex>
-        </Flex>
+            {/* Карточки стоят по верхнему краю: высота каждой зависит от числа строк в ней. */}
+            <Grid>
+                <Column span={columns.recentSales}><RecentSales /></Column>
+                <Column span={columns.installments}><OpenSaleInstallments /></Column>
+                <Column span={columns.weighings}><OpenWeighings /></Column>
+            </Grid>
+        </Stack>
     );
 }
 

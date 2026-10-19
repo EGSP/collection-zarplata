@@ -1,9 +1,9 @@
 import { Button, Tooltip, type ButtonProps } from 'antd';
 import { useRef, useState, type ReactNode } from 'react';
-import type { FormAction } from '../../server/ui/descriptions';
-import { useAction } from '../data-provider/actions';
-import { useObjectView } from '../data-provider/metadata';
-import { recordGuid, type RecordData } from '../data-provider/records';
+import type { FormAction } from '../../../server/ui/descriptions';
+import { useAction } from '../../data-provider/actions';
+import { useObjectView } from '../../data-provider/metadata';
+import { recordGuid, type RecordData } from '../../data-provider/records';
 import { useActionConfirmation } from './action-confirmation';
 import { ActionDialog } from './action-dialog';
 import type { ActedObject } from './object-reference';

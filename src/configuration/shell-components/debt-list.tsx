@@ -47,7 +47,7 @@ export function DebtList<Row extends DebtRow>({ title, object, rows, total, load
     const persons = useObjectView(Objects.catalog.physicalPersons);
     const openRecord = useOpenRecord();
     return (
-        <Card size="small" title={title} style={{ flex: 1, minWidth: 280 }}>
+        <Card size="small" title={title}>
             {error !== null ? (
                 <Alert type="error" showIcon title="Не удалось прочитать документы" description={error.message} />
             ) : rows.length === 0 ? (

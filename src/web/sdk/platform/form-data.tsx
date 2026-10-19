@@ -14,9 +14,9 @@
 import { ComputedValues } from './computed-values';
 import { Form, type FormInstance } from 'antd';
 import { createContext, useContext, useId, useLayoutEffect, useMemo, useRef, type ComponentType, type ReactNode } from 'react';
-import type { FormView, ObjectView } from '../../server/ui/descriptions';
-import type { PerformTarget } from '../data-provider/perform';
-import type { RecordData } from '../data-provider/records';
+import type { FormView, ObjectView } from '../../../server/ui/descriptions';
+import type { PerformTarget } from '../../data-provider/perform';
+import type { RecordData } from '../../data-provider/records';
 import type { FormRestrictionRegistry, FormRestrictions } from './form-restrictions';
 import type { ActedObject, FieldName, ReadObject } from './object-reference';
 import type { FormValues } from './record-values';

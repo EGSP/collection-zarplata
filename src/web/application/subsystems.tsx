@@ -12,7 +12,7 @@ import { Link } from 'react-router';
 import type { MetadataResponse, ShellItem, ShellSubsystem } from '../../server/ui/descriptions';
 import { objectPath, pagePath } from '../common/paths';
 import { findObjectView, useMetadata } from '../data-provider/metadata';
-import { Icons } from '../sdk/icons';
+import { Icons } from '../sdk/ds/icons';
 
 /**
  * Заголовок и адрес пункта группы. Возвращает `undefined`, если объекта или страницы нет среди

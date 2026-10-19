@@ -1,11 +1,11 @@
 import { Card, ConfigProvider, Flex, Form, Space, theme } from 'antd';
 import type { ComponentType } from 'react';
 import type { CSSProperties } from 'react';
-import type { FieldWidth, FormElementReference, FormField, FormTablePart } from '../../server/ui/descriptions';
-import type { RecordData } from '../data-provider/records';
-import { FieldDisplay, FieldInput } from '../widgets/registry';
-import { fieldRules, isMarkedRequired } from '../widgets/validation';
-import type { InputProperties } from '../widgets/widget';
+import type { FieldWidth, FormElementReference, FormField, FormTablePart } from '../../../server/ui/descriptions';
+import type { RecordData } from '../../data-provider/records';
+import { FieldDisplay, FieldInput } from '../../widgets/registry';
+import { fieldRules, isMarkedRequired } from '../../widgets/validation';
+import type { InputProperties } from '../../widgets/widget';
 import { FluidField, type FieldInputComponent, type FieldLayout } from './field-layout';
 import { fieldAttribute, type FieldTraversal } from './field-traversal';
 import { useFieldRestricted, useFormElement } from './form-data';

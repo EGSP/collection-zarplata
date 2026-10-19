@@ -1,11 +1,11 @@
-import { Button, Card, Divider, Flex, Form } from 'antd';
+import { Button, Card, Divider, Form } from 'antd';
 import { useEffect, useState } from 'react';
 import { PostedIn1CSwitch } from './posted-in-1c-switch';
 import { SaleChanges } from './sale-changes';
 import { LinkedSaleInstallments } from './linked-sale-installments';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
 import { Objects } from '../objects.generated';
-import { FieldGroup, Icons, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { Column, FieldGroup, Grid, Icons, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, type ColumnCount, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Вид таблицы товаров. Код и стоимость короткие, поэтому их колонки вдвое уже, чем досталось бы
@@ -44,6 +44,10 @@ const saleButtons: RecordFormButtons = { actions: [], postAndClose: false };
  * обычной крупной кнопки Ant Design и сразу находится взглядом под оплатой.
  */
 const sellButtonStyle = { height: 64, paddingInline: 48, fontSize: 20 };
+
+/** Ширины оплат и блока рассрочки в колонках сетки: вместе они занимают строку начиная с `lg`. */
+const paymentSpan: ColumnCount = { lg: 10 };
+const installmentSpan: ColumnCount = { lg: 6 };
 
 /** Строка товара на форме: до записи любая ячейка может быть пустой. */
 interface GoodsLine {
@@ -216,18 +220,18 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
                 <FieldGroup elements={recordFormElements(state, items('Товары').filter((item) => item !== 'amount'))} tablePartOptions={{ goods: goodsOptions }} {...common} />
                 <div hidden={!paymentShown}>
                     <Divider style={dividerStyle} />
-                    {/* Оплаты не шире своего содержимого, поэтому блок рассрочки стоит сразу за ними,
-                        а не у края формы. На узком экране он переносится под оплаты. */}
-                    <Flex wrap gap="large" align="flex-start">
-                        <div style={{ flex: '0 1 960px', minWidth: 0 }}>
+                    {/* Начиная с `lg` блок рассрочки стоит справа от оплат, на более узкой форме — под ними.
+                        Оплаты не растягиваются на всю форму и без рассрочки: их ширина не зависит от выбора способа оплаты. */}
+                    <Grid>
+                        <Column span={paymentSpan}>
                             <FieldGroup elements={recordFormElements(state, items('Оплата').filter((item) => item !== 'paid'))} layout="fluid" fullWidth={['paymentMode']} {...common} />
-                        </div>
+                        </Column>
                         {withInstallment && (
-                            <div style={{ flex: '1 1 320px', maxWidth: 480 }}>
+                            <Column span={installmentSpan}>
                                 <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={state.running !== null} problems={problems} input={sellWithInstallment?.input ?? []} />
-                            </div>
+                            </Column>
                         )}
-                    </Flex>
+                    </Grid>
                     {sell !== undefined && (
                         <Button
                             type="primary"

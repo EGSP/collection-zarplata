@@ -21,6 +21,7 @@
   - [Хуки](docs/web-sdk/hooks.md)
   - [Компоненты](docs/web-sdk/components.md)
   - [Функции и типы](docs/web-sdk/functions-and-types.md)
+- [Компоненты и раскладка](docs/components.md)
 - [Сборка и запуск](docs/build-and-launch.md)
 - [Инструменты разработки](docs/development-tools.md)
 - [Документация](docs/documentation.md)

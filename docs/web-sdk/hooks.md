@@ -1,13 +1,13 @@
 ---
 covers:
-  - src/web/sdk/record-list.ts
-  - src/web/sdk/record.ts
-  - src/web/sdk/open-record.ts
-  - src/web/sdk/form-data.tsx
-  - src/web/sdk/form-restrictions.ts
-  - src/web/sdk/record-form-contract.tsx
-  - src/web/sdk/record-form.tsx
-  - src/web/sdk/list-controls.tsx
+  - src/web/sdk/platform/record-list.ts
+  - src/web/sdk/platform/record.ts
+  - src/web/sdk/platform/open-record.ts
+  - src/web/sdk/platform/form-data.tsx
+  - src/web/sdk/platform/form-restrictions.ts
+  - src/web/sdk/platform/record-form-contract.tsx
+  - src/web/sdk/platform/record-form.tsx
+  - src/web/sdk/platform/list-controls.tsx
   - src/web/data-provider/actions.ts
   - src/web/data-provider/metadata.ts
   - src/web/window/window-scope.tsx

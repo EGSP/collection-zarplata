@@ -5,8 +5,8 @@
  * нужных полей. На форме есть не все поля записи: поля только для чтения заполняет платформа,
  * а скрытые переопределением формы в описание не попадают.
  */
-import type { FormField, FormTablePart, FormView } from '../../server/ui/descriptions';
-import type { RecordData } from '../data-provider/records';
+import type { FormField, FormTablePart, FormView } from '../../../server/ui/descriptions';
+import type { RecordData } from '../../data-provider/records';
 
 /** Значения формы: значения редактируемых полей по именам и строки табличных частей по именам частей. */
 export type FormValues = { readonly [name: string]: unknown };

@@ -6,7 +6,7 @@
  * ей нужно найти поле ввода по имени поля или табличной части.
  */
 import { useMemo, type RefCallback } from 'react';
-import type { InputHandle } from '../widgets/widget';
+import type { InputHandle } from '../../widgets/widget';
 
 /** Поля ввода формы по именам. */
 export interface FieldFocus {

@@ -1,12 +1,12 @@
 import { Button, Flex, Form, Table, Typography, type TableProps } from 'antd';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentType, type Key, type ReactNode, type Ref, type RefObject } from 'react';
-import type { FormTablePart } from '../../server/ui/descriptions';
-import { FieldDisplay, FieldInput, hasInput } from '../widgets/registry';
-import { fieldRules, isMarkedRequired } from '../widgets/validation';
-import type { InputHandle, InputProperties } from '../widgets/widget';
+import type { FormTablePart } from '../../../server/ui/descriptions';
+import { FieldDisplay, FieldInput, hasInput } from '../../widgets/registry';
+import { fieldRules, isMarkedRequired } from '../../widgets/validation';
+import type { InputHandle, InputProperties } from '../../widgets/widget';
 import { RecordTablePart } from './record-table-part';
 import { useFieldFocus } from './field-focus';
-import { Icons } from './icons';
+import { Icons } from '../ds/icons';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
 import { newRowValues } from './record-values';
 

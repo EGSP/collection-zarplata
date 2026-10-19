@@ -14,12 +14,12 @@
 import { createContext, useCallback, useContext } from 'react';
 import { App } from 'antd';
 import { useNavigate } from 'react-router';
-import type { RecordOpeningMode } from '../../server/ui/descriptions';
-import { newRecordDraftPath, newRecordPath, recordPath } from '../common/paths';
-import { findObjectView, useMetadata } from '../data-provider/metadata';
-import type { PerformTarget } from '../data-provider/perform';
+import type { RecordOpeningMode } from '../../../server/ui/descriptions';
+import { newRecordDraftPath, newRecordPath, recordPath } from '../../common/paths';
+import { findObjectView, useMetadata } from '../../data-provider/metadata';
+import type { PerformTarget } from '../../data-provider/perform';
 import type { FormValues } from './record-values';
-import { resolveRecordOpening } from '../data-provider/record-opening';
+import { resolveRecordOpening } from '../../data-provider/record-opening';
 
 /**
  * Открывает форму записи объекта. `guid`, равный `null`, открывает форму новой записи.

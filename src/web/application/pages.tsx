@@ -4,8 +4,8 @@ import { useParams } from 'react-router';
 import { NotFoundPage } from '../common/not-found';
 import { useMetadata, useObjectView } from '../data-provider/metadata';
 import { ObjectListForm } from '../forms/object-forms';
-import { ShellGroups } from '../sdk/shell-groups';
-import { ShellGroupContent } from '../sdk/shell-group-content';
+import { ShellGroups } from '../sdk/platform/shell-groups';
+import { ShellGroupContent } from '../sdk/platform/shell-group-content';
 
 /**
  * Главный экран: выводит клиентскую группу конфигурации. Сообщение об отсутствии объектов

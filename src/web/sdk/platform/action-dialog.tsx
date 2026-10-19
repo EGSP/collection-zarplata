@@ -3,12 +3,12 @@ import { TablePart } from './table-part';
 import { useFieldTraversal, fieldAttribute } from './field-traversal';
 import { Form, Modal } from 'antd';
 import { useState } from 'react';
-import type { FormAction } from '../../server/ui/descriptions';
-import { ApiError } from '../common/api';
-import { FieldDisplay, FieldInput } from '../widgets/registry';
-import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../widgets/validation';
+import type { FormAction } from '../../../server/ui/descriptions';
+import { ApiError } from '../../common/api';
+import { FieldDisplay, FieldInput } from '../../widgets/registry';
+import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../../widgets/validation';
 import { newInputValues, type FormValues } from './record-values';
-import type { DateLimits } from '../widgets/widget';
+import type { DateLimits } from '../../widgets/widget';
 
 /** Свойства окна входных данных действия. */
 export interface ActionDialogProperties {

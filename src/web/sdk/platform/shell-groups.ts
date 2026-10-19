@@ -3,7 +3,7 @@
  * от порядка монтирования вкладок. Сервер эти объявления не получает.
  */
 import type { ComponentType } from 'react';
-import type { PerformTarget } from '../data-provider/perform';
+import type { PerformTarget } from '../../data-provider/perform';
 
 /**
  * Именованный контейнер с раскладкой содержимого: столбцом (`vertical`), строкой (`horizontal`)

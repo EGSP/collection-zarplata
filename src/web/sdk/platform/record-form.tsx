@@ -13,20 +13,20 @@
 import { useHotkey } from '@tanstack/react-hotkeys';
 import { Button, Flex, Form, Tag, type FormInstance } from 'antd';
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import type { FormAction, FormElementReference, FormField, FormGroup, FormTablePart, FormView, ObjectView } from '../../server/ui/descriptions';
-import { ApiError } from '../common/api';
-import { useAction } from '../data-provider/actions';
-import { recordGuid, type RecordData } from '../data-provider/records';
-import { RecordMoreActions } from '../journal/record-journal';
-import { recordTitle, useRecordPresentation } from '../references/presentation';
-import { formFieldPaths, serverRejectionMessage } from '../widgets/validation';
-import { useWindowScope } from '../window/window-scope';
+import type { FormAction, FormElementReference, FormField, FormGroup, FormTablePart, FormView, ObjectView } from '../../../server/ui/descriptions';
+import { ApiError } from '../../common/api';
+import { useAction } from '../../data-provider/actions';
+import { recordGuid, type RecordData } from '../../data-provider/records';
+import { RecordMoreActions } from '../../journal/record-journal';
+import { recordTitle, useRecordPresentation } from '../../references/presentation';
+import { formFieldPaths, serverRejectionMessage } from '../../widgets/validation';
+import { useWindowScope } from '../../window/window-scope';
 import { ActionButton, actionApplies, actionSuccessMessage } from './action-button';
 import { FieldGroup } from './field-group';
 import { useFieldTraversal, type FieldTraversal } from './field-traversal';
 import { FormDataProvider } from './form-data';
 import { useFormRestrictionRegistry, type FormRestrictionRegistry } from './form-restrictions';
-import { Icons } from './icons';
+import { Icons } from '../ds/icons';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
 import type { NewFormProperties, RecordFormProperties } from './object-form-properties';
 import { Page } from './page';
@@ -516,6 +516,9 @@ export interface RecordFormPageProperties extends RecordFormBodyProperties {
 /**
  * Каркас страницы формы записи: заголовок по представлению записи, отметки, кнопки действий
  * и тело формы с содержимым `children`. Стандартная форма выводит в нём `RecordFormLayout`.
+ *
+ * Форма записи — страница модели `product`: на широком мониторе её ширина ограничена, и поля
+ * не уходят далеко от подписей и друг от друга.
  */
 export function RecordFormPage({ state, titles, buttons, children }: RecordFormPageProperties) {
     // Представление читается по записанному состоянию: несохранённый выбор ссылки запись ещё не называет.
@@ -526,6 +529,7 @@ export function RecordFormPage({ state, titles, buttons, children }: RecordFormP
             windowTitle={state.record === null ? `${state.object.title} (новый)` : presentation.text}
             marks={<RecordFormMarks state={state} />}
             actions={<RecordFormActions state={state} {...(titles === undefined ? {} : { titles })} {...(buttons === undefined ? {} : { buttons })} />}
+            model="product"
         >
             <RecordFormBody state={state}>{children}</RecordFormBody>
         </Page>
