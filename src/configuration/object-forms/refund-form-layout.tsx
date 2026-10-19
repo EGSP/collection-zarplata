@@ -1,6 +1,6 @@
 import { Button, Card } from 'antd';
 import { RefundSaleGoods } from './refund-sale-goods';
-import { FieldGroup, Icons, recordFormElements, RecordFormPage, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { FieldGroup, Icons, recordFormElements, RecordFormPage, Stack, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Новый возврат записывается и проводится одним запросом: если проведение отклонено, например по
@@ -49,28 +49,34 @@ function RefundFormLayout({ state }: { readonly state: RecordFormState }) {
     return (
         <RecordFormPage state={state} {...(isNew ? { buttons: refundButtons } : {})}>
             <Card size="small">
-                <FieldGroup
-                    elements={recordFormElements(state, elements)}
-                    layout="fluid"
-                    record={state.record}
-                    disabled={!state.editable}
-                    traversal={state.traversal}
-                    tablePartOptions={{ bases: basesOptions, goods: goodsOptions }}
-                />
-                {post !== undefined && (
-                    <Button
-                        type="primary"
-                        size="large"
-                        icon={<Icons.refund />}
-                        style={mainButtonStyle}
-                        loading={state.running === post.name}
-                        disabled={state.running !== null}
-                        // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
-                        onClick={() => state.run(post).catch(() => undefined)}
-                    >
-                        Оформить возврат
-                    </Button>
-                )}
+                {/* Расстояние между полями и кнопкой задаёт стек: группа полей своих внешних отступов не имеет. */}
+                <Stack gap={6}>
+                    <FieldGroup
+                        elements={recordFormElements(state, elements)}
+                        layout="fluid"
+                        record={state.record}
+                        disabled={!state.editable}
+                        traversal={state.traversal}
+                        tablePartOptions={{ bases: basesOptions, goods: goodsOptions }}
+                    />
+                    {/* Обёртка не даёт стеку растянуть кнопку на всю ширину. */}
+                    <div>
+                        {post !== undefined && (
+                            <Button
+                                type="primary"
+                                size="large"
+                                icon={<Icons.refund />}
+                                style={mainButtonStyle}
+                                loading={state.running === post.name}
+                                disabled={state.running !== null}
+                                // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
+                                onClick={() => state.run(post).catch(() => undefined)}
+                            >
+                                Оформить возврат
+                            </Button>
+                        )}
+                    </div>
+                </Stack>
             </Card>
         </RecordFormPage>
     );
