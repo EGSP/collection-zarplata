@@ -18,7 +18,7 @@ const randomEmployeeCount = 4;
 
 /**
  * Применение первичных данных: начальные пользователи, импорт справочников из выгрузок 1С
- * и случайные сотрудники.
+ * и, по настройке, случайные сотрудники для демонстрации.
  *
  * `run` вызывается из `main.ts` после `listen`, а не из хука Nest: утилита импорта загружает
  * данные через HTTP API, и до открытия порта ей не к чему подключаться. Пока шаги не
@@ -110,6 +110,9 @@ export class InitialDataService {
     /** Записывает сотрудников одним пакетом: при ошибке любой записи не остаётся ни одного. */
     private createRandomEmployees(pin: string) {
         return Effect.gen(function* (this: InitialDataService) {
+            // В магазинной базе сотрудники создаются вручную. Настройка выключает только
+            // демонстрационный шаг: импорт физических лиц и создание первого администратора остаются.
+            if (!this.settings.initialData.createRandomEmployees) return;
             const operations = yield* randomEmployeeOperations(randomEmployeeCount);
             if (operations.length === 0) {
                 this.logger.log('Сотрудники уже есть, случайные не создаются');

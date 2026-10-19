@@ -3,6 +3,9 @@
   "port": 3000,
   "databasePath": "collection-zarplata.db",
   "pinHmacSecret": "",
+  "initialData": {
+    "createRandomEmployees": false
+  },
   "backup": {
     "schedule": ["0 8 * * *", "0 13 * * *", "0 20 * * *"],
     "keep": 30
