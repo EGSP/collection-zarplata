@@ -215,7 +215,7 @@ const saleWeighingPolicy: Policy<SaleRecord> = {
  * строке отвеса. Черновик продажи в них выбирать незачем, поэтому подбор его не показывает.
  *
  * Строка поиска делится на слова, и продажа подходит, если каждое слово есть в её дате и времени,
- * способе оплаты, названиях товаров, сумме или номере. Сумму можно ввести с пробелами разрядов
+ * способе оплаты, кодах и названиях товаров, сумме или номере. Сумму можно ввести с пробелами разрядов
  * и без них. Слова ищутся в тексте строки на сервере, а не запросом LIKE: LIKE в Turso различает
  * регистр кириллицы. Поэтому при поиске читаются все проведённые продажи и их товары. Для объёмов
  * магазина этого достаточно; без поиска строки страницы читаются запросом с LIMIT и OFFSET.
@@ -232,15 +232,22 @@ const searchSales = ({ search, pageSize, offset }: LookupInput) => Effect.gen(fu
         : yield* database.all(sales.select({ columns, where, orderBy }));
     // Товары читаются только у продаж, которые нужны: у страницы без поиска или у всех при поиске.
     const lines = found.length === 0 ? [] : yield* database.all(sales.tablePart('goods').select({
-        columns: ['ownerGuid', 'name'],
+        columns: ['ownerGuid', 'code', 'name'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: found.map((row) => row.guid) }],
         orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
     }));
     const names = new Map<string, string[]>();
-    for (const line of lines) names.set(line.ownerGuid, [...names.get(line.ownerGuid) ?? [], line.name]);
-    const rows = found.map((row) => ({ guid: row.guid, number: row.number, date: row.date, paymentMode: row.paymentMode, goods: (names.get(row.guid) ?? []).join(', '), amount: row.amount }));
+    const codes = new Map<string, string[]>();
+    for (const line of lines) {
+        names.set(line.ownerGuid, [...names.get(line.ownerGuid) ?? [], line.name]);
+        // Код необязателен: пустые коды не добавляют разделителей, ведущие нули сохраняются как текст.
+        if (typeof line.code === 'string' && line.code.trim() !== '') {
+            codes.set(line.ownerGuid, [...codes.get(line.ownerGuid) ?? [], line.code]);
+        }
+    }
+    const rows = found.map((row) => ({ guid: row.guid, number: row.number, date: row.date, paymentMode: row.paymentMode, goodsCodes: (codes.get(row.guid) ?? []).join(', '), goods: (names.get(row.guid) ?? []).join(', '), amount: row.amount }));
     // Номер нужен только поиску: колонки номера в подборе нет, и в строку ответа он не входит.
-    const visible = (row: typeof rows[number]) => ({ guid: row.guid, date: row.date, paymentMode: row.paymentMode, goods: row.goods, amount: row.amount });
+    const visible = (row: typeof rows[number]) => ({ guid: row.guid, date: row.date, paymentMode: row.paymentMode, goodsCodes: row.goodsCodes, goods: row.goods, amount: row.amount });
     if (words.length === 0) {
         const total = yield* database.get(sales.count({ where }));
         return { total: total?.total ?? 0, rows: rows.map(visible) };
@@ -248,7 +255,7 @@ const searchSales = ({ search, pageSize, offset }: LookupInput) => Effect.gen(fu
     const matched = rows.filter((row) => {
         // Сумма добавлена и без пробелов разрядов: «13256» и «13 256» находят одну продажу.
         const money = formatMoney(row.amount);
-        const text = normalizeSearchText('string', [formatDateTime(row.date), row.paymentMode, row.goods, money, money.replace(/\s/gu, ''), String(Number(row.number))].join(' '));
+        const text = normalizeSearchText('string', [formatDateTime(row.date), row.paymentMode, row.goodsCodes, row.goods, money, money.replace(/\s/gu, ''), String(Number(row.number))].join(' '));
         return words.every((word) => text.includes(word));
     });
     return { total: matched.length, rows: matched.slice(offset, offset + pageSize).map(visible) };
@@ -601,6 +608,7 @@ export const Sale = sale
     .lookup((lookup) => lookup
         .column('date', (field) => field.dateTime().title('Дата').required())
         .column('paymentMode', (field) => field.string().title('Оплата').required())
+        .column('goodsCodes', (field) => field.string().title('Коды товаров'))
         .column('goods', (field) => field.string().title('Товары').required())
         .column('amount', (field) => field.money().title('Сумма').required())
         .search(searchSales))
