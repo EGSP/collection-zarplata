@@ -758,13 +758,38 @@ export const Sale = sale
             delay: 3,
             tone: 'danger',
             title: 'Отменить продажу?',
-            message: 'Продажа, её рассрочки и принятые в них взносы перестанут учитываться: документы будут помечены на удаление. Записи и журнал действий сохранятся.',
+            message: 'Продажа, связанные возвраты целиком (включая товары других продаж), её рассрочки и принятые в них взносы перестанут учитываться: документы будут помечены на удаление. Записи и журнал действий сохранятся.',
         })
         .input((input) => input.field('sale', (field) => field.reference(sale).title('Продажа').required()))
         .handle((input) => Effect.gen(function* () {
             const dispatcher = yield* ActionDispatcher;
             const state = yield* changesState(input.sale);
             if (state.sale.deletedAt !== null) return yield* rejected('Продажа уже помечена на удаление');
+            // Возврат с несколькими основаниями отменяется целиком, один раз. Описание берётся
+            // из метаданных: импорт Refund замкнул бы его ссылку на Sale в кольцо.
+            const metadata = yield* Metadata;
+            const refundTarget = { kind: 'document', name: 'refund' };
+            const refundDescription = metadata.find('document', refundTarget.name);
+            if (refundDescription === undefined) return yield* Effect.die(new Error('В конфигурации нет документа «Возврат»'));
+            const database = yield* Database;
+            const bases = yield* database.all(query(refundDescription).tablePart('bases').select({
+                columns: ['ownerGuid'],
+                where: [{ column: 'sale', operator: '=', value: state.sale.guid }],
+                orderBy: [{ column: 'ownerGuid', direction: 'ASC' }],
+            }));
+            // Сначала снимаются движения возвратов, иначе отмена продажи нарушит предел возврата.
+            // Вложенные действия проверяют права и закрытый период в общей транзакции:
+            // отказ даже после отмены предыдущего возврата откатывает всю операцию.
+            for (const guid of new Set(bases.map((basis) => basis['ownerGuid']))) {
+                const refund = yield* database.get(query(refundDescription).select({
+                    columns: ['guid', 'posted'],
+                    where: [{ column: 'guid', operator: '=', value: guid }, { column: 'deletedAt', operator: '=', value: null }],
+                    limit: 1,
+                }));
+                if (refund === undefined) continue;
+                if (refund['posted']) yield* dispatcher.execute({ target: refundTarget, action: 'unpost', payload: { guid } });
+                yield* dispatcher.execute({ target: refundTarget, action: 'markDeleted', payload: { guid } });
+            }
             // Сначала снимаются движения рассрочек: пока они проведены, отмена проведения продажи
             // нарушила бы ограничение регистра «Неоформленные рассрочки». Проведение отменяется
             // явным действием, а не пометкой удаления: так срабатывают политики отмены проведения.
