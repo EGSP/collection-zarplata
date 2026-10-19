@@ -82,6 +82,8 @@ function tableParts(object: ObjectDescription): readonly TableStructure[] {
 }
 
 const platformTables: readonly TableStructure[] = [
+    // Одна строка с расписанием и границей его действия; вместе с данными попадает в резервную копию.
+    { name: 'platform_backup_settings', columns: [column('id', 'INTEGER', true), column('schedule', 'TEXT', true), column('keep', 'INTEGER', true), column('updatedAt', 'TEXT', true)], primaryKey: ['id'], indexes: [] },
     { name: 'platform_schema', columns: [column('id', 'INTEGER', true), column('snapshot', 'TEXT', true)], primaryKey: ['id'], indexes: [] },
     { name: 'platform_migrations', columns: [column('id', 'TEXT', true), column('appliedAt', 'TEXT', true)], primaryKey: ['id'], indexes: [] },
     {
