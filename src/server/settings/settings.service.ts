@@ -46,12 +46,18 @@ export interface BackupSettings {
     readonly keep: number;
 }
 
+/** Настройки первичных данных: демонстрационные сотрудники включаются только явно. */
+interface InitialDataSettings {
+    readonly createRandomEmployees: boolean;
+}
+
 interface Settings {
     readonly host: string;
     readonly port: number;
     readonly database: DatabaseLocation;
     readonly pinHmacSecret: string;
     readonly initialUsers: ReadonlyArray<InitialUser>;
+    readonly initialData: InitialDataSettings;
     readonly backup: BackupSettings;
 }
 
@@ -80,6 +86,19 @@ function readBackupSettings(value: unknown, directory: string, filePath: string)
     const keep = backup['keep'] ?? defaultBackupKeep;
     if (!Number.isInteger(keep) || (keep as number) < 1) throw new Error(`${source} backup.keep должен быть целым числом не меньше 1`);
     return { directory: path.join(directory, backupDirectoryName), schedule: backupSchedule(backup['schedule'], source), keep: keep as number };
+}
+
+/** Необязательный блок инициализации. Строка «false» не принимается вместо логического значения. */
+function readInitialDataSettings(value: unknown, filePath: string): InitialDataSettings {
+    if (value === undefined) return { createRandomEmployees: false };
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new Error(`В файле настроек ${filePath} initialData должен быть объектом`);
+    }
+    const createRandomEmployees = (value as Record<string, unknown>)['createRandomEmployees'];
+    if (createRandomEmployees !== undefined && typeof createRandomEmployees !== 'boolean') {
+        throw new Error(`В файле настроек ${filePath} initialData.createRandomEmployees должен быть логическим значением`);
+    }
+    return { createRandomEmployees: createRandomEmployees ?? false };
 }
 
 function readSettingsFile(directory: string): Settings {
@@ -133,6 +152,7 @@ function readSettingsFile(directory: string): Settings {
             roles: roles as ReadonlyArray<string> | undefined,
         }],
         backup: readBackupSettings(settings['backup'], directory, filePath),
+        initialData: readInitialDataSettings(settings['initialData'], filePath),
     };
 }
 
@@ -171,6 +191,8 @@ function testSettings(launch: LaunchArguments): Settings {
             pin: user.pin,
             roles: user.roles,
         })),
+        // Изолированные тестовые режимы сохраняют демонстрационное заполнение без файла настроек.
+        initialData: { createRandomEmployees: true },
         // Копии тестовой базы лежат рядом с её файлом, а не в каталоге проекта.
         backup: {
             directory: databasePath === undefined ? undefined : path.join(path.dirname(databasePath), backupDirectoryName),
@@ -218,6 +240,8 @@ export class SettingsService {
     readonly pinHmacSecret: string;
     /** Первый пользователь из файла настроек либо тестовые пользователи режима памяти. */
     readonly initialUsers: ReadonlyArray<InitialUser>;
+    /** Параметры заполнения новой базы из initialData файла настроек. */
+    readonly initialData: InitialDataSettings;
     /** Каталог, расписание и число хранимых резервных копий. */
     readonly backup: BackupSettings;
     /** PIN тестового пользователя для автовхода; бывает только в тестовых режимах. */
@@ -237,6 +261,7 @@ export class SettingsService {
         this.database = this.settings.database;
         this.pinHmacSecret = this.settings.pinHmacSecret;
         this.initialUsers = this.settings.initialUsers;
+        this.initialData = this.settings.initialData;
         this.backup = this.settings.backup;
         this.autoLoginPin = launch.autoLoginPin;
         // Предупреждение видно в журнале запуска: без него вход без PIN выглядел бы как ошибка прав.
