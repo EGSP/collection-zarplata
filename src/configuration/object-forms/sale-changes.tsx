@@ -18,6 +18,7 @@ import {
     useActionConfirmation,
     useActionResult,
     useObjectView,
+    useFormRestrictions,
     type FormAction,
     type FormField,
     type FormValues,
@@ -39,7 +40,8 @@ const complexPayment = 'Сложная';
 
 /** Ответ действия `changesState`: продажа, её рассрочки и версия данных. */
 interface ChangesState {
-    readonly sale: { readonly payments: ReadonlyArray<PaymentLine> };
+    readonly sale: { readonly date: string; readonly payments: ReadonlyArray<PaymentLine> };
+    readonly closedThrough: string | null;
     readonly installments: ReadonlyArray<LinkedInstallment>;
     readonly version: string;
 }
@@ -133,6 +135,13 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     const installmentView = useObjectView(Objects.document.saleInstallment);
     const changes = useActionResult<ChangesState>({ object: sales, action: 'changesState', payload: { sale: guid }, enabled: guid !== null });
     const data = changes.data;
+    // Границу сообщает сервер без отдельного права чтения закрытий. До ответа поля продажи
+    // и условия рассрочек недоступны, чтобы закрытая продажа не выглядела редактируемой.
+    // Продажа находится в закрытом периоде: разрешены только правки взносов.
+    // Флаг задаёт ограничение, а не определяет, какие данные изменил сотрудник.
+    const paymentsOnly = data !== undefined && data.closedThrough !== null && data.sale.date.slice(0, 10) <= data.closedThrough;
+    const termsLocked = data === undefined || paymentsOnly;
+    useFormRestrictions(sales, termsLocked ? { readOnlyFields: ['goods', 'payments', 'paymentMode'] } : {});
     const [saving, setSaving] = useState(false);
     // Суммы, заданные сотрудником; `null` — суммы распределяются автоматически.
     const [manual, setManual] = useState<ReadonlyMap<string, number | null> | null>(null);
@@ -182,7 +191,7 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     const automatic = useMemo(() => distribute(installments, target - arrangedBefore, paymentsOf), [data, target, editedPayments]);
     const amountOf = (installment: LinkedInstallment): number => manual?.get(installment.guid) ?? (manual === null ? automatic.get(installment.guid) ?? installment.amount : installment.amount);
     const distributed = installments.filter((installment) => installment.posted).reduce((total, installment) => total + amountOf(installment), 0);
-    const editableAmounts = installments.filter(distributable).length > 1;
+    const editableAmounts = !termsLocked && installments.filter(distributable).length > 1;
 
     // Оплата «Рассрочка» продажи без рассрочки: её получает новая рассрочка. Вторая рассрочка не оформляется.
     const newAmount = installments.length > 0 ? 0 : Math.max(0, target - distributed);
@@ -215,7 +224,9 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
 
     const save = async () => {
         if (data === undefined || guid === null) return;
-        const prepared = prepare(state.form.getFieldsValue(true) as FormValues);
+        // В режиме взносов способ оплаты и состав продажи сохраняются буквально:
+        // нормализация сложной оплаты тоже была бы изменением закрытой продажи.
+        const prepared = paymentsOnly ? undefined : prepare(state.form.getFieldsValue(true) as FormValues);
         if (prepared !== undefined) state.form.setFieldsValue(prepared);
         let entered: FormValues;
         try {
@@ -302,8 +313,9 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
             {installments.map((installment) => {
                 const next = amountOf(installment);
                 const amountField = field('amount');
+                // Пояснение относится к взносам каждой присоединённой рассрочки и стоит у её таблицы.
                 return <LinkedInstallmentForm key={installment.guid} installment={installment} fields={installmentView?.form?.fields ?? []}
-                    editing disabled={saving} person={persons.has(installment.guid) ? persons.get(installment.guid) : installment.person}
+                    editing disabled={saving || termsLocked} person={persons.has(installment.guid) ? persons.get(installment.guid) : installment.person}
                     employee={employees.has(installment.guid) ? employees.get(installment.guid) : installment.responsibleEmployee}
                     onPersonChange={(value) => setPersons((current) => new Map(current).set(installment.guid, value))}
                     onEmployeeChange={(value) => setEmployees((current) => new Map(current).set(installment.guid, value))}
@@ -315,9 +327,12 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
                     difference={<Typography.Text {...(next === installment.amount ? { type: 'secondary' as const } : {})}>
                         {next === installment.amount ? 'нет' : `${next > installment.amount ? '+' : '−'}${rubles(Math.abs(next - installment.amount))}`}
                     </Typography.Text>}
-                    payments={paymentsPart === undefined ? null : <InstallmentPayments key={data?.version} part={paymentsPart} payments={installment.payments}
+                    payments={<>
+                        {paymentsOnly && <Alert type="info" showIcon title={`Продажа в закрытом периоде по ${data.closedThrough}: можно менять только взносы с датой после границы`} />}
+                        {paymentsPart === undefined ? null : <InstallmentPayments key={data?.version} part={paymentsPart} payments={installment.payments}
                         disabled={saving || !installment.posted} register={(form) => { paymentForms.current.add(form); return () => paymentForms.current.delete(form); }}
-                        onChange={(rows) => setEditedPayments((current) => new Map(current).set(installment.guid, rows))} />}>
+                        onChange={(rows) => setEditedPayments((current) => new Map(current).set(installment.guid, rows))} />}
+                    </>}>
                     {installmentView !== undefined && <LinkedInstallmentActions installment={installment} view={installmentView} disabled />}
                 </LinkedInstallmentForm>;
             })}
@@ -329,7 +344,7 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
                             <Typography.Title level={4} style={{ margin: 0 }}>Новая рассрочка</Typography.Title>
                             <Typography.Text>на <FieldDisplay field={money} value={newAmount} /></Typography.Text>
                         </Flex>
-                        <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={saving}
+                        <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={saving || termsLocked}
                             problems={termsChecked ? termsProblems : []} input={sellWithInstallment?.input ?? []} />
                     </Flex>
                 </>

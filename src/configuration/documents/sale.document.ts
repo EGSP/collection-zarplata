@@ -27,7 +27,7 @@ import { cash, installmentMethod, paymentColumns, paymentMethods, Payments, rece
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
 import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
-import { closedPeriodByDocumentDatePolicy } from '../policies/closed-period.js';
+import { closedPeriodByDocumentDatePolicy, dayOf, lastClosedThrough } from '../policies/closed-period.js';
 import { Shift } from './shift.document.js';
 import { Weighing } from './weighing.document.js';
 
@@ -292,6 +292,8 @@ interface InstallmentPayment {
 /** Данные экрана изменения продажи: продажа, её рассрочки и версия этих данных. */
 interface SaleChangesState {
     readonly sale: SaleRecord;
+    /** Граница закрытия для ограничений экрана; входит в версию на случай нового закрытия. */
+    readonly closedThrough: string | null;
     /** Рассрочки по продаже без пометки удаления, по дате оформления. */
     readonly installments: ReadonlyArray<LinkedInstallment>;
     /** Версия данных: меняется при любом изменении продажи или её рассрочек, например при новом взносе. */
@@ -350,7 +352,8 @@ const changesState = (guid: string) => Effect.gen(function* () {
     }));
     const installments: LinkedInstallment[] = [];
     for (const row of rows) installments.push((yield* dispatcher.execute({ target: installmentTarget, action: 'get', payload: { guid: row['guid'] } })) as LinkedInstallment);
-    const state: SaleChangesState = { sale: record, installments, version: textHash(JSON.stringify([record, installments])) };
+    const closedThrough = yield* lastClosedThrough;
+    const state: SaleChangesState = { sale: record, installments, closedThrough, version: textHash(JSON.stringify([record, installments, closedThrough])) };
     return state;
 });
 
@@ -677,11 +680,38 @@ export const Sale = sale
             if (record.deletedAt !== null) return yield* rejected('Продажа помечена на удаление, изменить её нельзя');
             if (!record.posted) return yield* rejected('Продажа не проведена: измените её на форме и проведите');
             const proposed: SaleRecord = { ...record, paymentMode: input.paymentMode, goods: input.goods, payments: input.payments };
+            // Сравниваются все записываемые поля и части по метаданным. Вычисляемые значения
+            // пересчитывает запись: их отсутствие во входе не означает изменение товара.
+            // Порядок строк значим, порядок ключей составного значения значимым не является.
+            const metadata = yield* Metadata;
+            const description = metadata.find('document', target.name);
+            if (description === undefined) return yield* Effect.die(new Error('В конфигурации нет документа «Продажа»'));
+            const values = (value: SaleRecord) => {
+                const fields = value as unknown as Record<string, unknown>;
+                return JSON.stringify([
+                    description.fields.filter((field) => field.computed == null).map((field) => fields[field.name] ?? null),
+                    description.tableParts.map((part) => {
+                        const rows = fields[part.name] as ReadonlyArray<Record<string, unknown>>;
+                        return rows.map((row) => part.fields.filter((field) => field.computed == null).map((field) => row[field.name] ?? null));
+                    }),
+                ], (_key, item: unknown) => typeof item === 'object' && item !== null && !Array.isArray(item)
+                    ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right))) : item);
+            };
+            const saleChanged = values(record) !== values(proposed);
+            // Продажа находится в закрытом периоде: разрешены только правки взносов.
+            // Флаг задаёт ограничение, а не определяет, какие данные изменил запрос.
+            const paymentsOnly = state.closedThrough !== null && dayOf(record.date) <= state.closedThrough;
+            if (paymentsOnly && saleChanged) return yield* rejected(`Период закрыт по ${state.closedThrough} включительно`);
             const line = installmentAmount(proposed);
             if (state.installments.length > 0 && line <= 0) {
                 return yield* rejected(`У продажи есть рассрочки, поэтому в оплате должна остаться оплата способом «${installmentMethod}». ${cancellationHint}`);
             }
             const writes = yield* checkInstallmentChanges(state, input.installments, input.installmentPayments);
+            // Даже у более поздней рассрочки закрытая продажа разрешает менять только взносы.
+            if (paymentsOnly && writes.some(({ existing, fields }) => fields.amount !== existing.amount
+                || fields.person !== (existing.person ?? null) || fields.responsibleEmployee !== (existing.responsibleEmployee ?? null))) {
+                return yield* rejected(`Период закрыт по ${state.closedThrough} включительно`);
+            }
             // Итог регистра «Неоформленные рассрочки» учитывает только проведённые рассрочки.
             const arranged = state.installments.filter((installment) => installment.posted)
                 .reduce((total, installment) => total + (writes.find((write) => write.existing.guid === installment.guid)?.fields.amount ?? installment.amount), 0);
@@ -708,7 +738,9 @@ export const Sale = sale
             // записывается продажа, затем увеличиваются остальные рассрочки.
             const decreased = writes.filter((write) => write.fields.amount < write.existing.amount);
             for (const write of decreased) yield* writeInstallment(write);
-            yield* dispatcher.execute({ target, action: 'save', payload: { guid: record.guid, fields: proposed } });
+            // Неизменённая продажа не затрагивает закрытый период. Вложенные записи рассрочек
+            // по-прежнему проверяют прежние и новые даты взносов и снятие закрытия рассрочки.
+            if (saleChanged) yield* dispatcher.execute({ target, action: 'save', payload: { guid: record.guid, fields: proposed } });
             for (const write of writes.filter((candidate) => !decreased.includes(candidate))) yield* writeInstallment(write);
             // Новая рассрочка оформляется последней: на её сумму оплата «Рассрочка» уже записана продажей.
             if (newAmount > 0 && newType !== null && newPerson !== null) {
