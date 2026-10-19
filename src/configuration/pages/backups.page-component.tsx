@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Descriptions, Flex, Popconfirm, Progress, Space, Spin, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Flex, Form, Input, InputNumber, Modal, Popconfirm, Progress, Space, Spin, Table, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import type { BackupFile, BackupOverview, BackupSource, RunningBackup } from '../../server/backup/descriptions';
 import { Page, useAction, useActionResult } from '../../web/sdk';
@@ -9,6 +9,12 @@ const backups = { kind: 'platform', name: 'backups' } as const;
 const runningRefreshInterval = 2000;
 
 const sourceTitles: Readonly<Record<BackupSource, string>> = { schedule: 'По расписанию', manual: 'Вручную' };
+
+/** Форма хранит черновик отдельно от опроса состояния, чтобы обновление списка не стирало ввод. */
+interface ScheduleValues {
+    schedule: string[];
+    keep: number;
+}
 
 /** Размер в байтах привычными единицами: «1,5 ГБ». */
 function formatSize(bytes: number): string {
@@ -35,6 +41,9 @@ export default function BackupsPage() {
     const [refreshInterval, setRefreshInterval] = useState<number | false>(false);
     const result = useActionResult<BackupOverview>({ object: backups, action: 'list', refreshInterval });
     const action = useAction();
+    const [scheduleForm] = Form.useForm<ScheduleValues>();
+    const [editingSchedule, setEditingSchedule] = useState(false);
+    const [savingSchedule, setSavingSchedule] = useState(false);
     const overview = result.data;
     const running = overview?.running ?? [];
     // Опрос включается, пока есть идущие копии, и выключается, когда они закончились.
@@ -52,19 +61,63 @@ export default function BackupsPage() {
         await result.refresh();
     }
 
+    function editSchedule(): void {
+        if (overview === undefined) return;
+        scheduleForm.setFieldsValue({ schedule: [...overview.schedule], keep: overview.keep });
+        setEditingSchedule(true);
+    }
+
+    /** Закрываем редактор только после записи; при ошибке сервер показывает строку cron, ввод остаётся. */
+    async function saveSchedule(): Promise<void> {
+        const values = await scheduleForm.validateFields().catch(() => undefined);
+        if (values === undefined) return;
+        setSavingSchedule(true);
+        try {
+            await action({ object: backups, action: 'saveSettings', payload: values, successMessage: 'Расписание сохранено', failureMessage: 'Расписание не сохранено' });
+            setEditingSchedule(false);
+            await result.refresh();
+        } catch {
+            // useAction показывает ответ сервера; черновик нужен для исправления ошибки.
+        } finally {
+            setSavingSchedule(false);
+        }
+    }
+
     return <Page title="Резервные копии" actions={overview?.canWrite === true && <Button type="primary" disabled={!canStart} onClick={() => { void create(); }}>Создать копию</Button>}>
+        <Modal title="Расписание резервных копий" open={editingSchedule} okText="Сохранить" cancelText="Отмена" confirmLoading={savingSchedule}
+            okButtonProps={{ disabled: overview?.canWrite !== true }} cancelButtonProps={{ disabled: savingSchedule }} closable={!savingSchedule} maskClosable={!savingSchedule}
+            onCancel={() => setEditingSchedule(false)} onOk={() => { void saveSchedule(); }}>
+            <Form form={scheduleForm} layout="vertical" disabled={savingSchedule}>
+                <Typography.Paragraph>Строки cron задаются в местном времени сервера. Пустой список оставляет только ручные копии.</Typography.Paragraph>
+                <Form.List name="schedule">
+                    {(fields, { add, remove }) => <Flex vertical gap="small">
+                        {fields.map((field, index) => <Flex key={field.key} gap="small" align="baseline">
+                            <Form.Item name={field.name} label={`Строка ${index + 1}`} style={{ flex: 1, marginBottom: 0 }} rules={[{ required: true, whitespace: true, message: 'Введите строку cron или удалите её' }]}>
+                                <Input placeholder="0 8 * * *" aria-label={`Строка cron ${index + 1}`} />
+                            </Form.Item>
+                            <Button aria-label={`Удалить строку ${index + 1}`} onClick={() => remove(field.name)}>Удалить</Button>
+                        </Flex>)}
+                        <Button onClick={() => add('')}>Добавить строку</Button>
+                    </Flex>}
+                </Form.List>
+                <Form.Item name="keep" label="Число хранимых копий" style={{ marginTop: 16 }} rules={[{ required: true, type: 'integer', min: 1, max: Number.MAX_SAFE_INTEGER, message: 'Введите целое число не меньше 1' }]}>
+                    <InputNumber min={1} precision={0} aria-label="Число хранимых копий" />
+                </Form.Item>
+                <Typography.Paragraph type="secondary">Старые копии сверх указанного числа удаляются после следующей успешной копии.</Typography.Paragraph>
+            </Form>
+        </Modal>
         {!result.loading && overview === undefined && <Alert type="error" title="Не удалось получить состояние копирования. Проверьте право чтения и соединение с сервером." />}
         {overview !== undefined && !overview.available && <Alert type="info" title="База открыта в памяти: резервное копирование недоступно." />}
         {overview?.directoryError != null && <Alert type="error" title={overview.directoryError} />}
         {overview !== undefined && overview.available && <Flex vertical gap="middle">
-            <Card size="small" title="Диск">
+            <Card size="small" title="Диск" extra={overview.canWrite && <Button onClick={editSchedule}>Изменить расписание</Button>}>
                 {overview.disk === null ? <Typography.Text type="secondary">Нет сведений о диске</Typography.Text> : <Flex vertical gap="small">
                     <Progress percent={Math.round(overview.disk.used / overview.disk.total * 100)} status={overview.disk.free < overview.disk.total * 0.1 ? 'exception' : 'normal'} />
                     <Typography.Text>Занято {formatSize(overview.disk.used)} из {formatSize(overview.disk.total)}, свободно {formatSize(overview.disk.free)}</Typography.Text>
                 </Flex>}
                 <Descriptions size="small" column={1} style={{ marginTop: 12 }} items={[
                     { key: 'directory', label: 'Каталог', children: overview.directory },
-                    { key: 'schedule', label: 'Расписание', children: overview.schedule.length === 0 ? 'Не задано, только ручные копии' : <Space wrap>{overview.schedule.map((line) => <Tag key={line}>{line}</Tag>)}</Space> },
+                    { key: 'schedule', label: 'Расписание', children: overview.schedule.length === 0 ? 'Не задано, только ручные копии' : <Space wrap>{overview.schedule.map((line, index) => <Tag key={index}>{line}</Tag>)}</Space> },
                     { key: 'next', label: 'Следующая копия', children: overview.nextRun === null ? '—' : formatTime(overview.nextRun) },
                     { key: 'keep', label: 'Хранится копий', children: overview.keep },
                 ]} />

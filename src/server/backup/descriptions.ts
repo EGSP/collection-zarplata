@@ -47,7 +47,7 @@ export interface DiskUsage {
 
 /** Состояние копирования для страницы: диск, копии, идущие копии и расписание. */
 export interface BackupOverview {
-    /** `false` у базы в памяти: копировать нечего. Остальные поля тогда пусты. */
+    /** `false` у базы в памяти: копировать нечего. Расписание остаётся доступно через API. */
     readonly available: boolean;
     readonly directory: string | null;
     readonly disk: DiskUsage | null;
@@ -63,6 +63,6 @@ export interface BackupOverview {
     /** Сколько последних копий хранится. */
     readonly keep: number;
     readonly lastOutcome: BackupOutcome | null;
-    /** Может ли пользователь создавать и прерывать копии. */
+    /** Может ли пользователь создавать и прерывать копии, менять расписание и число копий. */
     readonly canWrite: boolean;
 }
