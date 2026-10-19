@@ -59,12 +59,20 @@ export interface InputHandle {
     focus(): void;
 }
 
+/** Включительные границы календарной даты в формате `YYYY-MM-DD`; отсутствие границы её не ограничивает. */
+export interface DateLimits {
+    readonly minimum?: string | undefined;
+    readonly maximum?: string | undefined;
+}
+
 /** Свойства поля ввода. Незаполненное значение приходит как `null` или `undefined`, а отдаётся всегда как `null`. */
 export interface InputProperties<Value> {
     readonly field: WidgetField;
     readonly value?: Value | null | undefined;
     readonly onChange?: ((value: Value | null) => void) | undefined;
     readonly disabled?: boolean | undefined;
+    /** Границы выбора для вида `date`, в том числе при вводе с клавиатуры. Бизнес-правила дополнительно проверяет сервер. */
+    readonly dateLimits?: DateLimits | undefined;
     /** Идентификатор элемента: его передаёт элемент формы Ant Design, чтобы подпись указывала на поле. */
     readonly id?: string | undefined;
     readonly ref?: Ref<InputHandle> | undefined;

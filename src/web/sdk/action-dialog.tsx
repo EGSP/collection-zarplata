@@ -8,11 +8,14 @@ import { ApiError } from '../common/api';
 import { FieldDisplay, FieldInput } from '../widgets/registry';
 import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../widgets/validation';
 import { newInputValues, type FormValues } from './record-values';
+import type { DateLimits } from '../widgets/widget';
 
 /** Свойства окна входных данных действия. */
 export interface ActionDialogProperties {
     /** Собственное действие с входными данными. */
     readonly action: FormAction;
+    /** Динамические включительные границы полей дат по имени; проверяются также перед отправкой формы. */
+    readonly dateLimits?: Readonly<Record<string, DateLimits>> | undefined;
     /**
      * Выполняет действие с введёнными данными. Если вызов завершился ошибкой, действие
      * не выполнено: окно остаётся открытым, а введённые данные сохраняются.
@@ -27,7 +30,7 @@ export interface ActionDialogProperties {
  * поля из его перечня отмечаются ошибкой. На время запроса закрытие блокируется, чтобы ответ
  * сервера и ошибки полей пришли в открытое окно.
  */
-export function ActionDialog({ action, onExecute, onClose }: ActionDialogProperties) {
+export function ActionDialog({ action, dateLimits, onExecute, onClose }: ActionDialogProperties) {
     const [form] = Form.useForm<FormValues>();
     const [executing, setExecuting] = useState(false);
     const parts = action.tableParts ?? [];
@@ -68,11 +71,24 @@ export function ActionDialog({ action, onExecute, onClose }: ActionDialogPropert
                 его полями. Во время выполнения запроса блокируется уже сам ввод окна. */}
             <Form form={form} disabled={executing} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])) }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
                 <ComputedValues view={{ fields: action.input, tableParts: parts }} />
-                {action.input.map((field) => (
-                    <Form.Item {...{ [fieldAttribute]: field.name }} key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={fieldRules(field)}>
-                        {field.readOnly ? <FieldDisplay field={field} /> : <FieldInput field={field} ref={traversal.register(field.name)} />}
-                    </Form.Item>
-                ))}
+                {action.input.map((field) => {
+                    const limits = field.kind === 'date' ? dateLimits?.[field.name] : undefined;
+                    return (
+                        <Form.Item {...{ [fieldAttribute]: field.name }} key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={[
+                            ...fieldRules(field),
+                            // Проверка формы нужна и для прежнего значения: пока окно открыто,
+                            // другое действие могло закрыть период и сдвинуть доступную границу.
+                            ...limits === undefined ? [] : [{ validator: (_rule: unknown, value: unknown) => {
+                                if (typeof value !== 'string') return Promise.resolve();
+                                if (limits.minimum !== undefined && value < limits.minimum) return Promise.reject(new Error('Дата раньше начала доступного периода'));
+                                if (limits.maximum !== undefined && value > limits.maximum) return Promise.reject(new Error('Дата позже конца доступного периода'));
+                                return Promise.resolve();
+                            } }],
+                        ]}>
+                            {field.readOnly ? <FieldDisplay field={field} /> : <FieldInput field={field} dateLimits={limits} ref={traversal.register(field.name)} />}
+                        </Form.Item>
+                    );
+                })}
                 {parts.map((part) => <div key={part.name} {...{ [fieldAttribute]: part.name }}><TablePart part={part} ref={traversal.register(part.name)} onPrevious={() => traversal.previous(part.name)} disabled={executing} /></div>)}
             </Form>
         </Modal>

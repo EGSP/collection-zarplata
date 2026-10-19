@@ -95,7 +95,7 @@ export function MoneyInput({ value, onChange, disabled, id, ref }: InputProperti
 }
 
 /** Поле выбора даты в календаре. Значение поля: строка `YYYY-MM-DD`. */
-export function DateInput({ value, onChange, disabled, id, ref }: InputProperties<string>) {
+export function DateInput({ value, onChange, disabled, dateLimits, id, ref }: InputProperties<string>) {
     const inner = useInputHandle(ref);
     const [open, setOpen] = useState(false);
     return (
@@ -106,6 +106,13 @@ export function DateInput({ value, onChange, disabled, id, ref }: InputPropertie
                 {...defined({ id, disabled })}
                 style={fullWidth}
                 format={dateFormat}
+                // disabledDate оставляет закрытые дни видимыми, но запрещает и выбор, и подтверждение
+                // введённой даты. Ограничение относится к календарному дню, без времени и часового пояса.
+                disabledDate={(date) => {
+                    const day = date.format('YYYY-MM-DD');
+                    return (dateLimits?.minimum !== undefined && day < dateLimits.minimum)
+                        || (dateLimits?.maximum !== undefined && day > dateLimits.maximum);
+                }}
                 value={value === null || value === undefined ? null : dayjs(value)}
                 onChange={(date) => onChange?.(date === null ? null : date.format('YYYY-MM-DD'))}
             />

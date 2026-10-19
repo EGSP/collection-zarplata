@@ -1,7 +1,7 @@
-import { Alert, Button, Card, Flex, Modal, Table, Typography } from 'antd';
-import { useState } from 'react';
+import { Alert, Button, Card, Flex, Modal, Space, Table, Tabs, theme, Typography } from 'antd';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { ActionDialog, FieldDisplay, FieldInput, FluidField, Page, pagePath, RecordLink, useAction, useActionResult, useObjectView, useOpenRecord, useReferencePresentation, type ObjectView } from '../../web/sdk';
+import { ActionDialog, FieldDisplay, FieldInput, FluidField, Page, pagePath, RecordLink, useAction, useActionResult, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PayrollLine, PayrollResult, PayrollRuleDescription } from '../payroll';
 
@@ -14,6 +14,45 @@ function dayFromToday(offset: number): string {
 
 /** Поле дня расчёта: дата без времени. */
 const dayField = { kind: 'date', target: null } as const;
+
+/** Последний закрытый день перед началом расчёта. UTC сохраняет календарную дату при смене часового пояса. */
+function dayBefore(day: string): string {
+    const date = new Date(`${day}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() - 1);
+    return date.toISOString().slice(0, 10);
+}
+
+/**
+ * История действующих закрытий, от новых к старым. Открывается сохранённый документ с итогами
+ * и расшифровкой: повторный расчёт по сегодняшним правилам изменил бы смысл прошлой зарплаты.
+ * Серверная пагинация не ограничивает историю первыми закрытиями.
+ */
+function ClosedPeriods() {
+    const closings = useRecordList(Objects.document.periodClosing, {
+        permanentFilter: [{ field: 'posted', operator: 'equals', value: true }, { field: 'deletedAt', operator: 'equals', value: null }],
+        sort: [{ field: 'closedThrough', direction: 'descending' }],
+    });
+    const openRecord = useOpenRecord();
+    if (closings.error !== null) return <Alert type="error" showIcon title="Не удалось загрузить закрытые периоды" />;
+    return (
+        <Table
+            size="small"
+            rowKey="guid"
+            loading={closings.loading}
+            dataSource={[...closings.records]}
+            locale={{ emptyText: 'Закрытых периодов нет' }}
+            pagination={{ current: closings.page, pageSize: closings.pageSize, total: closings.total, onChange: closings.setPage }}
+            columns={[
+                // Номер относится к порядку действующих периодов, а не к документу закрытия.
+                // При сортировке от новых к старым отсчёт идёт от общего количества, включая другие страницы.
+                { title: '№ периода', key: 'periodNumber', width: 110, render: (_value, _row, index) => closings.total - (closings.page - 1) * closings.pageSize - index },
+                { title: 'Период', key: 'period', render: (_value, row) => <>{row.periodStart == null ? 'С начала учёта' : <FieldDisplay field={dayField} value={row.periodStart} />} по <FieldDisplay field={dayField} value={row.closedThrough} /></> },
+                { title: 'Начислено', key: 'amount', align: 'right', render: (_value, row) => <Money value={row.amount} /> },
+                { title: '', key: 'open', render: (_value, row) => <Button type="link" onClick={() => void openRecord(Objects.document.periodClosing, row.guid)}>Открыть</Button> },
+            ]}
+        />
+    );
+}
 
 /** Окно правил расчёта: название и описание каждого действующего правила по порядку. */
 function RulesDialog({ title, rules, onClose }: { readonly title: string; readonly rules: ReadonlyArray<PayrollRuleDescription>; readonly onClose: () => void }) {
@@ -167,16 +206,25 @@ function PayrollTable({ result }: { readonly result: PayrollResult }) {
  * сохранённые ответы сервера.
  */
 export default function PayrollPage() {
+    const { token } = theme.useToken();
     const closings = Objects.document.periodClosing;
     const view = useObjectView(closings);
     const [through, setThrough] = useState<string>(() => dayFromToday(0));
     const [rulesOpen, setRulesOpen] = useState(false);
+    const [tab, setTab] = useState('current');
     const preview = useActionResult<PayrollResult>({ object: closings, action: 'payrollPreview', payload: { closedThrough: through } });
     const run = useAction();
     const openRecord = useOpenRecord();
     const [closing, setClosing] = useState(false);
     const closePeriod = view?.form?.actions.find((action) => action.name === 'closePeriod');
     const result = preview.data;
+    const minimumDay = result?.periodStart ?? undefined;
+    const lastClosingDay = dayFromToday(-1);
+    // Если сотрудник закрыл период по выбранный день, прежний конец уже недоступен.
+    // Новый расчёт начинается с первого открытого дня; граница берётся из ответа сервера.
+    useEffect(() => {
+        if (minimumDay !== undefined && through < minimumDay) setThrough(minimumDay);
+    }, [minimumDay, through]);
     return (
         <Page
             title="Зарплата"
@@ -184,35 +232,55 @@ export default function PayrollPage() {
                 <Flex gap="small">
                     {/* Ссылка, а не обработчик: переход по адресу страницы открывает её во вкладке. */}
                     <Link to={pagePath('periodSummary')}><Button>Сводка за период</Button></Link>
-                    <Button disabled={result === undefined} onClick={() => setRulesOpen(true)}>Правила</Button>
-                    {closePeriod !== undefined && <Button type="primary" onClick={() => setClosing(true)}>{closePeriod.title}</Button>}
+                    {tab === 'current' && <Button disabled={result === undefined} onClick={() => setRulesOpen(true)}>Правила</Button>}
+                    {tab === 'current' && closePeriod !== undefined && <Button type="primary" disabled={result === undefined || preview.loading || (minimumDay !== undefined && minimumDay > lastClosingDay)} onClick={() => setClosing(true)}>{closePeriod.title}</Button>}
                 </Flex>
             )}
         >
-            <Card size="small">
-                <div style={{ maxWidth: 240, marginBottom: 16 }}>
-                    <FluidField label="Рассчитать по" required>
-                        {/* Пустое значение не принимается: расчёт всегда идёт по какой-то день. */}
-                        <FieldInput field={dayField} value={through} onChange={(value) => { if (typeof value === 'string') setThrough(value); }} />
-                    </FluidField>
-                </div>
-                {result === undefined ? (
-                    preview.loading
-                        ? <Typography.Text type="secondary">Загрузка…</Typography.Text>
-                        : <Alert type="error" showIcon title="Не удалось рассчитать зарплату" description="Нет права на расчёт зарплаты, или сервер отклонил запрос" />
-                ) : (
-                    <Flex vertical gap="middle">
-                        <Typography.Text>
-                            Незакрытый период {result.periodStart === null ? 'с начала учёта' : <>с <FieldDisplay field={dayField} value={result.periodStart} /></>} по <FieldDisplay field={dayField} value={result.closedThrough} />.
-                        </Typography.Text>
-                        {result.employees.length === 0
-                            ? <Typography.Text type="secondary">Начислений в периоде нет</Typography.Text>
-                            : <PayrollTable result={result} />}
-                    </Flex>
-                )}
-            </Card>
+            <Tabs activeKey={tab} onChange={setTab} items={[
+                { key: 'current', label: 'Текущий период', children: (
+                    <Card size="small">
+                        <Flex gap="small" wrap style={{ marginBottom: 16 }}>
+                            <div style={{ width: 320, maxWidth: '100%' }}>
+                                <FluidField label="Начало периода">
+                                    {/* Начало приходит вместе с расчётом: после закрытия обновляется тем же запросом.
+                                        Отображение без поля ввода не позволяет выбрать произвольное начало периода. */}
+                                    <Space.Addon style={{ minHeight: token.controlHeight, background: 'transparent', display: 'flex', alignItems: 'center' }}>
+                                        {result === undefined
+                                            ? <Typography.Text type="secondary">{preview.loading ? 'Загрузка…' : 'Нет данных'}</Typography.Text>
+                                            : result.periodStart === null ? 'С начала учёта' : <FieldDisplay field={dayField} value={result.periodStart} />}
+                                    </Space.Addon>
+                                </FluidField>
+                            </div>
+                            <div style={{ width: 240, maxWidth: '100%' }}>
+                                <FluidField label="Рассчитать по" required>
+                                    {/* Пустое значение не принимается: расчёт всегда идёт по какой-то день. */}
+                                    <FieldInput field={dayField} value={through} disabled={result === undefined} dateLimits={{ minimum: minimumDay }} onChange={(value) => { if (typeof value === 'string') setThrough(value); }} />
+                                </FluidField>
+                            </div>
+                        </Flex>
+                        {minimumDay !== undefined && <Typography.Paragraph type="secondary">Период закрыт по <FieldDisplay field={dayField} value={dayBefore(minimumDay)} /> включительно.</Typography.Paragraph>}
+                        {result === undefined ? (
+                            preview.loading
+                                ? <Typography.Text type="secondary">Загрузка…</Typography.Text>
+                                : <Alert type="error" showIcon title="Не удалось рассчитать зарплату" description="Нет права на расчёт зарплаты, или сервер отклонил запрос" />
+                        ) : (
+                            <Flex vertical gap="middle">
+                                <Typography.Text>
+                                    Незакрытый период {result.periodStart === null ? 'с начала учёта' : <>с <FieldDisplay field={dayField} value={result.periodStart} /></>} по <FieldDisplay field={dayField} value={result.closedThrough} />.
+                                </Typography.Text>
+                                {result.employees.length === 0
+                                    ? <Typography.Text type="secondary">Начислений в периоде нет</Typography.Text>
+                                    : <PayrollTable result={result} />}
+                            </Flex>
+                        )}
+                    </Card>
+                ) },
+                { key: 'closed', label: 'Закрытые периоды', children: <ClosedPeriods /> },
+            ]} />
             {closing && closePeriod !== undefined && (
                 <ActionDialog
+                    dateLimits={{ closedThrough: { minimum: minimumDay, maximum: lastClosingDay } }}
                     action={{ ...closePeriod, input: closePeriod.input.map((field) => field.name === 'closedThrough' ? { ...field, initial: through < dayFromToday(0) ? through : dayFromToday(-1) } : field) }}
                     onExecute={async (input) => {
                         const created: { readonly guid: string } = await run({ object: closings, action: 'closePeriod', payload: input, successMessage: 'Период закрыт', failureMessage: 'Период не закрыт' });

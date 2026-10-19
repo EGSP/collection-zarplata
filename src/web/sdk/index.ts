@@ -71,7 +71,7 @@ export { Page, type PageProperties } from './page';
 // Поля: ввод и отображение значения по виду поля, проверка ввода, обход с клавиатуры.
 export { FieldDisplay, FieldInput, compositeInputs, hasInput } from '../widgets/registry';
 export { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage, validationMessage } from '../widgets/validation';
-export type { CompositeInputModes, CompositeInputProperties, DisplayProperties, FieldValues, InputHandle, InputProperties, WidgetField } from '../widgets/widget';
+export type { CompositeInputModes, CompositeInputProperties, DateLimits, DisplayProperties, FieldValues, InputHandle, InputProperties, WidgetField } from '../widgets/widget';
 export { FieldGroup, type FieldGroupProperties } from './field-group';
 export { FluidField, fieldInput, type FieldInputComponent, type FieldInputLayouts, type FieldInputMark, type FieldLayout, type FluidFieldProperties, type FluidInputProperties, type LaidOutInputProperties } from './field-layout';
 export { FormDataProvider, useFormData, useFormRestrictions, useFormValue, type EnteredValue, type FormData, type FormDataProviderProperties, type FormElementComponent, type SetValueOptions } from './form-data';

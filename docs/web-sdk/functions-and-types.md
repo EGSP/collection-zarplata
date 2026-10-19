@@ -39,6 +39,7 @@ covers:
 | `RecordData`, `FormValues` | Запись общего типа и значения формы |
 | `RecordQuery`, `RecordsQuery` | Результат [`useRecord`](hooks.md#чтение-данных) и [`useRecords`](hooks.md#чтение-данных): записи, `loading` и `error` |
 | `InputProperties`, `DisplayProperties`, `CompositeInputModes` и связанные | Контракт поля ввода и отображения |
+| `DateLimits` | Включительные границы `minimum` и `maximum` для календарной даты (`YYYY-MM-DD`); применяются через `FieldInput.dateLimits` и по именам полей в `ActionDialog.dateLimits` |
 | `TablePartInputProperties` | Контракт замены табличной части |
 | `ListFormProperties`, `RecordFormProperties`, `NewFormProperties`, `FormPresentation` | Свойства форм объекта и место показа `page` или `dialog` ([«Формы объекта»](../metadata.md#формы-объекта)) |
 | `RecordFormHandlers`, `RecordFormController`, `RecordFormOutcome`, `RecordFormRunOptions` | Обработчики, управление и итог действия [контракта формы записи](hooks.md#контракт-формы-записи) |
