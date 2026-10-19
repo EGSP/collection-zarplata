@@ -32,11 +32,12 @@ const goodsOptions: TablePartOptions = {
 const dividerStyle = { margin: '0 0 16px' };
 
 /**
- * Кнопки новой продажи: только «Закрыть». Продажу проводит кнопка «Продать» под оплатами,
- * а запись без проведения новой продаже не нужна: продавец оформляет её у кассы целиком.
+ * Панель любой продажи: только «Закрыть» и меню «Ещё» с собственными действиями и журналом.
+ * Новую продажу и черновик оформляет «Продать», проведённую меняют через «Внести изменения»
+ * и отменяют через «Отмена продажи». Стандартные команды не предлагают отдельную запись продажи.
  * Сочетания клавиш записи и проведения продолжают работать.
  */
-const newSaleButtons: RecordFormButtons = { actions: [], postAndClose: false };
+const saleButtons: RecordFormButtons = { actions: [], postAndClose: false };
 
 /**
  * Размер кнопки «Продать». Это главное действие продавца у кассы, поэтому кнопка заметно крупнее
@@ -104,8 +105,8 @@ const actionsHiddenWhileEditing = ['save', 'post', 'unpost', 'markDeleted', 'unm
 function SaleEditingRestrictions({ editing, cancelled }: { readonly editing: boolean; readonly cancelled: boolean }) {
     useFormRestrictions(Objects.document.sale, editing
         ? { readOnlyFields: ['number', 'date', 'shift'], hiddenActions: [...actionsHiddenWhileEditing] }
-        // «Продать с рассрочкой» нужна только новой продаже. Отменённую продажу не проводят: чтобы
-        // вернуть её, снимают пометку удаления, и она снова становится черновиком.
+        // «Продать с рассрочкой» нужна только новой продаже. Отменённая продажа остаётся
+        // только для просмотра: вместо её восстановления оформляют новую.
         : { readOnly: true, hiddenActions: cancelled ? ['sellWithInstallment', 'post'] : ['sellWithInstallment'] });
     return null;
 }
@@ -203,7 +204,7 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
         return sell === undefined ? Promise.resolve() : state.run(sell);
     };
     return (
-        <RecordFormPage state={state} {...(state.record === null ? { buttons: newSaleButtons } : {})}>
+        <RecordFormPage state={state} buttons={saleButtons}>
             {locked && <SaleEditingRestrictions editing={posted && editing} cancelled={!posted} />}
             {!isNew && !locked && <DraftRestrictions />}
             <Card size="small">
