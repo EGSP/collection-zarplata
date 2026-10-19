@@ -16,7 +16,8 @@ const hung = 'Вывешено';
  * обязательна, поэтому новая строка получает нулевую; продажа из отвеса переносит её, и продавец
  * вводит стоимость уже в продаже.
  *
- * Код и состояние короткие, поэтому их колонки узкие. Остаток ширины делят название, продажа
+ * Код стоит перед названием, как в продаже. Код и состояние короткие, поэтому их колонки узкие.
+ * Остаток ширины делят название, продажа
  * и комментарий; комментарий стоит последним, как в продаже. Кнопка добавления подписана
  * «Отвес»: вместе со значком «+» она читается как «+ Отвес».
  *
@@ -27,7 +28,7 @@ const hung = 'Вывешено';
 const newGoodsOptions: TablePartOptions = {
     columnWidths: { code: 110, size: 100, state: 140 },
     columnShares: { name: 1, sale: 1, comment: 1.6 },
-    columnOrder: ['name', 'code', 'size', 'state', 'sale', 'comment'],
+    columnOrder: ['code', 'name', 'size', 'state', 'sale', 'comment'],
     hiddenColumns: ['postedIn1C', 'cost', 'discount', 'total'],
     readOnlyColumns: ['state', 'sale'],
     newRow: () => ({ cost: 0 }),
@@ -89,7 +90,8 @@ interface HeldLinesDialogProperties {
 
 /**
  * Окно выбора товаров в отвесе: общее для продажи и вывешивания. Выбор сбрасывается при каждом
- * открытии, чтобы прежний выбор не применился к другому действию.
+ * открытии, чтобы прежний выбор не применился к другому действию. После служебных колонок
+ * выбора и номера строки реквизиты товара начинаются с кода и названия.
  */
 function HeldLinesDialog({ open, title, confirm, lines, loading = false, onConfirm, onCancel, onClosed }: HeldLinesDialogProperties) {
     const [selected, setSelected] = useState<ReadonlyArray<number>>([]);
@@ -117,8 +119,8 @@ function HeldLinesDialog({ open, title, confirm, lines, loading = false, onConfi
                 rowSelection={{ selectedRowKeys: [...selected], onChange: (keys) => setSelected(keys.map(Number)) }}
                 columns={[
                     { key: 'lineNumber', dataIndex: 'lineNumber', title: '№', width: 48 },
-                    { key: 'name', dataIndex: 'name', title: 'Название' },
                     { key: 'code', dataIndex: 'code', title: 'Код', width: 110 },
+                    { key: 'name', dataIndex: 'name', title: 'Название' },
                     { key: 'comment', dataIndex: 'comment', title: 'Комментарий' },
                 ]}
                 locale={{ emptyText: 'Товаров в отвесе нет' }}

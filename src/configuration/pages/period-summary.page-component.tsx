@@ -141,8 +141,9 @@ function GoodsTable({ block }: { readonly block: SummaryGoodsBlock }) {
             columns={[
                 { title: 'Дата', key: 'date', render: (_value, row) => <Moment value={row.date} /> },
                 { title: 'Продажа', key: 'sale', render: (_value, row) => <Reference kind="document" name="sale" guid={row.sale} /> },
-                { title: 'Товар', dataIndex: 'name', key: 'name' },
+                // Реквизиты товара начинаются с кода и названия, как в формах документов.
                 { title: 'Код', dataIndex: 'code', key: 'code' },
+                { title: 'Товар', dataIndex: 'name', key: 'name' },
                 { title: 'Размер', dataIndex: 'size', key: 'size' },
                 ...paymentColumns<SummaryGoodsBlock['rows'][number]>(),
                 { title: 'Итог', key: 'total', align: 'right', render: (_value, row) => <Money value={row.total} /> },
@@ -298,8 +299,9 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                         { title: 'Дата', key: 'date', render: (_value, row) => <Moment value={row.date} /> },
                         { title: 'Отвес', key: 'weighing', render: (_value, row) => <Reference kind="document" name="weighing" guid={row.weighing} /> },
                         { title: 'Покупатель', key: 'person', render: (_value, row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                        { title: 'Товар', dataIndex: 'name', key: 'name' },
+                        // У отложенных товаров тот же порядок реквизитов, что у проданных.
                         { title: 'Код', dataIndex: 'code', key: 'code' },
+                        { title: 'Товар', dataIndex: 'name', key: 'name' },
                         { title: 'Размер', dataIndex: 'size', key: 'size' },
                     ]}
                 />

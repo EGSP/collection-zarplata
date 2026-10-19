@@ -17,10 +17,13 @@ const total = formula.round(formula.divide(
     formula.value(10000),
 ));
 
-/** Колонки товара. Название и код остаются текстом, без ссылки на номенклатуру. */
+/**
+ * Колонки товара: сначала код, затем название, в том числе при просмотре товаров продажи в возврате.
+ * Оба значения остаются текстом, без ссылки на номенклатуру; код сохраняет ведущие нули.
+ */
 export const Goods = tablePart((part) => part
-    .field('name', (field) => field.string().title('Название').required().maximumLength(300))
     .field('code', (field) => field.string().title('Код').maximumLength(50))
+    .field('name', (field) => field.string().title('Название').required().maximumLength(300))
     // Размер — текст, а не число: у колец, цепочек и браслетов он записывается по-разному.
     .field('size', (field) => field.string().title('Размер').maximumLength(50))
     .field('comment', (field) => field.string().title('Комментарий').maximumLength(500))

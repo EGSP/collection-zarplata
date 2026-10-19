@@ -8,7 +8,8 @@ import { Objects } from '../objects.generated';
 import { FieldGroup, Icons, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
- * Вид таблицы товаров. Код и стоимость короткие, поэтому их колонки вдвое уже, чем досталось бы
+ * Вид таблицы товаров: сначала код, затем название во всех режимах продажи.
+ * Код и стоимость короткие, поэтому их колонки вдвое уже, чем досталось бы
  * им в общей раскладке. Остаток ширины делят название и комментарий: названию треть, комментарию
  * две трети, потому что название товара короче комментария к нему. Комментарий стоит последним:
  * его заполняют реже остальных колонок, и при вводе строки он не прерывает путь от названия
@@ -20,7 +21,7 @@ import { FieldGroup, Icons, recordFormElements, RecordFormPage, useFormRestricti
 const goodsOptions: TablePartOptions = {
     columnWidths: { code: 110, size: 100, postedIn1C: 130, cost: 120, discount: 110, total: 120 },
     columnShares: { name: 1, comment: 1.6 },
-    columnOrder: ['name', 'code', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
+    columnOrder: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
     columnInputs: { postedIn1C: PostedIn1CSwitch },
     addTitle: 'Товар',
     initialRow: true,
