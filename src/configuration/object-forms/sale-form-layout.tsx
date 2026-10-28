@@ -5,7 +5,7 @@ import { SaleChanges } from './sale-changes';
 import { LinkedSaleInstallments } from './linked-sale-installments';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
 import { Objects } from '../objects.generated';
-import { Column, FieldGroup, Grid, Icons, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, type ColumnCount, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { Column, FieldGroup, Grid, Icons, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, spacing, Stack, type ColumnCount, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Вид таблицы товаров: сначала код, затем название во всех режимах продажи.
@@ -30,7 +30,7 @@ const goodsOptions: TablePartOptions = {
 };
 
 /** Отступы разделителя между частями продажи: поля над ним уже оставляют место снизу. */
-const dividerStyle = { margin: '0 0 16px' };
+const dividerStyle = { marginBlock: spacing[6] };
 
 /**
  * Панель любой продажи: только «Закрыть» и меню «Ещё» с собственными действиями и журналом.
@@ -221,37 +221,42 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
                 <FieldGroup elements={recordFormElements(state, items('Товары').filter((item) => item !== 'amount'))} tablePartOptions={{ goods: goodsOptions }} {...common} />
                 <div hidden={!paymentShown}>
                     <Divider style={dividerStyle} />
-                    {/* Начиная с `lg` блок рассрочки стоит справа от оплат, на более узкой форме — под ними.
-                        Оплаты не растягиваются на всю форму и без рассрочки: их ширина не зависит от выбора способа оплаты. */}
-                    <Grid>
-                        <Column span={paymentSpan}>
-                            <FieldGroup elements={recordFormElements(state, items('Оплата').filter((item) => item !== 'paid'))} layout="fluid" fullWidth={['paymentMode']} {...common} />
-                        </Column>
-                        {withInstallment && (
-                            <Column span={installmentSpan}>
-                                <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={state.running !== null} problems={problems} input={sellWithInstallment?.input ?? []} />
+                    {/* Расстояние между оплатами и кнопкой задаёт стек: группы полей своих внешних отступов не имеют. */}
+                    <Stack gap={6}>
+                        {/* Начиная с `lg` блок рассрочки стоит справа от оплат, на более узкой форме — под ними.
+                            Оплаты не растягиваются на всю форму и без рассрочки: их ширина не зависит от выбора способа оплаты. */}
+                        <Grid>
+                            <Column span={paymentSpan}>
+                                <FieldGroup elements={recordFormElements(state, items('Оплата').filter((item) => item !== 'paid'))} layout="fluid" fullWidth={['paymentMode']} {...common} />
                             </Column>
-                        )}
-                    </Grid>
-                    {sell !== undefined && (
-                        <Button
-                            type="primary"
-                            size="large"
-                            icon={<Icons.sell />}
-                            style={sellButtonStyle}
-                            loading={state.running !== null && (state.running === sell.name || state.running === sellWithInstallment?.name)}
-                            disabled={state.running !== null}
-                            // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
-                            onClick={() => runSell().catch(() => undefined)}
-                        >
-                            {withInstallment ? 'Продать + Рассрочка' : 'Продать'}
-                        </Button>
-                    )}
-                    {changesAvailable && !editing && (
-                        <Button type="primary" size="large" icon={<Icons.edit />} style={sellButtonStyle} disabled={state.running !== null} onClick={() => setEditing(true)}>
-                            Внести изменения
-                        </Button>
-                    )}
+                            {withInstallment && (
+                                <Column span={installmentSpan}>
+                                    <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={state.running !== null} problems={problems} input={sellWithInstallment?.input ?? []} />
+                                </Column>
+                            )}
+                        </Grid>
+                        <div>
+                            {sell !== undefined && (
+                                <Button
+                                    type="primary"
+                                    size="large"
+                                    icon={<Icons.sell />}
+                                    style={sellButtonStyle}
+                                    loading={state.running !== null && (state.running === sell.name || state.running === sellWithInstallment?.name)}
+                                    disabled={state.running !== null}
+                                    // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
+                                    onClick={() => runSell().catch(() => undefined)}
+                                >
+                                    {withInstallment ? 'Продать + Рассрочка' : 'Продать'}
+                                </Button>
+                            )}
+                            {changesAvailable && !editing && (
+                                <Button type="primary" size="large" icon={<Icons.edit />} style={sellButtonStyle} disabled={state.running !== null} onClick={() => setEditing(true)}>
+                                    Внести изменения
+                                </Button>
+                            )}
+                        </div>
+                    </Stack>
                 </div>
                 {changesAvailable && editing && <SaleChanges state={state} prepare={beforeSave} onClose={() => setEditing(false)} />}
                 {presentation === 'page' && !editing && typeof state.record?.['guid'] === 'string' && <LinkedSaleInstallments sale={state.record['guid']} />}

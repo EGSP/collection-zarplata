@@ -1,7 +1,7 @@
 import { Button, Card, Divider, Flex, Modal, Table } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { Objects } from '../objects.generated';
-import { FieldGroup, Icons, recordFormElements, RecordFormPage, useObjectView, useOpenRecord, useRecordForm, useWindowScope, type FormElementReference, type NewFormProperties, type RecordFormButtons, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { FieldGroup, Icons, recordFormElements, RecordFormPage, useObjectView, useOpenRecord, useRecordForm, spacing, useWindowScope, type FormElementReference, type NewFormProperties, type RecordFormButtons, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Состояния строки отвеса. Совпадают со значениями в описании отвеса: форма не импортирует их
@@ -56,7 +56,7 @@ const weighingButtons: RecordFormButtons = { actions: [], postAndClose: false };
 const mainButtonStyle = { height: 64, paddingInline: 48, fontSize: 20 };
 
 /** Отступы разделителя между частями формы: поля над ним уже оставляют место снизу. */
-const dividerStyle = { margin: '0 0 16px' };
+const dividerStyle = { marginBlock: spacing[6] };
 
 /** Строка записанного отвеса, как её отдаёт сервер. */
 interface WeighingLine {

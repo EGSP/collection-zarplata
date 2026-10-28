@@ -1,11 +1,12 @@
-import { Card, ConfigProvider, Flex, Form, Space, theme } from 'antd';
-import type { ComponentType } from 'react';
-import type { CSSProperties } from 'react';
+import { Card, ConfigProvider, Flex, Form, Space, theme, type ThemeConfig } from 'antd';
+import { useLayoutEffect, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
 import type { FieldWidth, FormElementReference, FormField, FormTablePart } from '../../../server/ui/descriptions';
 import type { RecordData } from '../../data-provider/records';
 import { FieldDisplay, FieldInput } from '../../widgets/registry';
 import { fieldRules, isMarkedRequired } from '../../widgets/validation';
 import type { InputProperties } from '../../widgets/widget';
+import { Column, Grid, type ColumnCount } from '../ds/grid';
+import { layoutClasses } from '../ds/layout';
 import { FluidField, type FieldInputComponent, type FieldLayout } from './field-layout';
 import { fieldAttribute, type FieldTraversal } from './field-traversal';
 import { useFieldRestricted, useFormElement } from './form-data';
@@ -45,23 +46,20 @@ export interface FieldGroupProperties {
     readonly widths?: { readonly [field: string]: FieldWidth };
 }
 
-/** Обычная ширина поля: столько занимает колонка формы. */
-const standardWidth = 280;
+/**
+ * Сколько колонок сетки занимает поле каждой ширины. Обычное поле — 4 колонки: на узкой группе
+ * (4 колонки) это вся строка, на средней (8) — половина, на широкой (16) — четверть. Длинное
+ * вдвое шире обычного. Свободное поле занимает не меньше обычного, остальное определяет его значение.
+ */
+const standardSpan = 4;
+const fieldSpans: { readonly [Width in Exclude<FieldWidth, 'free'>]: ColumnCount } = { standard: standardSpan, long: standardSpan * 2 };
 
 /**
- * Размер поля в строке группы по его ширине. Поля стоят в строку с переносом и не растягиваются
- * на свободное место: обычное поле всегда обычной ширины, длинное вдвое шире, свободное шире
- * обычного ровно настолько, насколько длиннее представление значения, но не шире группы.
- * На узкой форме обычное и длинное поле сжимаются до её ширины.
+ * Поля группы стоят вплотную по вертикали: расстояние между строками задаёт сетка, а не нижний
+ * отступ элемента формы Ant Design. Так ошибка под одним полем увеличивает высоту всей строки,
+ * и соседние поля не сдвигаются относительно друг друга.
  */
-function widthStyle(width: FieldWidth): CSSProperties {
-    if (width === 'long') return { flex: `0 1 ${standardWidth * 2}px`, minWidth: 0 };
-    if (width === 'free') return { flex: '0 1 auto', minWidth: standardWidth, maxWidth: '100%' };
-    return { flex: `0 1 ${standardWidth}px`, minWidth: 0 };
-}
-
-/** Поле, табличная часть или элемент на всю ширину группы. */
-const fullRow: CSSProperties = { flex: '1 1 100%' };
+const groupTheme: ThemeConfig = { components: { Form: { itemMarginBottom: 0 } } };
 
 /**
  * Группа полей формы с подписями и ошибками проверки.
@@ -71,8 +69,13 @@ const fullRow: CSSProperties = { flex: '1 1 100%' };
  * из описания поля, поэтому ввод проверяется так же, как на стандартной форме, а ошибки сервера
  * экран ставит на поля средствами формы Ant Design по тем же именам.
  *
- * Поля шапки стоят в строку с переносом, ширину каждого задаёт его вид ширины (`widths`
- * группы либо ширина из конфигурации); по умолчанию ширина обычная. Табличная часть занимает всю ширину группы.
+ * Группа — сетка дизайн-системы: поле занимает столько колонок, сколько задаёт его вид ширины
+ * (`widths` группы либо ширина из конфигурации, по умолчанию обычная), поэтому подписи соседних
+ * строк стоят на общих вертикалях. Число колонок зависит от ширины самой группы: на узкой форме
+ * обычное поле занимает всю строку, на широкой — четверть. Табличная часть и собственный элемент
+ * группы занимают всю строку. Зазор группы — `wide` (32 px); подряд идущие поля fluid-группы
+ * стоят плотнее, с зазором `narrow` (16 px): подпись у них в сегменте рядом со значением,
+ * и место над полем для неё не нужно.
  *
  * Собственные элементы конфигурации группа берёт у поставщика данных формы (`FormDataProvider`).
  * Элемент, названный в группе, занимает всю её ширину и свойств не получает. Элемент, назначенный
@@ -80,32 +83,43 @@ const fullRow: CSSProperties = { flex: '1 1 100%' };
  * поле сохраняет. Без поставщика поле выводится виджетом своего вида, а элемент группы пропускается.
  */
 export function FieldGroup({ title = null, elements, record = null, disabled = false, traversal, tablePartOptions, layout = 'stacked', fullWidth = [], widths = {} }: FieldGroupProperties) {
-    const { token } = theme.useToken();
+    const fieldColumn = (field: FormField) => {
+        const width = widths[field.name] ?? field.width ?? 'standard';
+        const item = <FieldItem field={field} record={record} traversal={traversal} layout={layout} free={width === 'free'} />;
+        if (fullWidth.includes(field.name)) return <Column key={field.name}>{item}</Column>;
+        if (width === 'free') return <FreeFieldColumn key={field.name}>{item}</FreeFieldColumn>;
+        return <Column key={field.name} span={fieldSpans[width]}>{item}</Column>;
+    };
     const content = (
-        <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: token.marginLG }}>
-            {elements.map((element) => {
-                if ('element' in element) {
+        <ConfigProvider theme={groupTheme}>
+            <Grid>
+                {groupRuns(elements).map((run) => {
+                    if (run.kind === 'element') {
+                        return (
+                            <Column key={`element/${run.element.element}`}>
+                                <ElementBlock name={run.element.element} />
+                            </Column>
+                        );
+                    }
+                    if (run.kind === 'tablePart') {
+                        return (
+                            <Column key={run.part.name}>
+                                <TablePartItem part={run.part} disabled={disabled} traversal={traversal} options={tablePartOptions?.[run.part.name]} />
+                            </Column>
+                        );
+                    }
+                    if (layout === 'stacked') return run.fields.map(fieldColumn);
+                    // Поля fluid-группы стоят плотнее своей сеткой той же ширины, что группа, поэтому её
+                    // колонки совпадают с колонками группы, а табличные части отделены обычным зазором.
+                    // Зазор `narrow`, а не `condensed`: поля вплотную с сегментами подписей сливались в одну рамку.
                     return (
-                        <div key={`element/${element.element}`} style={{ ...fullRow, marginBottom: token.marginLG }}>
-                            <ElementBlock name={element.element} />
-                        </div>
+                        <Column key={`fields/${run.fields[0]?.name ?? ''}`}>
+                            <Grid gutter="narrow">{run.fields.map(fieldColumn)}</Grid>
+                        </Column>
                     );
-                }
-                if (!('columns' in element)) {
-                    const width = widths[element.name] ?? element.width ?? 'standard';
-                    return (
-                        <div key={element.name} style={fullWidth.includes(element.name) ? fullRow : widthStyle(width)}>
-                            <FieldItem field={element} record={record} traversal={traversal} layout={layout} free={width === 'free'} />
-                        </div>
-                    );
-                }
-                return (
-                    <div key={element.name} style={{ ...fullRow, marginBottom: token.marginLG }}>
-                        <TablePartItem part={element} disabled={disabled} traversal={traversal} options={tablePartOptions?.[element.name]} />
-                    </div>
-                );
-            })}
-        </div>
+                })}
+            </Grid>
+        </ConfigProvider>
     );
     if (title === null) return content;
     return (
@@ -113,6 +127,76 @@ export function FieldGroup({ title = null, elements, record = null, disabled = f
             {content}
         </Card>
     );
+}
+
+/**
+ * Колонка поля шириной `free`. Поле занимает не меньше колонок, чем обычное, и столько, сколько
+ * нужно представлению значения, но не больше строки: длинное ФИО покупателя видно целиком,
+ * а короткое не растягивает поле.
+ *
+ * Ширину значения CSS-сетка сама не учитывает: число колонок у области задаётся заранее. Поэтому
+ * колонка измеряет собственную ширину содержимого (`max-content`) и пересчитывает число колонок,
+ * когда меняется значение или ширина группы.
+ */
+function FreeFieldColumn({ children }: { readonly children: ReactNode }) {
+    const content = useRef<HTMLDivElement>(null);
+    const [span, setSpan] = useState<number>(standardSpan);
+    useLayoutEffect(() => {
+        const element = content.current;
+        const grid = element?.closest<HTMLElement>(`.${layoutClasses.grid}`);
+        if (element === null || element === undefined || grid === null || grid === undefined) return;
+        const measure = () => {
+            const style = getComputedStyle(grid);
+            const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
+            const track = tracks[0] ?? 0;
+            const gap = Number.parseFloat(style.columnGap) || 0;
+            // Ограничения ширины снимаются на время измерения: иначе значение не шире колонки
+            // нельзя было бы отличить от значения, которое в неё не помещается.
+            const { minWidth, maxWidth } = element.style;
+            element.style.minWidth = '0';
+            element.style.maxWidth = 'none';
+            const natural = element.getBoundingClientRect().width;
+            element.style.minWidth = minWidth;
+            element.style.maxWidth = maxWidth;
+            const needed = track > 0 ? Math.ceil((natural + gap) / (track + gap)) : tracks.length;
+            setSpan(Math.min(Math.max(needed, standardSpan), tracks.length));
+        };
+        measure();
+        const resize = new ResizeObserver(measure);
+        resize.observe(grid);
+        const mutation = new MutationObserver(measure);
+        mutation.observe(element, { childList: true, subtree: true, characterData: true });
+        return () => {
+            resize.disconnect();
+            mutation.disconnect();
+        };
+    }, []);
+    return (
+        <Column span={span}>
+            <div ref={content} style={freeInputStyle}>{children}</div>
+        </Column>
+    );
+}
+
+/** Подряд идущие поля группы, табличная часть или собственный элемент группы. */
+type GroupRun =
+    | { readonly kind: 'fields'; readonly fields: ReadonlyArray<FormField> }
+    | { readonly kind: 'tablePart'; readonly part: FormTablePart }
+    | { readonly kind: 'element'; readonly element: FormElementReference };
+
+/** Делит элементы группы на участки: подряд идущие поля собираются в один участок, порядок сохраняется. */
+function groupRuns(elements: FieldGroupProperties['elements']): ReadonlyArray<GroupRun> {
+    const runs: Array<GroupRun> = [];
+    for (const element of elements) {
+        if ('element' in element) runs.push({ kind: 'element', element });
+        else if ('columns' in element) runs.push({ kind: 'tablePart', part: element });
+        else {
+            const last = runs.at(-1);
+            if (last?.kind === 'fields') runs[runs.length - 1] = { kind: 'fields', fields: [...last.fields, element] };
+            else runs.push({ kind: 'fields', fields: [element] });
+        }
+    }
+    return runs;
 }
 
 interface FieldItemProperties {
