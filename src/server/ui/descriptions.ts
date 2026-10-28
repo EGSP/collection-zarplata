@@ -285,10 +285,27 @@ export interface ShellGroup {
     readonly items: ReadonlyArray<ShellItem>;
 }
 
+/**
+ * Смысл иконки подсистемы. Конфигурация выбирает смысл, а рисунок для него задаёт реестр иконок
+ * клиента: так сервер не знает о библиотеке значков, а типы клиента требуют рисунок для каждого смысла.
+ */
+export type SubsystemIcon = 'administration' | 'trade' | 'referenceData';
+
+/**
+ * Смысл иконки страницы конфигурации. Как и у подсистем, конфигурация выбирает смысл, а рисунок
+ * задаёт реестр иконок клиента; для этих смыслов он берёт пиктограммы плиток главного экрана.
+ */
+export type PageIcon = 'shop' | 'salary' | 'report';
+
 /** Подсистема оболочки. `name` отличает её от остальных подсистем, пользователю показывается `title`. */
 export interface ShellSubsystem {
     readonly name: string;
     readonly title: string;
+    /**
+     * Иконка подсистемы в боковом меню. В свёрнутом меню видна только она, поэтому иконки соседних
+     * подсистем должны различаться. Без неё клиент показывает общий значок раздела.
+     */
+    readonly icon?: SubsystemIcon;
     readonly groups: ReadonlyArray<ShellGroup>;
 }
 
@@ -298,6 +315,11 @@ export interface ShellSubsystem {
  * а запись объекта ещё и по ссылке из другой записи.
  */
 export interface ShellView {
+    /**
+     * Имена страниц-рабочих мест в порядке показа. Боковая панель выводит их над подсистемами,
+     * чтобы ежедневный экран открывался одним нажатием, без окна подсистемы.
+     */
+    readonly workplaces: ReadonlyArray<string>;
     readonly subsystems: ReadonlyArray<ShellSubsystem>;
 }
 
@@ -309,6 +331,8 @@ export interface PageView {
     /** Имя страницы: по нему строится адрес `/page/<имя>` и клиент находит компонент. */
     readonly name: string;
     readonly title: string;
+    /** Иконка страницы в боковой панели. Без неё клиент показывает значок вида `page`. */
+    readonly icon?: PageIcon;
 }
 
 /**

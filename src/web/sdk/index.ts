@@ -112,6 +112,7 @@ export {
 export { Grid, Column, type GridProperties, type ColumnProperties, type ColumnCount } from './ds/grid';
 export { Stack, type StackProperties } from './ds/stack';
 export { spacing, breakpoints, breakpointWidths, gridColumns, type SpacingStep, type Breakpoint, type GridGutter, type PageModel } from './ds/layout';
+export { BreakpointContainer, useBreakpoint, breakpointAtLeast, type BreakpointContainerProperties } from './ds/breakpoints';
 
 // Иконки по смыслу: добавление, открытие, удаление и прочие; крупные пиктограммы разделов.
 export { Icons, type IconName } from './ds/icons';

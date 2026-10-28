@@ -10,6 +10,8 @@
  * здесь нет импортов Nest и Effect, а проверка объявлений вынесена в `page-registry.ts`.
  */
 
+import type { PageIcon } from './descriptions.js';
+
 /** Вид страницы в схеме оболочки и в ключе права. С видами объектов конфигурации не совпадает. */
 export const pageKind = 'page';
 
@@ -21,15 +23,22 @@ export class PageBuilder<Name extends string = string> {
     readonly kind = pageKind;
     readonly name: Name;
     readonly '~title': string | null;
+    readonly '~icon': PageIcon | null;
 
-    constructor(name: Name, title: string | null = null) {
+    constructor(name: Name, title: string | null = null, icon: PageIcon | null = null) {
         this.name = name;
         this['~title'] = title;
+        this['~icon'] = icon;
     }
 
     /** Заголовок страницы в меню и на вкладке. Если он не задан, используется имя. */
     title(title: string): PageBuilder<Name> {
-        return new PageBuilder(this.name, title);
+        return new PageBuilder(this.name, title, this['~icon']);
+    }
+
+    /** Иконка страницы в боковой панели: в свёрнутой панели рабочее место узнают по ней. */
+    icon(icon: PageIcon): PageBuilder<Name> {
+        return new PageBuilder(this.name, this['~title'], icon);
     }
 }
 

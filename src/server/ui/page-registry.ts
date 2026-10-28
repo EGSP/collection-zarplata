@@ -41,7 +41,8 @@ export function loadPages(modules: ReadonlyArray<ConfigurationModule>): Effect.E
             if (nameProblem !== null) problems.push({ object, location, message: nameProblem });
             if (names.has(builder.name)) problems.push({ object, location, message: `имя страницы «${builder.name}» повторяется` });
             names.add(builder.name);
-            return [{ name: builder.name, title: builder['~title'] ?? builder.name }];
+            const icon = builder['~icon'];
+            return [{ name: builder.name, title: builder['~title'] ?? builder.name, ...(icon === null ? {} : { icon }) }];
         });
         return problems.length > 0 ? Effect.fail(new MetadataError({ problems })) : Effect.succeed(pages);
     });

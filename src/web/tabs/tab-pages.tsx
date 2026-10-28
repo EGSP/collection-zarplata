@@ -7,6 +7,7 @@ import { NotFoundPage } from '../common/not-found';
 import { pageSegment } from '../common/paths';
 import { RecordDialogHost, RecordDialogLayerContext } from '../forms/record-dialog';
 import { RecordPage } from '../forms/record-page';
+import { BreakpointContainer } from '../sdk/ds/breakpoints';
 import { WindowScopeProvider } from '../window/window-scope';
 import { useWindowTabs, WindowTabScope } from './window-tabs';
 
@@ -102,9 +103,10 @@ function PageArea({ visible, children }: { readonly visible: boolean; readonly c
     const [layer, setLayer] = useState<HTMLElement | null>(null);
     return (
         <div style={{ display: visible ? 'block' : 'none', height: '100%', position: 'relative' }}>
-            <div style={{ height: '100%', overflowY: 'auto', padding: token.paddingLG }}>
+            {/* Область страницы делит раскладку: компоненты страницы получают её точку перелома, а не точку окна. */}
+            <BreakpointContainer style={{ height: '100%', overflowY: 'auto', padding: token.paddingLG }}>
                 <RecordDialogLayerContext.Provider value={layer}>{children}</RecordDialogLayerContext.Provider>
-            </div>
+            </BreakpointContainer>
             <div ref={setLayer} />
         </div>
     );

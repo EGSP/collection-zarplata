@@ -13,12 +13,22 @@
  */
 import type { ComponentType } from 'react';
 
+/** Свойства пиктограммы. */
+export interface PictogramProperties {
+    /**
+     * Утолщение линии в единицах поля 32×32: контур обводится линией этой ширины. Линия пиктограммы
+     * (0,72 единицы) рассчитана на крупный размер, а на 16 px становится тоньше пикселя и бледнеет.
+     * Реестр иконок утолщает её, когда выводит пиктограмму размером иконки. По умолчанию 0.
+     */
+    readonly emphasis?: number;
+}
+
 /** Пиктограмма из контура Carbon в поле 32×32. */
-function pictogram(path: string): ComponentType {
-    return function Pictogram() {
+function pictogram(path: string): ComponentType<PictogramProperties> {
+    return function Pictogram({ emphasis = 0 }: PictogramProperties) {
         return (
             <svg viewBox="0 0 32 32" width="1em" height="1em" fill="currentColor" aria-hidden focusable="false">
-                <path d={path} />
+                <path d={path} {...(emphasis > 0 ? { stroke: 'currentColor', strokeWidth: emphasis, strokeLinejoin: 'round' as const } : {})} />
             </svg>
         );
     };
