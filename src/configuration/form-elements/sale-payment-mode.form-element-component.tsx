@@ -1,5 +1,5 @@
-import { App, Space } from 'antd';
-import { fieldInput, FluidField, newRowValues, useFormData, useFormValue, type InputProperties } from '../../web/sdk';
+import { App } from 'antd';
+import { fieldInput, FluidField, FluidValue, newRowValues, useFormData, useFormValue, type InputProperties } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { PaymentMethodInput } from './payment-method-input';
 
@@ -66,7 +66,7 @@ function SalePaymentMode({ field, value, onChange, disabled, id, ref, fluid }: I
     return (
         <FluidField label={fluid.label} required={fluid.required} block={false}>
             {/* Переключатель не элемент ввода Ant Design: рамку, общую с сегментом названия, ему даёт сегмент. */}
-            <Space.Addon style={{ padding: 2 }}>{input}</Space.Addon>
+            <FluidValue content="control">{input}</FluidValue>
         </FluidField>
     );
 }

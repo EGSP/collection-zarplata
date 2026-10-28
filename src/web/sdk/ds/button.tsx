@@ -39,7 +39,9 @@ function sizeStyle(size: ButtonSize, token: GlobalToken): CSSProperties {
 export interface ButtonProperties {
     /**
      * Вид кнопки Ant Design: `primary` — главное действие, `default` — обычное, `dashed`,
-     * `text` и `link` — второстепенные действия без заливки. По умолчанию `default`.
+     * `text` и `link` — второстепенные действия без заливки. По умолчанию `default`. У `link`
+     * нет внутреннего отступа по горизонтали: такая кнопка стоит в тексте или в ячейке таблицы
+     * и должна начинаться там же, где соседний текст.
      */
     readonly type?: AntButtonProperties['type'];
     /** Размер по шкале Carbon, по умолчанию `sm` (32 px, как обычная кнопка Ant Design). */
@@ -67,7 +69,7 @@ export function Button({ type = 'default', size = 'sm', danger, block, icon, dis
     return (
         <AntButton
             type={type}
-            style={sizeStyle(size, token)}
+            style={type === 'link' ? { ...sizeStyle(size, token), paddingInline: 0 } : sizeStyle(size, token)}
             {...(danger === undefined ? {} : { danger })}
             {...(block === undefined ? {} : { block })}
             {...(icon === undefined ? {} : { icon })}

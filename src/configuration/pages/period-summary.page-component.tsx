@@ -1,7 +1,7 @@
 import { Alert, Button, ConfigProvider, Divider, Flex, Table, Typography } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { FieldDisplay, FieldInput, FluidField, Layer, Page, Panel, RecordLink, spacing, Text, useActionResult, useLayer, useRecordList, type AccountingTone } from '../../web/sdk';
+import { Column, FieldDisplay, FieldInput, FluidField, Grid, Layer, Page, Panel, RecordLink, spacing, Stack, Text, useActionResult, useLayer, useRecordList, type AccountingTone } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PaymentTotals, PeriodSummary, SummaryGoodsBlock } from '../period-summary';
 
@@ -342,22 +342,27 @@ export default function PeriodSummaryPage() {
         <Page title="Сводка за период">
             <Flex vertical gap="middle">
                 <Panel>
-                    <Flex gap="middle" wrap>
-                        <div style={{ width: 200 }}>
+                    {/* Поля периода стоят в колонках сетки, как поля форм, кнопки выбора — в оставшихся колонках строки. */}
+                    <Grid gutter="narrow">
+                        <Column span={{ md: 4 }}>
                             <FluidField label="С" required>
                                 {/* Пустое значение не принимается: отчёт всегда строится за какие-то дни. */}
                                 <FieldInput field={dayField} value={from} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setFrom(value); } }} />
                             </FluidField>
-                        </div>
-                        <div style={{ width: 200 }}>
+                        </Column>
+                        <Column span={{ md: 4 }}>
                             <FluidField label="По" required>
                                 <FieldInput field={dayField} value={to} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setTo(value); } }} />
                             </FluidField>
-                        </div>
-                        {/* Без проведённых закрытий незакрытый период начинается с начала учёта: дня для кнопки нет. */}
-                        <Button disabled={unclosedStart === null} onClick={() => { setChosen(true); if (unclosedStart !== null) setFrom(unclosedStart); setTo(today()); }}>С незакрытого периода</Button>
-                        <Button onClick={() => { setChosen(true); setFrom(today()); setTo(today()); }}>За сегодня</Button>
-                    </Flex>
+                        </Column>
+                        <Column span={{ md: 8 }}>
+                            <Stack orientation="horizontal" gap={3} wrap>
+                                {/* Без проведённых закрытий незакрытый период начинается с начала учёта: дня для кнопки нет. */}
+                                <Button disabled={unclosedStart === null} onClick={() => { setChosen(true); if (unclosedStart !== null) setFrom(unclosedStart); setTo(today()); }}>С незакрытого периода</Button>
+                                <Button onClick={() => { setChosen(true); setFrom(today()); setTo(today()); }}>За сегодня</Button>
+                            </Stack>
+                        </Column>
+                    </Grid>
                 </Panel>
                 {from > to ? (
                     <Alert type="warning" showIcon title="Начало периода позже его конца" />

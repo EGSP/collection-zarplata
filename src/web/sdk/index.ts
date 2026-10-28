@@ -76,7 +76,8 @@ export { FieldDisplay, FieldInput, compositeInputs, hasInput } from '../widgets/
 export { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage, validationMessage } from '../widgets/validation';
 export type { CompositeInputModes, CompositeInputProperties, DateLimits, DisplayProperties, FieldValues, InputHandle, InputProperties, WidgetField } from '../widgets/widget';
 export { FieldGroup, type FieldGroupProperties } from './platform/field-group';
-export { FluidField, fieldInput, type FieldInputComponent, type FieldInputLayouts, type FieldInputMark, type FieldLayout, type FluidFieldProperties, type FluidInputProperties, type LaidOutInputProperties } from './platform/field-layout';
+export { FormStack, type FormStackProperties } from './platform/form-stack';
+export { FluidField, FluidValue, fieldInput, type FieldInputComponent, type FieldInputLayouts, type FieldInputMark, type FieldLayout, type FluidFieldProperties, type FluidValueProperties, type FluidInputProperties, type LaidOutInputProperties } from './platform/field-layout';
 export { FormDataProvider, useFormData, useFormRestrictions, useFormValue, type EnteredValue, type FormData, type FormDataProviderProperties, type FormElementComponent, type SetValueOptions } from './platform/form-data';
 export { useFormRestrictionRegistry, type FormRestrictionRegistry, type FormRestrictions } from './platform/form-restrictions';
 export { useFieldTraversal, type FieldTraversal } from './platform/field-traversal';

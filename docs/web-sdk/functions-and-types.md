@@ -21,7 +21,8 @@ covers:
 | `actionApplies`, `actionSuccessMessage` | Применимость действия к записи и текст успешного выполнения |
 | `defaultPageSize` | Размер страницы списка по умолчанию |
 | `ApiError` | Отказ API: статус, сообщение, поля и право |
-| `fieldInput`, `FluidField` | Сборка собственного поля ввода для обеих [компоновок](components.md#компоновка-полей) и обёртка поля с подписью в сегменте |
+| `fieldInput`, `FluidField`, `FluidValue` | Сборка собственного поля ввода для обеих [компоновок](components.md#компоновка-полей), обёртка поля с подписью в сегменте и сегмент значения не из Ant Design |
+| `FormStack` | [Стек элементов формы](components.md#форма-из-formitem) из `Form.Item` без нижнего отступа |
 | `useActionConfirmation` | [Запрос подтверждения действия](hooks.md#выполнение-действий): `confirm(action)` и окно `dialog` |
 | `spacing`, `breakpoints`, `breakpointWidths`, `gridColumns` | Значения раскладки: [шкала отступов, точки перелома](../components.md#шкала-отступов-и-стек), их ширины и число колонок |
 | `useAccountingColors` | [Смысловые цвета учёта](hooks.md#поверхность-и-цвета) текущей темы |
@@ -52,6 +53,7 @@ covers:
 | `RecordFormOptions`, `RecordFormActionInput` | Настройки [`useRecordForm`](hooks.md#userecordform) (`beforeSave`, `atomicPosting`) и входные данные `run`: значения либо функция от записанной записи |
 | `SetValueOptions` | Параметры `FormData.setValue`: `validate: false` откладывает проверку ([«Данные формы»](hooks.md#данные-формы)) |
 | `FieldLayout`, `FieldInputComponent`, `FieldInputLayouts`, `FieldInputMark`, `FluidInputProperties`, `LaidOutInputProperties` | [Компоновка полей](components.md#компоновка-полей) и контракт собственного поля ввода |
+| `FluidValueProperties`, `FormStackProperties` | Свойства [сегмента значения](components.md#компоновка-полей) fluid-поля (`content`) и [стека формы](components.md#форма-из-formitem) (`gap`) |
 | `ButtonSize`, `ButtonProperties`, `MainActionButtonProperties` | Размер [кнопки](components.md#кнопки) `sm`, `md`, `lg`, `xl` и свойства кнопок |
 | `LayerLevel`, `LayerColors`, `LayerProperties`, `PanelProperties` | Уровень [поверхности](components.md#поверхности) (0–3), фоны уровня и свойства `Layer` и `Panel` |
 | `TextTone`, `TextHeadingVariant`, `TextProperties`, `TextHeadingProperties`, `TextCommonProperties` | Цвет и ступень заголовка [ролей текста](components.md#роли-текста) и их свойства |

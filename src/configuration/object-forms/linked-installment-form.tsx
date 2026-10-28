@@ -1,7 +1,7 @@
 /** Общие части рассрочки в просмотре продажи и на экране совместного изменения. */
 import { Button, Divider, Flex, Form, Tag, theme, Typography, type FormInstance } from 'antd';
 import { useEffect, useRef, type ReactNode } from 'react';
-import { FieldDisplay, FieldInput, Icons, TablePart, useOpenRecord, type FormField, type FormTablePart, type FormValues } from '../../web/sdk';
+import { Column, FieldDisplay, FieldInput, Grid, Icons, Stack, TablePart, Text, useOpenRecord, type FormField, type FormTablePart, type FormValues } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /** Взнос в редакторе может содержать ещё не заполненные поля. */
@@ -34,10 +34,17 @@ export const paidAmount = (payments: ReadonlyArray<InstallmentPayment>) => payme
 /** Заголовок присоединённой формы. */
 export const installmentTitle = (installment: LinkedInstallment) => `Рассрочка № ${installment.number} от ${new Date(installment.date).toLocaleDateString('ru-RU')}`;
 
-/** Поле с подписью над значением, одинаковое в просмотре и изменении. */
+/** Поле с подписью над значением, одинаковое в просмотре и изменении. Ширину задаёт колонка сетки. */
 export function Labelled({ title, children }: { readonly title: string; readonly children: ReactNode }) {
-    return <Flex vertical gap={4} style={{ minWidth: 180 }}><Typography.Text type="secondary">{title}</Typography.Text>{children}</Flex>;
+    return <Stack gap={2}><Text tone="secondary">{title}</Text>{children}</Stack>;
 }
+
+/**
+ * Колонки полей рассрочки. Ссылки (покупатель, ответственный, ставка) занимают по четыре колонки,
+ * как поле `standard` формы; суммы короче и занимают по две. Взносы занимают десять колонок, как
+ * оплаты продажи: несколько коротких значений, растянутые на всю форму, читаются хуже.
+ */
+const installmentColumns = { reference: { md: 4 }, amount: { sm: 2, md: 2 }, payments: { lg: 10 } } as const;
 
 /** Разделяет продажу и рассрочки, сохраняя одинаковые границы в обоих режимах. */
 export function InstallmentDivider() {
@@ -73,39 +80,39 @@ const money = { kind: 'money', target: null } as const;
  */
 export function LinkedInstallmentForm({ installment, fields, editing = false, disabled = false, person, employee, onPersonChange, onEmployeeChange, amount, paid, amountInput, difference, payments, children }: LinkedInstallmentFormProperties) {
     const openRecord = useOpenRecord();
-    const reference = (name: string, value: unknown, onChange: ((value: unknown) => void) | undefined, width: number) => {
+    const reference = (name: string, value: unknown, onChange: ((value: unknown) => void) | undefined) => {
         const field = fields.find((candidate) => candidate.name === name);
         if (field === undefined) return null;
-        return <Labelled title={field.title}><div style={{ width, maxWidth: '100%' }}>
+        return <Column span={installmentColumns.reference}><Labelled title={field.title}>
             {editing && onChange !== undefined ? <FieldInput field={field} disabled={disabled} value={value} onChange={onChange} /> : <FieldDisplay field={field} value={value} />}
-        </div></Labelled>;
+        </Labelled></Column>;
     };
     return <section aria-label={installmentTitle(installment)}>
         <InstallmentDivider />
         <Flex vertical gap="middle">
             <Flex align="center" gap="middle" wrap>
-                <Typography.Title level={4} style={{ margin: 0 }}>{installmentTitle(installment)}</Typography.Title>
+                <Text.Heading variant="03">{installmentTitle(installment)}</Text.Heading>
                 <Button type="text" disabled={false} icon={<Icons.open />} aria-label="Открыть рассрочку" title="Открыть рассрочку"
                     onClick={() => void openRecord(Objects.document.saleInstallment, installment.guid, 'tab', { original: true })} />
-                {installment.type !== null && <Tag style={{ marginInlineEnd: 0 }}>{installment.type}</Tag>}
-                <Tag {...(installment.closedAt === null ? {} : { color: 'green' })} style={{ marginInlineEnd: 0 }}>
+                {installment.type !== null && <Tag>{installment.type}</Tag>}
+                <Tag {...(installment.closedAt === null ? {} : { color: 'green' })}>
                     {installment.closedAt !== null ? <>Закрыта <FieldDisplay field={{ kind: 'dateTime', target: null }} value={installment.closedAt} /></> : installment.posted ? 'Открыта' : 'Черновик'}
                 </Tag>
             </Flex>
             {editing && installment.closedAt !== null && <Typography.Text type="secondary">Любое изменение снимет с рассрочки закрытие. После сохранения закройте её заново.</Typography.Text>}
-            <Flex gap="large" wrap>
-                {reference('person', person, onPersonChange, 320)}
-                {reference('responsibleEmployee', employee, onEmployeeChange, 280)}
-                {reference('rate', installment.rate ?? null, undefined, 240)}
-            </Flex>
-            <Flex gap="large" wrap align="flex-end">
-                <Labelled title={editing ? 'Сумма до изменения' : 'Сумма'}><FieldDisplay field={money} value={installment.amount} /></Labelled>
-                {editing && <Labelled title="Новая сумма">{amountInput ?? <FieldDisplay field={money} value={amount} />}</Labelled>}
-                {editing && <Labelled title="Изменение">{difference}</Labelled>}
-                <Labelled title="Внесено"><FieldDisplay field={money} value={paid} /></Labelled>
-                <Labelled title="Остаток"><FieldDisplay field={money} value={amount - paid} /></Labelled>
-            </Flex>
-            {payments}
+            <Grid gutter="narrow">
+                {reference('person', person, onPersonChange)}
+                {reference('responsibleEmployee', employee, onEmployeeChange)}
+                {reference('rate', installment.rate ?? null, undefined)}
+            </Grid>
+            <Grid gutter="narrow">
+                <Column span={installmentColumns.amount}><Labelled title={editing ? 'Сумма до изменения' : 'Сумма'}><FieldDisplay field={money} value={installment.amount} /></Labelled></Column>
+                {editing && <Column span={installmentColumns.amount}><Labelled title="Новая сумма">{amountInput ?? <FieldDisplay field={money} value={amount} />}</Labelled></Column>}
+                {editing && <Column span={installmentColumns.amount}><Labelled title="Изменение">{difference}</Labelled></Column>}
+                <Column span={installmentColumns.amount}><Labelled title="Внесено"><FieldDisplay field={money} value={paid} /></Labelled></Column>
+                <Column span={installmentColumns.amount}><Labelled title="Остаток"><FieldDisplay field={money} value={amount - paid} /></Labelled></Column>
+            </Grid>
+            <Grid><Column span={installmentColumns.payments}><Stack gap={5}>{payments}</Stack></Column></Grid>
             {children}
         </Flex>
     </section>;
@@ -136,6 +143,7 @@ export function InstallmentPayments({ part, payments, disabled, register, onChan
         callbacks.current.onChange?.(rows as ReadonlyArray<InstallmentPayment>);
     }, [rows]);
     return <Form form={form} component={false} disabled={disabled} initialValues={{ payments }}>
-        <div style={{ maxWidth: 960 }}><TablePart part={part} showTitle={false} disabled={disabled} hiddenColumns={['shift']} columnWidths={{ date: 190, method: 160, amount: 150 }} addTitle="Добавить взнос" /></div>
+        {/* Ширину таблицы взносов задаёт колонка раскладки рассрочки. */}
+        <TablePart part={part} showTitle={false} disabled={disabled} hiddenColumns={['shift']} columnWidths={{ date: 190, method: 160, amount: 150 }} addTitle="Добавить взнос" />
     </Form>;
 }

@@ -16,6 +16,7 @@ import {
     FieldInput,
     Grid,
     saveFields,
+    Text,
     useAction,
     useActionConfirmation,
     useActionResult,
@@ -326,10 +327,11 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
                     onPersonChange={(value) => setPersons((current) => new Map(current).set(installment.guid, value))}
                     onEmployeeChange={(value) => setEmployees((current) => new Map(current).set(installment.guid, value))}
                     amount={next} paid={paidAmount(paymentsOf(installment))}
-                    amountInput={editableAmounts && distributable(installment) && amountField !== undefined ? <div style={{ width: 160 }}>
+                    amountInput={editableAmounts && distributable(installment) && amountField !== undefined ? (
+                        // Ширину поля задаёт колонка суммы в раскладке рассрочки.
                         <FieldInput field={amountField} value={next} disabled={saving}
                             onChange={(value) => setManual((current) => new Map(current ?? installments.map((candidate) => [candidate.guid, amountOf(candidate)])).set(installment.guid, typeof value === 'number' ? value : null))} />
-                    </div> : undefined}
+                    ) : undefined}
                     difference={<Typography.Text {...(next === installment.amount ? { type: 'secondary' as const } : {})}>
                         {next === installment.amount ? 'нет' : `${next > installment.amount ? '+' : '−'}${rubles(Math.abs(next - installment.amount))}`}
                     </Typography.Text>}
@@ -350,7 +352,7 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
                         <Column span={newInstallmentSpan}>
                             <Flex vertical gap="middle">
                                 <Flex align="baseline" gap="middle" wrap>
-                                    <Typography.Title level={4} style={{ margin: 0 }}>Новая рассрочка</Typography.Title>
+                                    <Text.Heading variant="03">Новая рассрочка</Text.Heading>
                                     <Typography.Text>на <FieldDisplay field={money} value={newAmount} /></Typography.Text>
                                 </Flex>
                                 <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={saving || termsLocked}

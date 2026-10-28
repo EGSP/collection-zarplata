@@ -1,7 +1,7 @@
-import { Alert, Button, Card, Flex, Modal, Space, Table, Tabs, theme, Typography } from 'antd';
+import { Alert, Button, Flex, Modal, Table, Tabs, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { ActionDialog, FieldDisplay, FieldInput, FluidField, Page, pagePath, RecordLink, useAction, useActionResult, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
+import { ActionDialog, Column, FieldDisplay, FieldInput, FluidField, FluidValue, Grid, Layer, Page, pagePath, Panel, RecordLink, Stack, Text, useAction, useActionResult, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PayrollLine, PayrollResult, PayrollRuleDescription } from '../payroll';
 
@@ -131,27 +131,29 @@ function LinesTable({ lines, installments }: { readonly lines: ReadonlyArray<Pay
  * Расшифровка начисления сотрудника: строка на каждый товар каждой части продажи или возврата
  * и строки бонусов. Бонусы по рассрочкам выведены отдельной таблицей с датами открытия
  * и закрытия рассрочки; возврат товара из рассрочки стоит в ней же, потому что вычитает бонус
- * рассрочки. Расшифровка стоит с отступом внутри таблицы сотрудников: так видно, к какой строке
- * она относится.
+ * рассрочки. Расшифровка стоит на вложенной поверхности внутри таблицы сотрудников: серый фон
+ * показывает, к какой строке она относится.
  */
 function EmployeeLines({ lines }: { readonly lines: ReadonlyArray<PayrollLine> }) {
     const installments = lines.filter(byInstallment);
     const others = lines.filter((line) => !byInstallment(line));
     return (
-        <Flex vertical gap="small" style={{ padding: '8px 16px 16px 48px' }}>
-            {others.length > 0 && (
-                <>
-                    <Typography.Title level={5} style={{ margin: 0 }}>Бонусы за продажи</Typography.Title>
-                    <LinesTable lines={others} installments={false} />
-                </>
-            )}
-            {installments.length > 0 && (
-                <>
-                    <Typography.Title level={5} style={{ margin: '8px 0 0' }}>Бонусы за закрытые рассрочки</Typography.Title>
-                    <LinesTable lines={installments} installments />
-                </>
-            )}
-        </Flex>
+        <Layer>
+            <Stack gap={5}>
+                {others.length > 0 && (
+                    <Stack gap={3}>
+                        <Text.Heading variant="02">Бонусы за продажи</Text.Heading>
+                        <LinesTable lines={others} installments={false} />
+                    </Stack>
+                )}
+                {installments.length > 0 && (
+                    <Stack gap={3}>
+                        <Text.Heading variant="02">Бонусы за закрытые рассрочки</Text.Heading>
+                        <LinesTable lines={installments} installments />
+                    </Stack>
+                )}
+            </Stack>
+        </Layer>
     );
 }
 
@@ -206,7 +208,6 @@ function PayrollTable({ result }: { readonly result: PayrollResult }) {
  * сохранённые ответы сервера.
  */
 export default function PayrollPage() {
-    const { token } = theme.useToken();
     const closings = Objects.document.periodClosing;
     const view = useObjectView(closings);
     const [through, setThrough] = useState<string>(() => dayFromToday(0));
@@ -239,42 +240,45 @@ export default function PayrollPage() {
         >
             <Tabs activeKey={tab} onChange={setTab} items={[
                 { key: 'current', label: 'Текущий период', children: (
-                    <Card size="small">
-                        <Flex gap="small" wrap style={{ marginBottom: 16 }}>
-                            <div style={{ width: 320, maxWidth: '100%' }}>
-                                <FluidField label="Начало периода">
-                                    {/* Начало приходит вместе с расчётом: после закрытия обновляется тем же запросом.
-                                        Отображение без поля ввода не позволяет выбрать произвольное начало периода. */}
-                                    <Space.Addon style={{ minHeight: token.controlHeight, background: 'transparent', display: 'flex', alignItems: 'center' }}>
-                                        {result === undefined
-                                            ? <Typography.Text type="secondary">{preview.loading ? 'Загрузка…' : 'Нет данных'}</Typography.Text>
-                                            : result.periodStart === null ? 'С начала учёта' : <FieldDisplay field={dayField} value={result.periodStart} />}
-                                    </Space.Addon>
-                                </FluidField>
-                            </div>
-                            <div style={{ width: 240, maxWidth: '100%' }}>
-                                <FluidField label="Рассчитать по" required>
-                                    {/* Пустое значение не принимается: расчёт всегда идёт по какой-то день. */}
-                                    <FieldInput field={dayField} value={through} disabled={result === undefined} dateLimits={{ minimum: minimumDay }} onChange={(value) => { if (typeof value === 'string') setThrough(value); }} />
-                                </FluidField>
-                            </div>
-                        </Flex>
-                        {minimumDay !== undefined && <Typography.Paragraph type="secondary">Период закрыт по <FieldDisplay field={dayField} value={dayBefore(minimumDay)} /> включительно.</Typography.Paragraph>}
-                        {result === undefined ? (
-                            preview.loading
-                                ? <Typography.Text type="secondary">Загрузка…</Typography.Text>
-                                : <Alert type="error" showIcon title="Не удалось рассчитать зарплату" description="Нет права на расчёт зарплаты, или сервер отклонил запрос" />
-                        ) : (
-                            <Flex vertical gap="middle">
-                                <Typography.Text>
-                                    Незакрытый период {result.periodStart === null ? 'с начала учёта' : <>с <FieldDisplay field={dayField} value={result.periodStart} /></>} по <FieldDisplay field={dayField} value={result.closedThrough} />.
-                                </Typography.Text>
-                                {result.employees.length === 0
-                                    ? <Typography.Text type="secondary">Начислений в периоде нет</Typography.Text>
-                                    : <PayrollTable result={result} />}
-                            </Flex>
-                        )}
-                    </Card>
+                    <Panel>
+                        <Stack gap={5}>
+                            {/* Поля стоят в колонках сетки, как поля форм: по четыре колонки на поле. */}
+                            <Grid gutter="narrow">
+                                <Column span={{ md: 4 }}>
+                                    <FluidField label="Начало периода">
+                                        {/* Начало приходит вместе с расчётом: после закрытия обновляется тем же запросом.
+                                            Отображение без поля ввода не позволяет выбрать произвольное начало периода. */}
+                                        <FluidValue content="text">
+                                            {result === undefined
+                                                ? <Typography.Text type="secondary">{preview.loading ? 'Загрузка…' : 'Нет данных'}</Typography.Text>
+                                                : result.periodStart === null ? 'С начала учёта' : <FieldDisplay field={dayField} value={result.periodStart} />}
+                                        </FluidValue>
+                                    </FluidField>
+                                </Column>
+                                <Column span={{ md: 4 }}>
+                                    <FluidField label="Рассчитать по" required>
+                                        {/* Пустое значение не принимается: расчёт всегда идёт по какой-то день. */}
+                                        <FieldInput field={dayField} value={through} disabled={result === undefined} dateLimits={{ minimum: minimumDay }} onChange={(value) => { if (typeof value === 'string') setThrough(value); }} />
+                                    </FluidField>
+                                </Column>
+                            </Grid>
+                            {minimumDay !== undefined && <Text tone="secondary">Период закрыт по <FieldDisplay field={dayField} value={dayBefore(minimumDay)} /> включительно.</Text>}
+                            {result === undefined ? (
+                                preview.loading
+                                    ? <Typography.Text type="secondary">Загрузка…</Typography.Text>
+                                    : <Alert type="error" showIcon title="Не удалось рассчитать зарплату" description="Нет права на расчёт зарплаты, или сервер отклонил запрос" />
+                            ) : (
+                                <Flex vertical gap="middle">
+                                    <Typography.Text>
+                                        Незакрытый период {result.periodStart === null ? 'с начала учёта' : <>с <FieldDisplay field={dayField} value={result.periodStart} /></>} по <FieldDisplay field={dayField} value={result.closedThrough} />.
+                                    </Typography.Text>
+                                    {result.employees.length === 0
+                                        ? <Typography.Text type="secondary">Начислений в периоде нет</Typography.Text>
+                                        : <PayrollTable result={result} />}
+                                </Flex>
+                            )}
+                        </Stack>
+                    </Panel>
                 ) },
                 { key: 'closed', label: 'Закрытые периоды', children: <ClosedPeriods /> },
             ]} />

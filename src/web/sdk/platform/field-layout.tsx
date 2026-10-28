@@ -13,7 +13,8 @@
  * за него, как он выглядит. Поэтому такой элемент собирается функцией `fieldInput` из двух
  * компонентов, а реестр элементов при сборке клиента отклоняет элемент поля, собранный иначе.
  */
-import { Space, Typography } from 'antd';
+import { Space, theme, Typography } from 'antd';
+import { spacing } from '../ds/layout';
 import type { ComponentType, ReactNode } from 'react';
 import type { InputProperties } from '../../widgets/widget';
 
@@ -98,7 +99,7 @@ export interface FluidFieldProperties {
 /**
  * Поле в fluid-компоновке: сегмент с названием и сразу за ним значение. Граница сегмента
  * служит разделителем. Значение, которое само не является элементом ввода Ant Design, например
- * переключатель, ставится в `Space.Addon`: тогда у него та же рамка, что у сегмента названия.
+ * переключатель или текст, ставится в `FluidValue`: тогда у него та же рамка, что у сегмента названия.
  */
 export function FluidField({ label, required = false, block = true, free = false, children }: FluidFieldProperties) {
     return (
@@ -113,4 +114,33 @@ export function FluidField({ label, required = false, block = true, free = false
             {block ? <div style={{ display: 'grid', gridTemplateColumns: free ? 'max-content' : 'minmax(0, 1fr)', flex: 1, minWidth: 0 }}>{children}</div> : children}
         </Space.Compact>
     );
+}
+
+/** Свойства сегмента значения fluid-поля. */
+export interface FluidValueProperties {
+    /**
+     * Что лежит в сегменте. `control` — собственный контрол, например переключатель способа оплаты:
+     * сегмент оставляет вокруг него узкий отступ, чтобы контрол не касался рамки. `text` — значение
+     * только для чтения: сегмент высотой с поле ввода и без заливки, текст по центру по вертикали.
+     */
+    readonly content: 'control' | 'text';
+    readonly children?: ReactNode;
+}
+
+/**
+ * Сегмент значения fluid-поля для содержимого, которое не является элементом ввода Ant Design.
+ * Стыкуется с сегментом названия в `FluidField` и получает общую рамку. Отступы и высоту задаёт
+ * сегмент, поэтому экран не подбирает их сам.
+ *
+ * ```tsx
+ * <FluidField label="Начало периода">
+ *     <FluidValue content="text"><FieldDisplay field={dayField} value={start} /></FluidValue>
+ * </FluidField>
+ * ```
+ */
+export function FluidValue({ content, children }: FluidValueProperties) {
+    const { token } = theme.useToken();
+    return content === 'control'
+        ? <Space.Addon style={{ padding: spacing[1] }}>{children}</Space.Addon>
+        : <Space.Addon style={{ minHeight: token.controlHeight, background: 'transparent', display: 'flex', alignItems: 'center' }}>{children}</Space.Addon>;
 }

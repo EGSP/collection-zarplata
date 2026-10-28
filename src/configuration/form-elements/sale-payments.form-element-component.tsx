@@ -1,7 +1,6 @@
-import { Flex, Typography } from 'antd';
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { RecordOf } from '../../server/metadata/index';
-import { FieldInput, newRowValues, TablePart, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
+import { Column, FieldInput, Grid, newRowValues, Stack, TablePart, Text, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
 import type { Sale } from '../documents/sale.document';
 import { Objects } from '../objects.generated';
 import { PaymentMethodIcons, PaymentMethodIconsWithoutInstallment } from './payment-method-input';
@@ -16,10 +15,10 @@ type PaymentLine = EnteredValue<RecordOf<typeof Sale>['payments']>[number];
 const installmentMethod = 'Рассрочка';
 
 /**
- * Наибольшая ширина оплат. Оплата — это несколько коротких значений, и растянутые на всю форму
- * поля читаются хуже: сумма оказывается далеко от способа.
+ * Колонки простой оплаты в сетке оплат. Ширину всех оплат задаёт колонка формы продажи, поэтому
+ * поля не растягиваются на всю форму. Сумме хватает двух колонок, остальное получает «Куда оплачено».
  */
-const paymentsWidth = 960;
+const simpleColumns = { amount: { md: 2 }, receiver: { md: 6, lg: 14 } } as const;
 
 /**
  * Ширины колонок таблицы оплат. Способ выбирается кнопками из одних значков, и колонке хватает
@@ -27,13 +26,18 @@ const paymentsWidth = 960;
  */
 const columnWidths = { method: 150, amount: 150 };
 
-/** Поле с подписью над ним. Подпись и ошибки самой части показывает форма. */
-function Labelled({ title, flex = '1 1 280px', onBlur, children }: { readonly title: string; readonly flex?: string; readonly onBlur?: () => void; readonly children: ReactNode }) {
+/**
+ * Поле с подписью над ним. Подпись и ошибки самой части показывает форма. Ширину поле получает
+ * от колонки сетки; обёртка нужна только для `onBlur`, который `Stack` не принимает.
+ */
+function Labelled({ title, onBlur, children }: { readonly title: string; readonly onBlur?: () => void; readonly children: ReactNode }) {
     return (
-        <Flex vertical gap={4} style={{ flex, minWidth: 0 }} {...(onBlur === undefined ? {} : { onBlur })}>
-            <Typography.Text type="secondary">{title}</Typography.Text>
-            {children}
-        </Flex>
+        <div {...(onBlur === undefined ? {} : { onBlur })}>
+            <Stack gap={2}>
+                <Text tone="secondary">{title}</Text>
+                {children}
+            </Stack>
+        </div>
     );
 }
 
@@ -113,24 +117,26 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
             newRow: () => ({ ...newRowValues(part), amount: rows.length > 0 && remaining > 0 ? remaining : null }),
         };
         return (
-            <div style={{ maxWidth: paymentsWidth }}>
-                <TablePart showTitle={false} part={part} disabled={disabled} ref={ref} onPrevious={onPrevious} {...options} />
-            </div>
+            <TablePart showTitle={false} part={part} disabled={disabled} ref={ref} onPrevious={onPrevious} {...options} />
         );
     }
     return (
-        <Flex gap="middle" wrap style={{ maxWidth: paymentsWidth }}>
-            <Labelled title={amount.title} flex={`0 0 ${columnWidths.amount}px`} onBlur={fillEmptyAmount}>
-                <FieldInput field={amount} value={row?.amount ?? null} disabled={disabled} ref={ref} id={id}
-                    onChange={(entered) => onChange?.(single({ amount: typeof entered === 'number' ? entered : null }))} />
-            </Labelled>
+        <Grid gutter="narrow">
+            <Column span={simpleColumns.amount}>
+                <Labelled title={amount.title} onBlur={fillEmptyAmount}>
+                    <FieldInput field={amount} value={row?.amount ?? null} disabled={disabled} ref={ref} id={id}
+                        onChange={(entered) => onChange?.(single({ amount: typeof entered === 'number' ? entered : null }))} />
+                </Labelled>
+            </Column>
             {/* По оплате способом «Рассрочка» деньги не приняты, и «Куда оплачено» у неё не заполняется. */}
             {mode !== installmentMethod && (
-                <Labelled title={receiver.title}>
-                    <FieldInput field={receiver} value={row?.receiver ?? null} disabled={disabled}
-                        onChange={(entered) => onChange?.(single({ receiver: (entered ?? null) as PaymentLine['receiver'] }))} />
-                </Labelled>
+                <Column span={simpleColumns.receiver}>
+                    <Labelled title={receiver.title}>
+                        <FieldInput field={receiver} value={row?.receiver ?? null} disabled={disabled}
+                            onChange={(entered) => onChange?.(single({ receiver: (entered ?? null) as PaymentLine['receiver'] }))} />
+                    </Labelled>
+                </Column>
             )}
-        </Flex>
+        </Grid>
     );
 }
