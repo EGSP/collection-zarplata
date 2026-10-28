@@ -5,4 +5,4 @@
  */
 import { page } from '../../server/ui/pages.js';
 
-export const PeriodSummary = page('periodSummary').title('Сводка за период');
+export const PeriodSummary = page('periodSummary').title('Сводка за период').icon('report');

@@ -25,6 +25,7 @@ covers:
 | `FormStack` | [Стек элементов формы](components.md#форма-из-formitem) из `Form.Item` без нижнего отступа |
 | `useActionConfirmation` | [Запрос подтверждения действия](hooks.md#выполнение-действий): `confirm(action)` и окно `dialog` |
 | `spacing`, `breakpoints`, `breakpointWidths`, `gridColumns` | Значения раскладки: [шкала отступов, точки перелома](../components.md#шкала-отступов-и-стек), их ширины и число колонок |
+| `useBreakpoint`, `breakpointAtLeast` | [Точка перелома](../components.md#точка-перелома-в-коде) ближайшего `BreakpointContainer` и проверка «не уже заданной точки»; вне контейнеров действует `sm` |
 | `useAccountingColors` | [Смысловые цвета учёта](hooks.md#поверхность-и-цвета) текущей темы |
 | `useLayer` | [Уровень и фоны](hooks.md#поверхность-и-цвета) ближайшей поверхности |
 | `Icons`, `Pictograms` | [Реестры значков](../web-sdk.md#иконки-и-пиктограммы) |
@@ -39,6 +40,7 @@ covers:
 | `ActionPlacement`, `ActionConfirmation`, `ActionConfirmationTone` | Место показа действия (`buttons`, `more`, `hidden`) и настройка его окна подтверждения (`delay`, `title`, `message`, `tone`) |
 | `ActionResult`, `ActionConfirmationState`, `ActionConfirmationDialogProperties` | Результат [`useActionResult`](hooks.md#выполнение-действий) с `refresh`, результат `useActionConfirmation` и свойства [окна подтверждения](components.md#подтверждение-действия) |
 | `ObjectReference`, `FieldName`, `RecordCondition`, `RecordSort` и связанные | [Ссылки на объекты](../web-sdk.md#типизация-объектов) с точными типами записи и действий |
+| `BreakpointContainerProperties` | Свойства `BreakpointContainer`: `of="window"` или `of="element"` с `style` |
 | `SpacingStep`, `Breakpoint`, `GridGutter`, `PageModel`, `ColumnCount` | Шаг шкалы отступов, точка перелома, режим зазора сетки, [модель страницы](../components.md#модели-страницы) и число колонок по точкам |
 | `ObjectTarget`, `PerformTarget`, `ListCondition` | Объект и условия запроса |
 | `RecordData`, `FormValues` | Запись общего типа и значения формы |

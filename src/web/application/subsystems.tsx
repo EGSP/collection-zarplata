@@ -7,7 +7,6 @@
  * не принадлежит одной подсистеме.
  */
 import { Flex, Menu, Modal, theme, Typography } from 'antd';
-import { useState } from 'react';
 import { Link } from 'react-router';
 import type { MetadataResponse, ShellItem, ShellSubsystem } from '../../server/ui/descriptions';
 import { objectPath, pagePath } from '../common/paths';
@@ -27,27 +26,36 @@ function shellLink(metadata: MetadataResponse | undefined, item: ShellItem): { r
     return object === undefined ? undefined : { title: object.title, path: objectPath(object) };
 }
 
-/** Подсистемы, доступные пользователю. Нажатие на подсистему открывает окно с её группами и объектами. */
-export function SubsystemList() {
+/**
+ * Подсистемы, доступные пользователю. Нажатие на подсистему передаёт её в `onOpen`: окно с группами
+ * выводит оболочка. Окно не лежит внутри меню, потому что меню выдвижной панели закрывается вместе
+ * с ней, а окно должно остаться открытым.
+ *
+ * Меню стоит в боковой панели оболочки и вместе с ней сворачивается в полосу иконок: Ant Design
+ * узнаёт об этом из `Layout.Sider` и прячет заголовки в подсказки. Поэтому у каждого пункта есть
+ * иконка: собственная иконка подсистемы или общий значок раздела.
+ */
+export function SubsystemMenu({ onOpen }: { readonly onOpen: (subsystem: ShellSubsystem) => void }) {
     const subsystems = useMetadata().data?.shell.subsystems ?? [];
-    const [openedName, setOpenedName] = useState<string | null>(null);
-    const opened = subsystems.find((subsystem) => subsystem.name === openedName);
     return (
-        <>
-            <Menu
-                mode="inline"
-                selectable={false}
-                style={{ borderInlineEnd: 'none' }}
-                items={subsystems.map((subsystem) => ({ key: subsystem.name, label: subsystem.title }))}
-                onClick={({ key }) => setOpenedName(key)}
-            />
-            {opened === undefined ? null : <SubsystemDialog subsystem={opened} onClose={() => setOpenedName(null)} />}
-        </>
+        <Menu
+            mode="inline"
+            selectable={false}
+            style={{ borderInlineEnd: 'none' }}
+            items={subsystems.map((subsystem) => {
+                const SubsystemIcon = Icons[subsystem.icon ?? 'subsystem'];
+                return { key: subsystem.name, icon: <SubsystemIcon />, label: subsystem.title };
+            })}
+            onClick={({ key }) => {
+                const subsystem = subsystems.find((candidate) => candidate.name === key);
+                if (subsystem !== undefined) onOpen(subsystem);
+            }}
+        />
     );
 }
 
 /** Окно подсистемы: группы с заголовками и ссылки на списки объектов и страницы конфигурации. Переход по ссылке закрывает окно. */
-function SubsystemDialog({ subsystem, onClose }: { readonly subsystem: ShellSubsystem; readonly onClose: () => void }) {
+export function SubsystemDialog({ subsystem, onClose }: { readonly subsystem: ShellSubsystem; readonly onClose: () => void }) {
     const { token } = theme.useToken();
     const metadata = useMetadata().data;
     return (

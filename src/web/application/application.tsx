@@ -5,6 +5,7 @@ import ruRU from 'antd/locale/ru_RU';
 import { useMemo } from 'react';
 import { BrowserRouter } from 'react-router';
 import { configurationShellGroups } from '../../configuration/shell-groups';
+import { BreakpointContainer } from '../sdk/ds/breakpoints';
 import { ShellGroupsProvider } from '../sdk/platform/shell-group-content';
 import { createAuthenticationProvider } from '../authentication/authentication-provider';
 import { LoginPage } from '../authentication/login-page';
@@ -76,11 +77,14 @@ function RefineApplication() {
             resources={resources}
             options={refineOptions}
         >
-            <Authenticated key="application" fallback={<LoginPage />} loading={<Pending fullPage />}>
-                <WindowTabsProvider>
-                    <ApplicationLayout />
-                </WindowTabsProvider>
-            </Authenticated>
+            {/* Окно браузера: внешний контейнер точек перелома, по нему выбирает режим боковая панель. */}
+            <BreakpointContainer of="window">
+                <Authenticated key="application" fallback={<LoginPage />} loading={<Pending fullPage />}>
+                    <WindowTabsProvider>
+                        <ApplicationLayout />
+                    </WindowTabsProvider>
+                </Authenticated>
+            </BreakpointContainer>
         </Refine>
     );
 }

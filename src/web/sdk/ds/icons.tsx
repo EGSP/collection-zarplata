@@ -14,7 +14,8 @@
  * на месте. Два смысла могут делить один рисунок: записи остаются разными, чтобы рисунок одного
  * можно было заменить, не затронув другой.
  */
-import {
+import type { ComponentProps, ComponentType } from 'react';
+import Icon, {
     ApartmentOutlined,
     AppstoreOutlined,
     BankOutlined,
@@ -25,6 +26,7 @@ import {
     CheckOutlined,
     CloseOutlined,
     CreditCardOutlined,
+    DatabaseOutlined,
     DeleteOutlined,
     DownOutlined,
     DownloadOutlined,
@@ -33,6 +35,7 @@ import {
     ExportOutlined,
     FileTextOutlined,
     FilterOutlined,
+    FolderOutlined,
     GlobalOutlined,
     HomeOutlined,
     InboxOutlined,
@@ -58,6 +61,43 @@ import {
     WalletOutlined,
     WarningFilled,
 } from '@ant-design/icons';
+import { Pictograms, type PictogramProperties } from './pictograms';
+
+/** Свойства иконки Ant Design: `style`, `title`, `aria-label` и остальные свойства значка. */
+type IconProps = Omit<ComponentProps<typeof Icon>, 'component'>;
+
+/**
+ * Иконка из собственного рисунка. Обёртка Ant Design `Icon` даёт ей те же свойства и классы,
+ * что у значков библиотеки: меню, кнопки и вкладки оформляют её так же, как остальные иконки.
+ */
+function drawnIcon(Drawing: ComponentType): ComponentType<IconProps> {
+    return function DrawnIcon(props: IconProps) {
+        return <Icon component={Drawing} {...props} />;
+    };
+}
+
+/** Утолщение линии пиктограммы на размере иконки, в единицах поля 32×32: 0,72 + 1,2 ≈ 2 единицы, около 1 px на 16 px. */
+const pictogramIconEmphasis = 1.2;
+
+/** Иконка из пиктограммы: тот же рисунок с утолщённой линией, чтобы он не бледнел на 16 px. */
+function pictogramIcon(Pictogram: ComponentType<PictogramProperties>): ComponentType<IconProps> {
+    return drawnIcon(function EmphasizedPictogram() {
+        return <Pictogram emphasis={pictogramIconEmphasis} />;
+    });
+}
+
+/**
+ * Значок Switcher из Carbon: девять квадратов сеткой 3×3. Ant Design такого значка не содержит,
+ * поэтому рисунок повторён здесь в поле 32×32, как у пиктограмм.
+ */
+function SwitcherDrawing() {
+    const positions = [4, 14, 24];
+    return (
+        <svg viewBox="0 0 32 32" width="1em" height="1em" fill="currentColor" aria-hidden focusable="false">
+            {positions.flatMap((y) => positions.map((x) => <rect key={`${x}.${y}`} x={x} y={y} width={4} height={4} />))}
+        </svg>
+    );
+}
 
 /** Иконки приложения по смыслу. Правила пользования описаны во вводном комментарии модуля. */
 export const Icons = {
@@ -98,6 +138,23 @@ export const Icons = {
     coreModule: SettingOutlined,
     /** Выход из приложения. */
     signOut: LogoutOutlined,
+
+    /** Кнопка боковой панели: сворачивает, разворачивает и выдвигает её поверх страницы. */
+    switcher: drawnIcon(SwitcherDrawing),
+
+    // Страницы-рабочие места в боковой панели. Имена совпадают со смыслами `PageIcon` описания
+    // страницы. Рисунки взяты из пиктограмм плиток главного экрана: пункт панели и плитка одного
+    // экрана выглядят одинаково. Линия пиктограммы утолщена до толщины линии иконок (около 1 px на 16 px).
+    shop: pictogramIcon(Pictograms.shop),
+    salary: pictogramIcon(Pictograms.salary),
+    report: pictogramIcon(Pictograms.report),
+
+    // Подсистемы оболочки. Имена совпадают со смыслами `SubsystemIcon` схемы оболочки: боковое меню
+    // берёт иконку подсистемы по ним, а значок `subsystem` ставит подсистеме без иконки.
+    subsystem: FolderOutlined,
+    administration: SettingOutlined,
+    trade: ShopOutlined,
+    referenceData: DatabaseOutlined,
     /** Запись изменений формы. */
     save: SaveOutlined,
     /** Проведение документа. */

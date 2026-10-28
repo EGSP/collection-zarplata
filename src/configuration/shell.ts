@@ -39,12 +39,15 @@ import { SalesNetOfReturns } from './registers/sales-net-of-returns.register.js'
 import { SampleRegister } from './registers/sample.register.js';
 
 export const applicationShell = shell()
+    .workplaces([SellerWorkplace, Payroll, PeriodSummary])
     .subsystem('administration', (subsystem) => subsystem
         .title('Администрирование')
+        .icon('administration')
         .group('Учётные записи', [Users, AccessRights])
         .group('Обслуживание', [Backups]))
     .subsystem('sales', (subsystem) => subsystem
         .title('Продажи')
+        .icon('trade')
         .group('Рабочие места', [SellerWorkplace])
         .group('Документы', [Sale, Weighing, Refund, SaleInstallment])
         .group('Регистры', [SalesNetOfReturns, InstallmentDebts, MoneyReceipts, UnarrangedInstallments])
@@ -53,6 +56,7 @@ export const applicationShell = shell()
         .group('Отчёты', [PeriodSummary]))
     .subsystem('masterData', (subsystem) => subsystem
         .title('НСИ')
+        .icon('referenceData')
         .group('Справочники', [PhysicalPersons, Employees, Nomenclature, Sample, SampleDelegate])
         .group('Документы', [Shift, SampleDocument, SampleSelection])
         .group('Регистры', [SampleRegister, ExternalLinks, SampleInformation, SampleCompositeInformation])

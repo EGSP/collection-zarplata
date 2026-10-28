@@ -4,4 +4,4 @@
  */
 import { page } from '../../server/ui/pages.js';
 
-export const Payroll = page('payroll').title('Зарплата');
+export const Payroll = page('payroll').title('Зарплата').icon('salary');
