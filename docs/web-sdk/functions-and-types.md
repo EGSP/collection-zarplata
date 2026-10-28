@@ -29,7 +29,9 @@ covers:
 | `useAccountingColors` | [Смысловые цвета учёта](hooks.md#поверхность-и-цвета) текущей темы |
 | `useLayer` | [Уровень и фоны](hooks.md#поверхность-и-цвета) ближайшей поверхности |
 | `columnGroups`, `tableLayoutAt` | Правила [схем отображения](../components.md#составные-колонки-и-схемы-отображения): колонки по схеме и схема для точки перелома |
-| `fieldColumnSize` | [Размер колонки](../components.md#размер-колонки-в-знаках-и-долях) по виду поля |
+| `fieldCellType`, `fieldColumn`, `fieldColumnSize` | [Тип ячейки и размер колонки](../components.md#размер-колонки-в-знаках-и-долях) по виду поля: `fieldColumn` отдаёт тип и размер вместе, `fieldColumnSize` размер либо `undefined`, если подходит размер типа |
+| `cellTypes`, `cellAlign`, `cellColumnSize`, `formatCell`, `hasTextInput` | Правила [типов ячеек](../components.md#типы-ячеек): выравнивание, размер по типу и заголовку, текст значения, вводится ли тип текстом |
+| `CellTextInput` | Собственное поле ячейки для строки, числа и суммы |
 | `Icons`, `Pictograms` | [Реестры значков](../web-sdk.md#иконки-и-пиктограммы) |
 
 `hasOpenDialog` принимает корневой элемент экрана и не учитывает окно, в котором показан сам экран. Иначе форма в модальном окне сочла бы себя перекрытой собственным окном и отключила бы сочетания клавиш.
@@ -64,6 +66,7 @@ covers:
 | `AccountingTone`, `AccountingColor` | Смысловой цвет учёта (`total`, `debt`, `overpayment`, `warning`) и его оттенки: `text`, `solid`, `solidHover`, `background`, `backgroundStrong` |
 | `TablePartOptions` | [Настройки вида табличной части](components.md#табличная-часть) |
 | `DataTableProperties`, `DataTableColumn`, `DataTableSelection`, `DataTableExpansion`, `DataTableRowState`, `DataTableSortDirection` | Свойства и части [таблицы данных](../components.md#таблица-данных) |
-| `ColumnSize`, `ControlColumnSize`, `TableLayout`, `TableLayouts`, `SizedField` | Размер колонки в знаках и долях, размер служебной колонки `'control'`, схема отображения и схемы по точкам перелома, поле для расчёта размера |
+| `ColumnSize`, `ControlColumnSize`, `TableLayout`, `TableLayouts` | Размер колонки в знаках и долях, размер служебной колонки `'control'`, схема отображения и схемы по точкам перелома |
+| `CellType`, `PrimitiveCellType`, `CellInputOptions`, `CellTextInputHandle`, `CellTextInputProperties`, `CellField` | Тип ячейки (`string`, `number`, `money`, `date`, `dateTime`, `boolean`, `free`) и его примитивная часть, ограничения ввода (`integer`, `maximumLength`), управление и свойства поля ячейки, поле для расчёта типа |
 | `ReadOnlyTablePartProperties` | Свойства `ReadOnlyTablePart` |
 | `<Компонент>Properties` | Свойства компонента SDK, например `TileProperties` |

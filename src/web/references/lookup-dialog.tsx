@@ -9,7 +9,7 @@ import type { RecordData } from '../data-provider/records';
 import { FieldDisplay } from '../widgets/registry';
 import { BreakpointContainer } from '../sdk/ds/breakpoints';
 import { DataTable } from '../sdk/ds/data-table';
-import { fieldColumnSize } from '../sdk/platform/column-sizes';
+import { fieldColumn } from '../sdk/platform/field-cells';
 
 /** Задержка перед запросом после ввода поиска: строки не запрашиваются на каждую букву. */
 const searchDelay = 300;
@@ -77,9 +77,10 @@ export function LookupDialog({ object, value, onSelect, onClose }: LookupDialogP
                     columns={lookup.columns.map((column) => ({
                         key: column.name,
                         title: column.title,
-                        size: fieldColumnSize(column),
-                        align: column.kind === 'money' || column.kind === 'number' ? 'end' : 'start',
-                        render: (row: RecordData) => <FieldDisplay field={column} value={row[column.name]} />,
+                        ...fieldColumn(column),
+                        ...(fieldColumn(column).type === 'free'
+                            ? { render: (row: RecordData) => <FieldDisplay field={column} value={row[column.name]} /> }
+                            : { value: (row: RecordData) => row[column.name] }),
                     }))}
                     // Текущее значение поля отмечено как выбранная строка.
                     selection={{ mode: 'single', isSelected: (row) => row.guid === value, onChange: (row) => { onSelect(row.guid); onClose(); } }}

@@ -16,9 +16,9 @@
  * ```tsx
  * <DataTable
  *     columns={[
- *         { key: 'code', title: 'Код', size: { minimum: 8 }, render: (row) => row.code },
- *         { key: 'name', title: 'Название', size: { minimum: 16, weight: 2 }, render: (row) => row.name },
- *         { key: 'total', title: 'Итог', size: { minimum: 12 }, align: 'end', render: (row) => <Money value={row.total} /> },
+ *         { key: 'code', title: 'Код', type: 'string', size: { minimum: 8 }, value: (row) => row.code },
+ *         { key: 'name', title: 'Название', type: 'string', size: { minimum: 16, weight: 2 }, value: (row) => row.name },
+ *         { key: 'total', title: 'Итог', type: 'money', value: (row) => row.total },
  *     ]}
  *     rows={lines}
  *     rowKey={(row) => row.lineNumber}
@@ -41,23 +41,51 @@ import { Checkbox, Radio, Spin, theme } from 'antd';
 import { Fragment, useLayoutEffect, useRef, type CSSProperties, type Key, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import { useBreakpoint } from './breakpoints';
 import { Button } from './button';
+import { cellAlign, cellColumnSize, cellInputClass, formatCell, type CellType } from './cell-types';
 import { Icons } from './icons';
 import { useLayer } from './layer';
 import { spacing } from './layout';
 import { columnGroups, columnTrack, groupSize, tableLayoutAt, type ColumnSize, type ControlColumnSize, type TableLayouts } from './table-layout';
 
-/** Колонка таблицы со строками типа `Row`. */
+/**
+ * Колонка таблицы со строками типа `Row`. Колонка сообщает тип своих значений (`cell-types.tsx`):
+ * по нему таблица выравнивает и форматирует значения и выбирает размер колонки.
+ *
+ * Колонка примитивного типа отдаёт значение (`value`), а таблица выводит его текстом. Если ячейке
+ * нужно больше текста, например поле ввода табличной части, колонка рисует её сама (`render`),
+ * а выравнивание и цифры одной ширины всё равно берутся из типа. Колонка свободного типа `free`
+ * всегда рисует ячейку сама.
+ */
 export interface DataTableColumn<Row> {
     /** Имя колонки: по нему колонку называют схема отображения, сортировка и строка итогов. */
     readonly key: string;
     readonly title: ReactNode;
-    /** Наименьшая ширина в знаках и доля остатка либо `control` — квадрат служебного элемента. */
-    readonly size: ColumnSize | ControlColumnSize;
-    /** Прижать значение и заголовок к правому краю, как принято для чисел и сумм. */
-    readonly align?: 'start' | 'end' | undefined;
+    readonly type: CellType;
+    /** Значение ячейки в формате сервера: сумма в копейках, дата строкой ISO. */
+    readonly value?: ((row: Row, index: number) => unknown) | undefined;
+    /** Собственное содержимое ячейки вместо значения. */
+    readonly render?: ((row: Row, index: number) => ReactNode) | undefined;
+    /**
+     * Размер вместо размера типа: наименьшая ширина в знаках и доля остатка либо `control` —
+     * квадрат служебного элемента, например кнопки удаления.
+     */
+    readonly size?: ColumnSize | ControlColumnSize | undefined;
     /** Щелчок по заголовку сортирует строки по колонке: о нём сообщает `onSort` таблицы. */
     readonly sortable?: boolean | undefined;
-    readonly render: (row: Row, index: number) => ReactNode;
+    /** Ячейка предлагает список (подсказки, варианты): колонка не уже `listCellMinimum` знаков. */
+    readonly list?: boolean | undefined;
+}
+
+/** Размер колонки: служебный квадрат или размер по типу и заголовку. */
+function columnSize<Row>(column: DataTableColumn<Row>): ColumnSize | ControlColumnSize {
+    return column.size === 'control' ? 'control' : cellColumnSize(column.type, column.title, column.size, column.list === true);
+}
+
+/** Содержимое ячейки: собственное колонки либо текст значения по типу. */
+function cellContent<Row>(column: DataTableColumn<Row>, row: Row, index: number): ReactNode {
+    if (column.render !== undefined) return column.render(row, index);
+    if (column.type === 'free' || column.value === undefined) return null;
+    return formatCell(column.type, column.value(row, index));
 }
 
 /** Направление сортировки по колонке. */
@@ -106,8 +134,12 @@ export interface DataTableProperties<Row> {
     readonly sort?: { readonly key: string; readonly direction: DataTableSortDirection } | null | undefined;
     /** Пользователь щёлкнул заголовок сортируемой колонки. */
     readonly onSort?: ((key: string) => void) | undefined;
-    /** Строка «Итого» под строками: содержимое по именам колонок. Без него строки итогов нет. */
-    readonly summary?: { readonly [key: string]: ReactNode } | undefined;
+    /**
+     * Строка «Итого» под строками: значения по именам колонок. Значение колонки примитивного типа
+     * таблица форматирует по типу, как значения строк: сумму итога передают копейками, подпись — строкой.
+     * Колонке свободного типа передают готовое содержимое. Без свойства строки итогов нет.
+     */
+    readonly summary?: { readonly [key: string]: unknown } | undefined;
     readonly loading?: boolean | undefined;
     /** Текст пустой таблицы, по умолчанию «Строк нет». */
     readonly emptyText?: ReactNode;
@@ -128,31 +160,29 @@ const classes = {
     body: 'data-table-body',
     row: 'data-table-row',
     header: 'data-table-header',
-    group: 'data-table-group',
     cell: 'data-table-cell',
     expanded: 'data-table-expanded',
     empty: 'data-table-empty',
-    input: 'data-table-input',
+    // Поле ячейки ставится прямо в ячейку и само несёт её отступ: класс общий с `CellTextInput`.
+    input: cellInputClass,
 } as const;
-
-/**
- * Класс поля ввода ячейки. Поле ставится прямо в ячейку и само несёт её внутренний отступ:
- * щелчок в любом месте ячейки попадает в поле, а текст стоит там же, где заголовок.
- */
-export const dataTableInputClass = classes.input;
 
 /**
  * Правила таблицы. Цвета и размеры приходят CSS-переменными с корневого элемента: так правила
  * общие для всех таблиц, а тема Ant Design задаёт значения при отрисовке.
  */
 function dataTableStyleSheet(): string {
-    const { frame, scroll, body, row, header, group, cell, expanded, empty, input } = classes;
+    const { frame, scroll, body, row, header, cell, expanded, empty, input } = classes;
     return [
         `.${frame} { position: relative; }`,
         `.${scroll} { overflow-x: auto; }`,
         // Тело не уже суммы минимумов колонок: остальное место браузер делит по долям.
         `.${body} { min-width: min-content; }`,
-        `.${row} { display: grid; grid-template-columns: var(--data-table-template); border-bottom: 1px solid var(--data-table-border); }`,
+        // Строка — сетка из колонок и уровней. Поля составной колонки стоят на уровнях строки,
+        // поэтому высота уровня общая для всех колонок, и подстроки соседних колонок стоят на одной
+        // линии. Колонка из одного поля занимает все уровни.
+        `.${row} { display: grid; grid-template-columns: var(--data-table-template); grid-template-rows: var(--data-table-levels); border-bottom: 1px solid var(--data-table-border); }`,
+        `.${row}[data-summary] { grid-template-rows: minmax(var(--data-table-row-height), auto); }`,
         // Полужирный шрифт задаётся ячейкам, а не строке: минимумы колонок в `ch` считаются по шрифту
         // строки, и у полужирной строки заголовка колонки вышли бы шире, чем у строк данных.
         `.${header} { background: var(--data-table-header-background); }`,
@@ -168,16 +198,17 @@ function dataTableStyleSheet(): string {
         `.${row}[data-selected] { background: var(--data-table-selected); }`,
         `.${row}[data-state="muted"] { color: var(--data-table-muted); }`,
         `.${row}[data-state="locked"] { background: var(--data-table-locked-background); color: var(--data-table-locked-text); }`,
-        `.${group} { display: flex; flex-direction: column; min-width: 0; }`,
         // Длинное значение переносится, а не обрезается: таблица показывает значение целиком.
-        `.${cell} { display: flex; align-items: center; gap: ${spacing[3]}px; min-width: 0; min-height: var(--data-table-row-height); padding-inline: var(--data-table-cell-padding); overflow-wrap: anywhere; }`,
-        // Ячейка занимает всю высоту своей доли строки: у обычной колонки рядом с составной
-        // рамка фокуса и щелчок охватывают строку целиком, а поля составной колонки делят свободное место поровну.
-        `.${group} > .${cell} { flex: 1 1 auto; }`,
-        `.${group}[data-stacked] > .${cell} { min-height: var(--data-table-stacked-height); }`,
-        `.${group}[data-stacked] > .${cell} + .${cell} { border-top: 1px dashed var(--data-table-subrow-border); }`,
+        // Высоту ячейке задаёт уровень строки, поэтому своей наименьшей высоты у ячейки нет.
+        `.${cell} { display: flex; align-items: center; gap: ${spacing[3]}px; min-width: 0; padding-inline: var(--data-table-cell-padding); overflow-wrap: anywhere; }`,
+        // Пунктир над полем второго и следующих уровней: на одной высоте во всех колонках он читается
+        // полосой подстроки, а сплошная граница строки остаётся границей между строками.
+        `.${cell}[data-level] { border-top: 1px dashed var(--data-table-subrow-border); }`,
         `.${cell}[data-align="end"] { justify-content: flex-end; text-align: right; font-variant-numeric: tabular-nums; }`,
         `.${cell}[data-align="end"] input { text-align: right; }`,
+        `.${cell}[data-align="center"] { justify-content: center; text-align: center; }`,
+        // Числа и суммы набраны цифрами одной ширины: разряды стоят друг под другом.
+        `.${cell}[data-type="number"], .${cell}[data-type="money"] { font-variant-numeric: tabular-nums; }`,
         `.${cell}[data-control] { justify-content: center; padding: 0; }`,
         `.${cell}[data-sortable] { cursor: pointer; user-select: none; }`,
         `.${cell}:focus-within, .${cell}:focus-visible { outline: 2px solid var(--data-table-focus); outline-offset: -2px; }`,
@@ -192,7 +223,11 @@ function dataTableStyleSheet(): string {
         `.${cell} > [data-cell-target], .${cell} > [data-cell-state] { align-self: stretch; flex: 1; display: flex; align-items: center; gap: ${spacing[3]}px; min-width: 0; outline: none; }`,
         `.${cell} > [data-cell-target] { cursor: text; }`,
         `.${cell}[data-align="end"] > [data-cell-target] { justify-content: flex-end; }`,
-        `.${cell} > [data-cell-state] > * { flex: 1; min-width: 0; }`,
+        // Поле редактирования растягивается на ячейку. Элемент ячейки без режимов, например флажок
+        // или переключатель, сохраняет свою ширину: растянутый переключатель сжимал подписи.
+        `.${cell} > [data-cell-state="editing"] > * { flex: 1; min-width: 0; }`,
+        // В собственном поле ячейки растягивается только само поле; кнопка рядом, например подбора, — своей ширины.
+        `.${cell} > [data-cell-editor="native"] > :not(.${input}) { flex: none; }`,
         // Поле редактирования без рамки и внутреннего отступа: текст не сдвигается при входе в редактирование.
         // Отступ списка выбора Ant Design задаёт CSS-переменной на самом элементе, поэтому она переопределяется здесь.
         `.${cell} .ant-select { --ant-select-padding-horizontal: 0px; }`,
@@ -237,16 +272,21 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     const byKey = new Map(columns.map((column) => [column.key, column]));
     const groups = columnGroups(columns.map((column) => column.key), tableLayoutAt(layouts, point))
         .map((keys) => keys.map((key) => byKey.get(key)!));
-    // Таблица с составными колонками разделяет строки заметнее и чередует их фон.
-    const stacked = groups.some((group) => group.length > 1);
+    // Уровни строки: столько, сколько полей в самой высокой составной колонке. Таблица с составными
+    // колонками разделяет строки заметнее и чередует их фон.
+    const levels = Math.max(1, ...groups.map((group) => group.length));
+    const stacked = levels > 1;
+    // Колонки служебных элементов стоят перед колонками данных: раскрытие строки, затем выбор.
+    const serviceColumns = (expansion === undefined ? 0 : 1) + (selection === undefined ? 0 : 1);
     // Служебные колонки стоят перед колонками данных: раскрытие строки, затем выбор.
     const tracks = [
         ...(expansion === undefined ? [] : [columnTrack('control')]),
         ...(selection === undefined ? [] : [columnTrack('control')]),
-        ...groups.map((group) => columnTrack(groupSize(group.map((column) => column.size)))),
+        ...groups.map((group) => columnTrack(groupSize(group.map(columnSize)))),
     ];
     const variables = {
         '--data-table-template': tracks.join(' '),
+        '--data-table-levels': stacked ? `repeat(${levels}, minmax(${stackedHeight}px, auto))` : `minmax(${rowHeight}px, auto)`,
         '--data-table-row-height': `${rowHeight}px`,
         '--data-table-stacked-height': `${stackedHeight}px`,
         '--data-table-cell-padding': `${cellPadding}px`,
@@ -268,21 +308,33 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     } as CSSProperties;
 
     const role = interactive ? 'gridcell' : 'cell';
-    const cellProperties = (column: DataTableColumn<Row>) => ({
-        className: classes.cell,
-        ...(column.align === 'end' ? { 'data-align': 'end' } : {}),
-        ...(column.size === 'control' ? { 'data-control': true } : {}),
+    const cellProperties = (column: DataTableColumn<Row>) => {
+        const align = cellAlign(column.type);
+        return {
+            className: classes.cell,
+            'data-type': column.type,
+            ...(align === 'start' ? {} : { 'data-align': align }),
+            ...(column.size === 'control' ? { 'data-control': true } : {}),
+        };
+    };
+    /**
+     * Место ячейки в сетке строки: колонка группы и уровень поля. Колонка из одного поля занимает
+     * все уровни; последнее поле составной колонки, в которой полей меньше уровней, — оставшиеся.
+     */
+    const placement = (groupIndex: number, level: number, groupLength: number) => ({
+        style: {
+            gridColumn: serviceColumns + groupIndex + 1,
+            gridRow: groupLength === 1 ? '1 / -1' : level === groupLength - 1 ? `${level + 1} / -1` : level + 1,
+        },
+        ...(groupLength > 1 && level > 0 ? { 'data-level': level } : {}),
     });
-    const groupProperties = (group: ReadonlyArray<DataTableColumn<Row>>) => ({
-        className: classes.group,
-        role: 'none',
-        ...(group.length > 1 ? { 'data-stacked': true } : {}),
-    });
+    /** Служебная ячейка занимает все уровни строки. */
+    const serviceCell = { className: classes.cell, 'data-control': true, style: { gridRow: '1 / -1' } };
 
     const selectable = selection === undefined ? [] : rows.map((row, index) => ({ row, index })).filter(({ row, index }) => selection.isDisabled?.(row, index) !== true);
     const selectedCount = selection === undefined ? 0 : selectable.filter(({ row, index }) => selection.isSelected(row, index)).length;
 
-    const headerCell = (column: DataTableColumn<Row>) => {
+    const headerCell = (column: DataTableColumn<Row>, groupIndex: number, level: number, groupLength: number) => {
         const sorted = sort?.key === column.key ? sort.direction : undefined;
         const sortable = column.sortable === true && onSort !== undefined;
         const SortIcon = sorted === 'ascending' ? Icons.sortAscending : sorted === 'descending' ? Icons.sortDescending : Icons.sortable;
@@ -291,6 +343,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                 key={column.key}
                 role="columnheader"
                 {...cellProperties(column)}
+                {...placement(groupIndex, level, groupLength)}
                 {...(sorted === undefined ? {} : { 'aria-sort': sorted })}
                 {...(sortable ? {
                     'data-sortable': true,
@@ -312,9 +365,9 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
 
     const header = (
         <div role="row" className={`${classes.row} ${classes.header}`}>
-            {expansion !== undefined && <div role="columnheader" className={classes.cell} data-control aria-label="Раскрытие строки" />}
+            {expansion !== undefined && <div role="columnheader" {...serviceCell} aria-label="Раскрытие строки" />}
             {selection !== undefined && (
-                <div role="columnheader" className={classes.cell} data-control>
+                <div role="columnheader" {...serviceCell}>
                     {selection.mode === 'multiple' && selection.onChangeAll !== undefined && (
                         <Checkbox
                             aria-label="Выбрать все строки"
@@ -326,7 +379,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                     )}
                 </div>
             )}
-            {groups.map((group) => <div key={group[0]!.key} {...groupProperties(group)}>{group.map(headerCell)}</div>)}
+            {groups.flatMap((group, groupIndex) => group.map((column, level) => headerCell(column, groupIndex, level, group.length)))}
         </div>
     );
 
@@ -352,7 +405,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                     {...(onRowDoubleClick === undefined ? {} : { onDoubleClick: (event: MouseEvent) => { if (!fromControl(event)) onRowDoubleClick(row, index); } })}
                 >
                     {expansion !== undefined && (
-                        <div role={role} className={classes.cell} data-control>
+                        <div role={role} {...serviceCell}>
                             {expandable && (
                                 <Button
                                     type="text"
@@ -364,21 +417,17 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                         </div>
                     )}
                     {selection !== undefined && (
-                        <div role={role} className={classes.cell} data-control>
+                        <div role={role} {...serviceCell}>
                             {selection.mode === 'multiple'
                                 ? <Checkbox aria-label="Выбрать строку" checked={selected} disabled={disabled} onChange={(event) => selection.onChange(row, index, event.target.checked)} />
                                 : <Radio aria-label="Выбрать строку" checked={selected} disabled={disabled} onChange={() => selection.onChange(row, index, true)} />}
                         </div>
                     )}
-                    {groups.map((group) => (
-                        <div key={group[0]!.key} {...groupProperties(group)}>
-                            {group.map((column) => (
-                                <div key={column.key} role={role} {...cellProperties(column)} onMouseDown={focusContent}>
-                                    {column.render(row, index)}
-                                </div>
-                            ))}
+                    {groups.flatMap((group, groupIndex) => group.map((column, level) => (
+                        <div key={column.key} role={role} {...cellProperties(column)} {...placement(groupIndex, level, group.length)} onMouseDown={focusContent}>
+                            {cellContent(column, row, index)}
                         </div>
-                    ))}
+                    )))}
                 </div>
                 {expanded && <div className={classes.expanded}>{expansion.render(row, index)}</div>}
             </Fragment>
@@ -387,18 +436,13 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
 
     const totals = summary !== undefined && rows.length > 0 && (
         <div role="row" className={classes.row} data-summary>
-            {expansion !== undefined && <div role={role} className={classes.cell} data-control />}
-            {selection !== undefined && <div role={role} className={classes.cell} data-control />}
-            {groups.map((group) => {
-                // В строке итогов составная колонка выводит только поля с итогом: подпись «Итого»
-                // и сумма стоят на одной линии, а не на разной высоте полей колонки.
-                const filled = group.filter((column) => summary[column.key] !== undefined);
-                const shown = filled.length === 0 ? group.slice(0, 1) : filled;
-                return (
-                    <div key={group[0]!.key} {...groupProperties(shown)}>
-                        {shown.map((column) => <div key={column.key} role={role} {...cellProperties(column)}>{summary[column.key]}</div>)}
-                    </div>
-                );
+            {expansion !== undefined && <div role={role} {...serviceCell} />}
+            {selection !== undefined && <div role={role} {...serviceCell} />}
+            {groups.map((group, groupIndex) => {
+                // Строка итогов в один уровень: составная колонка выводит поле с итогом, а без итога —
+                // первое поле, поэтому подпись «Итого» и сумма стоят на одной линии.
+                const column = group.find((candidate) => summary[candidate.key] !== undefined) ?? group[0]!;
+                return <div key={column.key} role={role} {...cellProperties(column)} {...placement(groupIndex, 0, 1)}>{summaryContent(column, summary[column.key])}</div>;
             })}
         </div>
     );
@@ -417,6 +461,14 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
             </div>
         </Spin>
     );
+}
+
+/** Содержимое ячейки итогов: значение примитивного типа форматируется, свободного — выводится как есть. */
+function summaryContent<Row>(column: DataTableColumn<Row>, value: unknown): ReactNode {
+    if (value === undefined || value === null) return null;
+    // Подпись «Итого» стоит в колонке любого типа: строка выводится как есть.
+    if (column.type === 'free' || typeof value === 'string') return value as ReactNode;
+    return formatCell(column.type, value);
 }
 
 /**

@@ -132,6 +132,8 @@ export const Icons = {
     collapse: DownOutlined,
     /** Колонка таблицы, по которой можно отсортировать строки; сейчас сортировка по другой колонке. */
     sortable: SwapOutlined,
+    /** Выбор даты в календаре. */
+    calendar: CalendarOutlined,
     /** Строки таблицы отсортированы по колонке по возрастанию. */
     sortAscending: ArrowUpOutlined,
     /** Строки таблицы отсортированы по колонке по убыванию. */

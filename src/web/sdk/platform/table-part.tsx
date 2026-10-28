@@ -1,13 +1,13 @@
 import { Form, Typography } from 'antd';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentType, type Key, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import type { FormField, FormTablePart } from '../../../server/ui/descriptions';
-import { FieldDisplay, hasInput } from '../../widgets/registry';
+import { hasInput } from '../../widgets/registry';
 import { fieldRules, isMarkedRequired } from '../../widgets/validation';
 import type { InputHandle, InputProperties } from '../../widgets/widget';
 import { RecordTablePart } from './record-table-part';
 import { useFieldFocus } from './field-focus';
-import { fieldColumnSize } from './column-sizes';
-import { TableCell } from './table-cell';
+import { fieldColumn } from './field-cells';
+import { CellValue, TableCell } from './table-cell';
 import { useBreakpoint } from '../ds/breakpoints';
 import { Button } from '../ds/button';
 import { DataTable, type DataTableColumn, type DataTableExpansion } from '../ds/data-table';
@@ -178,9 +178,6 @@ interface RowTableProperties extends TablePartProperties {
     readonly remove: (index: number) => void;
 }
 
-/** Виды полей, значения которых прижимаются к правому краю ячейки, как принято для чисел. */
-const rightAligned: ReadonlySet<FormField['kind']> = new Set(['number', 'money']);
-
 /** Размер колонки номера строки: до трёх цифр. */
 const lineNumberSize: ColumnSize = { minimum: 3 };
 
@@ -298,25 +295,27 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     const removable = !disabled && !fixedRows;
     const columns: DataTableColumn<Row>[] = [
         {
-            key: 'lineNumber', title: '№', size: lineNumberSize, align: 'end',
+            key: 'lineNumber', title: '№', type: 'number', size: lineNumberSize,
             // Скрытые колонки регистрируются невидимыми полями: форма отдаёт при записи только
             // зарегистрированные поля, и без них значения скрытых колонок не дошли бы до сервера.
             render: (row, index) => <>{index + 1}{hiddenColumns.map((name) => <Form.Item key={name} name={[row.name, name]} hidden noStyle />)}</>,
         },
         ...part.columns.map((column): DataTableColumn<Row> => ({
             key: column.name,
-            size: columnSizes?.[column.name] ?? fieldColumnSize(column),
-            align: rightAligned.has(column.kind) ? 'end' : 'start',
+            // Тип и размер выводятся из вида поля; размер можно переопределить настройкой части.
+            ...fieldColumn(column),
+            ...(columnSizes?.[column.name] === undefined ? {} : { size: columnSizes[column.name] }),
             title: <span>{column.title}{isMarkedRequired(column) && <Typography.Text type="danger"> *</Typography.Text>}</span>,
             render: (row) => {
                 const name = cellName(row, column.name);
                 return (
                     <Form.Item name={[row.name, column.name]} rules={fieldRules(column)} noStyle>
                         {column.readOnly || !hasInput(column)
-                            ? <FieldDisplay field={column} />
+                            ? <CellValue field={column} type={fieldColumn(column).type} />
                             : <TableCell
                                 name={name}
                                 field={column}
+                                type={fieldColumn(column).type}
                                 input={columnInputs?.[column.name]}
                                 disabled={disabled}
                                 editing={editing === name}
@@ -330,15 +329,15 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
         })),
     ];
     if (removable) columns.push({
-        key: 'remove', title: '', size: 'control',
+        key: 'remove', title: '', type: 'free', size: 'control',
         render: (row) => <Button type="text" icon={<Icons.removeRow />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
     });
     // Подпись «Итого» стоит в первой колонке без суммы.
     const labelColumn = part.columns.find((column) => !totals.includes(column.name))?.name;
     const summary = totals.length === 0 || rows.length === 0 ? undefined : Object.fromEntries(part.columns.flatMap((column): [string, ReactNode][] => {
         if (totals.includes(column.name)) {
-            const sum = values.reduce((total, row) => total + (typeof row[column.name] === 'number' ? row[column.name] as number : 0), 0);
-            return [[column.name, <FieldDisplay key={column.name} field={column} value={sum} />]];
+            // Итог передаётся числом: таблица форматирует его по типу колонки, как значения строк.
+            return [[column.name, values.reduce((total, row) => total + (typeof row[column.name] === 'number' ? row[column.name] as number : 0), 0)]];
         }
         return column.name === labelColumn ? [[column.name, 'Итого']] : [];
     }));

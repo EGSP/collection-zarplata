@@ -1,7 +1,7 @@
 import { Dropdown, Flex, Pagination, Switch, theme } from 'antd';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import type { ListColumn, ObjectView } from '../../../server/ui/descriptions';
+import type { ObjectView } from '../../../server/ui/descriptions';
 import { compositeReference } from '../../../server/metadata/composite';
 import { useSearchParams } from 'react-router';
 import { RecordTablePart } from './record-table-part';
@@ -17,15 +17,12 @@ import { DataTable, type DataTableColumn } from '../ds/data-table';
 import { Icons } from '../ds/icons';
 import { Stack } from '../ds/stack';
 import type { TableLayouts } from '../ds/table-layout';
-import { fieldColumnSize } from './column-sizes';
+import { fieldColumn } from './field-cells';
 import type { FieldName, ListedObject } from './object-reference';
 import type { RecordList } from './record-list';
 
 /** Размеры страницы, которые предлагает таблица. */
 const pageSizes = [20, 50, 100];
-
-/** Виды полей, значения которых в колонке прижимаются к правому краю, как принято для чисел. */
-const rightAligned: ReadonlySet<ListColumn['kind']> = new Set(['number', 'money']);
 
 /** Свойства таблицы записей объекта со строками типа `Row`. */
 export interface RecordTableProperties<Row extends RecordData = RecordData> {
@@ -135,10 +132,13 @@ function DescribedTable({ object, list, columns: columnNames, hiddenRowActions, 
     const columns: DataTableColumn<RecordData>[] = shown.map((column, index) => ({
         key: column.field,
         title: column.title,
-        size: fieldColumnSize(column),
-        align: rightAligned.has(column.kind) ? 'end' : 'start',
+        ...fieldColumn(column),
         sortable: sortable.has(column.field),
-        render: (record: RecordData) => {
+        // Первая колонка рисует ячейку сама: перед значением стоит отметка записи, а значение
+        // открывает запись. Остальные колонки примитивного типа отдают значение, и таблица
+        // форматирует его по типу; ссылки и составные значения показывает виджет реестра.
+        ...(index > 0 && fieldColumn(column).type !== 'free' ? { value: (record: RecordData) => record[column.field] } : {}),
+        ...(index > 0 && fieldColumn(column).type !== 'free' ? {} : { render: (record: RecordData) => {
             const value = record[column.field];
             const display = <FieldDisplay field={column} value={value} />;
             if (index > 0 || form === null) return display;
@@ -155,13 +155,14 @@ function DescribedTable({ object, list, columns: columnNames, hiddenRowActions, 
                     </Link>
                 </Flex>
             );
-        },
+        } }),
     }));
 
     if (formActions.has('markDeleted') || formActions.has('unmarkDeleted')) {
         columns.push({
             key: 'actions',
             title: '',
+            type: 'free',
             size: 'control',
             render: (record: RecordData) => {
                 const action = formActions.get(isMarkedDeleted(record) ? 'unmarkDeleted' : 'markDeleted');

@@ -7,7 +7,7 @@ import type { RecordData } from '../../data-provider/records';
 import { FieldDisplay } from '../../widgets/registry';
 import { DataTable, type DataTableColumn } from '../ds/data-table';
 import type { TableLayouts } from '../ds/table-layout';
-import { fieldColumnSize } from './column-sizes';
+import { fieldColumn } from './field-cells';
 import type { ReadObject } from './object-reference';
 import { resourceName } from '../../data-provider/perform';
 
@@ -58,9 +58,6 @@ export function RecordTablePart({ object, guid, part, onRowClick, selection, lay
     return <ReadOnlyTablePart part={description} rows={Array.isArray(rows) ? rows : []} loading={query.isFetching} onRowClick={onRowClick} selection={selection} layouts={layouts} />;
 }
 
-/** Виды полей, значения которых прижимаются к правому краю ячейки, как принято для чисел. */
-const rightAligned: ReadonlySet<string> = new Set(['number', 'money']);
-
 /** Свойства таблицы уже прочитанных строк. */
 export interface ReadOnlyTablePartProperties {
     readonly part: FormTablePart;
@@ -82,9 +79,11 @@ export function ReadOnlyTablePart({ part, rows, loading = false, onRowClick, sel
     const columns = part.columns.map((field): DataTableColumn<RecordData> => ({
         key: field.name,
         title: field.title,
-        size: fieldColumnSize(field),
-        align: rightAligned.has(field.kind) ? 'end' : 'start',
-        render: (row) => <FieldDisplay field={field} value={row[field.name]} />,
+        ...fieldColumn(field),
+        // Значение примитивного типа форматирует таблица, ссылку и составное значение — виджет реестра.
+        ...(fieldColumn(field).type === 'free'
+            ? { render: (row: RecordData) => <FieldDisplay field={field} value={row[field.name]} /> }
+            : { value: (row: RecordData) => row[field.name] }),
     }));
     return (
         <DataTable<RecordData>

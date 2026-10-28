@@ -123,10 +123,10 @@ function HeldLinesDialog({ open, title, confirm, lines, loading = false, onConfi
                         onChangeAll: (checked) => setSelected(checked ? lines.map((line) => line.lineNumber) : []),
                     }}
                     columns={[
-                        { key: 'lineNumber', title: '№', size: { minimum: 3 }, align: 'end', render: (line) => line.lineNumber },
-                        { key: 'code', title: 'Код', size: { minimum: 8 }, render: (line) => line.code },
-                        { key: 'name', title: 'Название', size: { minimum: 16, weight: 2 }, render: (line) => line.name },
-                        { key: 'comment', title: 'Комментарий', size: { minimum: 14, weight: 3 }, render: (line) => line.comment },
+                        { key: 'lineNumber', title: '№', type: 'number', size: { minimum: 3 }, value: (line) => line.lineNumber },
+                        { key: 'code', title: 'Код', type: 'string', size: goodsColumnSizes['code'], value: (line) => line.code },
+                        { key: 'name', title: 'Название', type: 'string', size: goodsColumnSizes['name'], value: (line) => line.name },
+                        { key: 'comment', title: 'Комментарий', type: 'string', size: goodsColumnSizes['comment'], value: (line) => line.comment },
                     ]}
                     // В окне код стоит над названием, как в таблице товаров отвеса на узком месте.
                     layouts={{ sm: ['lineNumber', ['code', 'name'], 'comment'] }}

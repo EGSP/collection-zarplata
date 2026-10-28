@@ -24,7 +24,8 @@ import { Column, FieldGroup, Grid, Icons, MainActionButton, recordFormElements, 
  * заполняет форма отвеса, когда открывает продажу из него, а продавцу он не нужен.
  */
 const goodsOptions: TablePartOptions = {
-    columnSizes: goodsColumnSizes,
+    // Переключатель «Проведено в 1С» шире флажка: подписи «Да» и «Нет» должны читаться целиком.
+    columnSizes: { ...goodsColumnSizes, postedIn1C: { minimum: 12 } },
     layouts: {
         sm: [['code', 'name'], ['size', 'postedIn1C'], ['cost', 'discount'], 'total', 'comment'],
         lg: [['code', 'name'], 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],

@@ -1,8 +1,9 @@
 /**
  * Ячейка табличной части с двумя режимами: просмотр и редактирование.
  *
- * В режиме просмотра ячейка показывает значение так же, как список (`FieldDisplay`), и не держит
- * поле ввода. Поле появляется на месте значения, только когда пользователь начал редактирование:
+ * В режиме просмотра ячейка показывает значение по типу колонки (`cell-types.tsx`), как и любая
+ * таблица; значение свободного типа, например ссылку, показывает виджет реестра. Поля ввода
+ * в просмотре нет. Поле появляется на месте значения, только когда пользователь начал редактирование:
  *
  * ```text
  * Щелчок, Enter или F2          → поле на месте значения
@@ -14,11 +15,12 @@
  * Tab или щелчок вне ячейки     → значение остаётся, ячейка возвращается к просмотру
  * ```
  *
- * Строку, число и сумму ячейка редактирует собственным полем (`cell-editors.tsx`): обычный
+ * Строку, число и сумму ячейка редактирует собственным полем типа (`CellTextInput`): обычный
  * `input` занимает ячейку целиком и несёт её отступ, поэтому текст не сдвигается при входе
  * в редактирование, а рамку фокуса и фон поля рисует только ячейка (`DataTable`). Ввод,
  * начатый с символа, заменяет прежнее значение; щелчок, Enter и F2 ставят каретку в конец.
- * Виды со списком или календарём редактируются виджетом реестра без рамки и отступа.
+ * Поля с выбором из списка, подсказками значений, календарём или ссылкой редактируются виджетом
+ * реестра без рамки и отступа.
  *
  * Флажок и собственное поле колонки (`columnInputs`) режимов не имеют: такой элемент сам служит
  * и показом, и вводом, как переключатель «Да» / «Нет».
@@ -33,12 +35,15 @@ import { flushSync } from 'react-dom';
 import type { FormField } from '../../../server/ui/descriptions';
 import { FieldDisplay, FieldInput } from '../../widgets/registry';
 import type { InputHandle, InputProperties } from '../../widgets/widget';
+import { CellTextInput, formatCell, hasTextInput, type CellTextInputHandle, type CellType } from '../ds/cell-types';
 import { Icons } from '../ds/icons';
-import { cellEditor, type CellEditorHandle } from './cell-editors';
+import { listCellInput } from './cell-inputs';
 
 /** Свойства ячейки. `value`, `onChange` и `id` передаёт `Form.Item`. */
 export interface TableCellProperties {
     readonly field: FormField;
+    /** Тип ячейки колонки: по нему ячейка показывает значение и выбирает поле ввода. */
+    readonly type: CellType;
     /** Собственное поле колонки вместо виджета вида поля; оно всегда в режиме ввода. */
     readonly input?: ComponentType<InputProperties<unknown>> | undefined;
     readonly value?: unknown;
@@ -61,19 +66,19 @@ export interface TableCellProperties {
  * Всплывающие элементы, которые открывает поле ввода: списки выбора, календари, окна подбора
  * и создания записи. Фокус и щелчок внутри них не завершают редактирование.
  */
-const popupSelector = '.ant-select-dropdown, .ant-picker-dropdown, .ant-dropdown, .ant-popover, .ant-tooltip, .ant-modal-root, .ant-modal-wrap, [role="dialog"]';
+const popupSelector = '[data-cell-popup], .ant-select-dropdown, .ant-picker-dropdown, .ant-dropdown, .ant-popover, .ant-tooltip, .ant-modal-root, .ant-modal-wrap, [role="dialog"]';
 
 /** Поля в ячейке без рамки: их текст начинается там же, где заголовок колонки. */
 const borderless = { components: { Input: { paddingInline: 0 }, InputNumber: { paddingInline: 0 }, DatePicker: { paddingInline: 0 } } };
 
 /** Ячейка табличной части. Поведение описано во вводном комментарии модуля. */
-export function TableCell({ name, field, input: CustomInput, value, onChange, id, disabled, editing, onEdit, onLeave, ref }: TableCellProperties) {
+export function TableCell({ name, field, type, input: CustomInput, value, onChange, id, disabled, editing, onEdit, onLeave, ref }: TableCellProperties) {
     const { token } = theme.useToken();
     const { errors } = Form.Item.useStatus();
     const element = useRef<HTMLDivElement>(null);
     const display = useRef<HTMLDivElement>(null);
     const control = useRef<InputHandle>(null);
-    const editor = useRef<CellEditorHandle>(null);
+    const editor = useRef<CellTextInputHandle>(null);
     // Ввод начат с символа: собственное поле выделяет прежний текст, и символ его заменяет.
     const startedByTyping = useRef(false);
     // Значение до начала редактирования: к нему Escape возвращает ячейку. Запоминается при входе
@@ -85,21 +90,25 @@ export function TableCell({ name, field, input: CustomInput, value, onChange, id
     // Фокус вернётся к значению после выхода из редактирования клавишей, а не щелчком в другом месте.
     const returnFocus = useRef(false);
     const direct = CustomInput !== undefined || field.kind === 'boolean';
-    const Editor = CustomInput === undefined ? cellEditor(field) : null;
+    // Поле со списком (подсказки, варианты, ссылка, дата) либо простое поле типа. Оба — собственные
+    // поля ячейки; виджет реестра остаётся только видам без них, например составному значению.
+    const ListInput = CustomInput === undefined ? listCellInput(field) : null;
+    const textInput = CustomInput === undefined && ListInput === null && hasTextInput(type) && field.choices == null && field.suggestions == null;
+    const native = ListInput !== null || textInput;
     const invalid = errors.length > 0;
 
     useImperativeHandle(ref, () => ({
         focus: () => {
-            if (editing && Editor !== null) editor.current?.focus(false);
+            if (editing && native) editor.current?.focus(false);
             else if (direct || editing) control.current?.focus();
             else display.current?.focus();
         },
-    }), [direct, editing, Editor]);
+    }), [direct, editing, native]);
 
     // Поле получает фокус сразу после появления, в том же кадре: символ, с которого пользователь
     // начал ввод, попадает уже в него.
     useLayoutEffect(() => {
-        if (editing && Editor !== null) editor.current?.focus(startedByTyping.current);
+        if (editing && native) editor.current?.focus(startedByTyping.current);
         else if (editing && !direct) control.current?.focus();
         startedByTyping.current = false;
         if (!editing && returnFocus.current) {
@@ -158,9 +167,11 @@ export function TableCell({ name, field, input: CustomInput, value, onChange, id
             onLeave();
         };
         return (
-            <div ref={element} data-cell-name={name} data-cell-state="editing" {...(Editor === null ? {} : { 'data-cell-editor': 'native' })} {...(invalid ? { 'data-cell-invalid': true } : {})} onKeyDown={onKeyDown}>
-                {Editor !== null
-                    ? <Editor field={field} value={value} onChange={onChange} ref={editor} {...(id === undefined ? {} : { id })} />
+            <div ref={element} data-cell-name={name} data-cell-state="editing" {...(native ? { 'data-cell-editor': 'native' } : {})} {...(invalid ? { 'data-cell-invalid': true } : {})} onKeyDown={onKeyDown}>
+                {ListInput !== null
+                    ? <ListInput field={field} value={value} onChange={onChange} ref={editor} {...(id === undefined ? {} : { id })} />
+                    : textInput && type !== 'free'
+                    ? <CellTextInput type={type} value={value} onChange={onChange} ref={editor} label={field.title} integer={field.rules.integer} maximumLength={field.rules.maximumLength} {...(id === undefined ? {} : { id })} />
                     : (
                         <ConfigProvider variant="borderless" theme={borderless}>
                             <Input {...inputProperties} />
@@ -207,8 +218,17 @@ export function TableCell({ name, field, input: CustomInput, value, onChange, id
             }}
             onKeyDown={onKeyDown}
         >
-            <FieldDisplay field={field} value={value} />
+            <CellValue field={field} type={type} value={value} />
             {problem}
         </div>
     );
+}
+
+/**
+ * Значение ячейки в просмотре: примитивный тип форматирует таблица дизайн-системы, свободный —
+ * виджет реестра. Значение передаёт `Form.Item`, поэтому ячейка только для чтения ставит этот
+ * компонент прямо в него.
+ */
+export function CellValue({ field, type, value }: { readonly field: FormField; readonly type: CellType; readonly value?: unknown }) {
+    return type === 'free' ? <FieldDisplay field={field} value={value} /> : <>{formatCell(type, value)}</>;
 }
