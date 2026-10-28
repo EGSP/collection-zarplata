@@ -7,6 +7,7 @@
  *
  * ```text
  * Щелчок, Enter или F2          → поле на месте значения
+ * Выделение мышью               → поле, в нём выделена та же часть текста
  * Стрелки                       → значение соседней ячейки
  * Ввод символа                  → поле, и символ попадает в него
  * Delete                        → значение очищается без входа в редактирование
@@ -19,6 +20,10 @@
  * `input` занимает ячейку целиком и несёт её отступ, поэтому текст не сдвигается при входе
  * в редактирование, а рамку фокуса и фон поля рисует только ячейка (`DataTable`). Ввод,
  * начатый с символа, заменяет прежнее значение; щелчок, Enter и F2 ставят каретку в конец.
+ *
+ * Мышью ячейка входит в редактирование, когда кнопку отпустили, а не по событию `click`: если
+ * пользователь выделял текст и отпустил кнопку за пределами значения, `click` не приходит.
+ * Тогда выделение оставалось бы на тексте просмотра, а набранное некуда было бы вводить.
  * Поля с выбором из списка, подсказками значений, календарём или ссылкой редактируются виджетом
  * реестра без рамки и отступа.
  *
@@ -35,7 +40,7 @@ import { flushSync } from 'react-dom';
 import type { FormField } from '../../../server/ui/descriptions';
 import { FieldDisplay, FieldInput } from '../../widgets/registry';
 import type { InputHandle, InputProperties } from '../../widgets/widget';
-import { CellTextInput, formatCell, hasTextInput, type CellTextInputHandle, type CellType } from '../ds/cell-types';
+import { CellTextInput, formatCell, hasTextInput, type CellInputSelection, type CellTextInputHandle, type CellType } from '../ds/cell-types';
 import { Icons } from '../ds/icons';
 import { listCellInput } from './cell-inputs';
 
@@ -79,8 +84,9 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
     const display = useRef<HTMLDivElement>(null);
     const control = useRef<InputHandle>(null);
     const editor = useRef<CellTextInputHandle>(null);
-    // Ввод начат с символа: собственное поле выделяет прежний текст, и символ его заменяет.
-    const startedByTyping = useRef(false);
+    // Выделение в собственном поле при входе в редактирование. Ввод начат с символа — выделен
+    // прежний текст, и символ его заменяет; выделение мышью переносится в поле.
+    const selection = useRef<CellInputSelection>('end');
     // Значение до начала редактирования: к нему Escape возвращает ячейку. Запоминается при входе
     // в редактирование, кто бы его ни начал: щелчок по ячейке или переход клавишей Enter из соседней.
     const initial = useRef<unknown>(undefined);
@@ -99,7 +105,7 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
 
     useImperativeHandle(ref, () => ({
         focus: () => {
-            if (editing && native) editor.current?.focus(false);
+            if (editing && native) editor.current?.focus('end');
             else if (direct || editing) control.current?.focus();
             else display.current?.focus();
         },
@@ -108,9 +114,9 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
     // Поле получает фокус сразу после появления, в том же кадре: символ, с которого пользователь
     // начал ввод, попадает уже в него.
     useLayoutEffect(() => {
-        if (editing && native) editor.current?.focus(startedByTyping.current);
+        if (editing && native) editor.current?.focus(selection.current);
         else if (editing && !direct) control.current?.focus();
-        startedByTyping.current = false;
+        selection.current = 'end';
         if (!editing && returnFocus.current) {
             returnFocus.current = false;
             display.current?.focus();
@@ -196,7 +202,7 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
         } else if (event.key.length === 1 && event.key !== ' ' || event.key === 'Backspace') {
             // Поле должно появиться и получить фокус до того, как браузер вставит символ: тогда
             // символ попадёт в поле, и ввод начинается с первой нажатой клавиши, как в электронной таблице.
-            startedByTyping.current = event.key !== 'Backspace';
+            selection.current = event.key === 'Backspace' ? 'end' : 'all';
             flushSync(start);
         }
     };
@@ -213,8 +219,16 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
             {...(id === undefined ? {} : { id })}
             aria-label={field.title}
             // Ссылка в значении, например на выбранную запись, открывает запись, а не редактирование.
+            onMouseDown={(event) => {
+                if (event.button !== 0 || event.target instanceof Element && event.target.closest('a') !== null) return;
+                document.addEventListener('mouseup', () => {
+                    selection.current = selectedText(display.current) ?? 'end';
+                    start();
+                }, { once: true, capture: true });
+            }}
+            // Щелчок без мыши: таблица передаёт сюда щелчок по отступу ячейки (`detail` равен нулю).
             onClick={(event) => {
-                if (!(event.target instanceof Element && event.target.closest('a') !== null)) start();
+                if (event.detail === 0) start();
             }}
             onKeyDown={onKeyDown}
         >
@@ -231,4 +245,24 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
  */
 export function CellValue({ field, type, value }: { readonly field: FormField; readonly type: CellType; readonly value?: unknown }) {
     return type === 'free' ? <FieldDisplay field={field} value={value} /> : <>{formatCell(type, value)}</>;
+}
+
+/**
+ * Выделенная мышью часть текста значения: границы выделения в тексте просмотра. Без выделения
+ * или с выделением за пределами значения — `null`.
+ */
+function selectedText(display: HTMLElement | null): CellInputSelection | null {
+    const current = window.getSelection();
+    if (display === null || current === null || current.rangeCount === 0 || current.isCollapsed) return null;
+    const range = current.getRangeAt(0);
+    if (!display.contains(range.startContainer) && !display.contains(range.endContainer)) return null;
+    // Длина текста от начала значения до точки: часть выделения за пределами значения обрезается.
+    const offset = (container: Node, position: number): number => {
+        if (!display.contains(container)) return container.compareDocumentPosition(display) & Node.DOCUMENT_POSITION_FOLLOWING ? 0 : (display.textContent ?? '').length;
+        const before = document.createRange();
+        before.setStart(display, 0);
+        before.setEnd(container, position);
+        return before.toString().length;
+    };
+    return { text: display.textContent ?? '', start: offset(range.startContainer, range.startOffset), end: offset(range.endContainer, range.endOffset) };
 }

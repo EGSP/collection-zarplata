@@ -8,6 +8,9 @@
  * <Button type="primary" size="lg" icon={<Icons.acceptPayment />}>Взнос</Button>
  * ```
  *
+ * Кнопка из одного значка, без подписи, квадратная, как icon-only кнопка Carbon: её ширина равна
+ * высоте. С отступами текстовой кнопки она была бы прямоугольником 48 × 32 px.
+ *
  * Ширину кнопка получает от места: в ряду действий — по содержимому, в колонке сетки со свойством
  * `block` — всю ширину колонки, как fluid-кнопка Carbon.
  */
@@ -66,10 +69,12 @@ export interface ButtonProperties {
 /** Кнопка с видом Ant Design и размером Carbon. */
 export function Button({ type = 'default', size = 'sm', danger, block, icon, disabled, loading, htmlType, onClick, 'aria-label': label, children }: ButtonProperties) {
     const { token } = theme.useToken();
+    const style = sizeStyle(size, token);
+    const iconOnly = icon !== undefined && (children === undefined || children === null);
     return (
         <AntButton
             type={type}
-            style={type === 'link' ? { ...sizeStyle(size, token), paddingInline: 0 } : sizeStyle(size, token)}
+            style={iconOnly ? { ...style, width: style.height, paddingInline: 0 } : type === 'link' ? { ...style, paddingInline: 0 } : style}
             {...(danger === undefined ? {} : { danger })}
             {...(block === undefined ? {} : { block })}
             {...(icon === undefined ? {} : { icon })}

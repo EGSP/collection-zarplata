@@ -23,7 +23,7 @@
 import { theme } from 'antd';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import { createPortal } from 'react-dom';
-import { cellInputClass, type CellTextInputHandle } from './cell-types';
+import { cellInputClass, focusCellInput, type CellTextInputHandle } from './cell-types';
 import { spacing } from './layout';
 
 /** Вариант списка: ключ, по которому платформа узнаёт выбор, и подпись. */
@@ -80,12 +80,8 @@ export function CellComboInput({ text: initialText, onText, accepts, options = [
     const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
 
     useImperativeHandle(ref, () => ({
-        focus: (selectAll) => {
-            const element = input.current;
-            if (element === null) return;
-            element.focus();
-            if (selectAll) element.select();
-            else element.setSelectionRange(element.value.length, element.value.length);
+        focus: (selection) => {
+            if (input.current !== null) focusCellInput(input.current, selection);
         },
     }), []);
 

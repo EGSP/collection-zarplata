@@ -188,10 +188,51 @@ export function hasTextInput(type: CellType): boolean {
 /** Класс поля ввода ячейки; правила задаёт таблица. */
 export const cellInputClass = 'data-table-input';
 
-/** Управление полем ячейки: фокус с выделением всего текста или с кареткой в конце. */
+/**
+ * Выделение в поле ячейки при входе в редактирование:
+ *
+ * ```text
+ * 'all'                 → ввод начат с символа: набранное заменяет прежнее значение, как в электронной таблице
+ * 'end'                 → щелчок, Enter или F2: каретка в конце текста
+ * { text, start, end }  → пользователь выделил мышью часть значения в просмотре: выделяется та же часть поля
+ * ```
+ *
+ * `text` — текст значения в просмотре, `start` и `end` — границы выделения в нём.
+ */
+export type CellInputSelection = 'all' | 'end' | { readonly text: string; readonly start: number; readonly end: number };
+
+/** Управление полем ячейки: фокус с заданным выделением. */
 export interface CellTextInputHandle {
-    /** `selectAll` — ввод начат с символа: набранное заменяет прежнее значение, как в электронной таблице. */
-    focus(selectAll: boolean): void;
+    focus(selection: CellInputSelection): void;
+}
+
+/**
+ * Ставит фокус в поле ячейки и выделяет текст по `selection`. Текст в просмотре может отличаться
+ * от текста поля пробелами разрядов: «1 500,57» и «1500,57». Поэтому граница выделения
+ * переносится по числу знаков без пробелов перед ней, а не по номеру знака.
+ */
+export function focusCellInput(element: HTMLInputElement, selection: CellInputSelection): void {
+    element.focus();
+    if (selection === 'all') {
+        element.select();
+        return;
+    }
+    const { value } = element;
+    if (selection === 'end') {
+        element.setSelectionRange(value.length, value.length);
+        return;
+    }
+    const position = (offset: number): number => {
+        if (selection.text === value) return Math.min(offset, value.length);
+        let remaining = selection.text.slice(0, offset).replace(/\s/gu, '').length;
+        let index = 0;
+        while (index < value.length && remaining > 0) {
+            if (!/\s/u.test(value[index]!)) remaining -= 1;
+            index += 1;
+        }
+        return index;
+    };
+    element.setSelectionRange(position(selection.start), position(selection.end));
 }
 
 /** Свойства поля ячейки. Значение в формате сервера. */
@@ -215,12 +256,8 @@ export function CellTextInput({ type, value, onChange, id, label, ref, integer, 
     const [text, setText] = useState(() => conversion.format(value));
     const input = useRef<HTMLInputElement>(null);
     useImperativeHandle(ref, () => ({
-        focus: (selectAll) => {
-            const element = input.current;
-            if (element === null) return;
-            element.focus();
-            if (selectAll) element.select();
-            else element.setSelectionRange(element.value.length, element.value.length);
+        focus: (selection) => {
+            if (input.current !== null) focusCellInput(input.current, selection);
         },
     }), []);
     return (

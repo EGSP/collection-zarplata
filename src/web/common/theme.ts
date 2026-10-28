@@ -11,16 +11,17 @@ const readableDisabledField = { colorTextDisabled: 'rgba(0, 0, 0, 0.75)' };
  * Длительности заданы напрямую, а не через `motionUnit`: Ant Design округляет производные
  * значения до десятых долей секунды, и шаг 0,05 дал бы прежние 0,1 секунды.
  *
- * Скруглений нет: поля, кнопки, карточки и окна прямоугольные, как в Carbon. Производные токены
- * компонентов Ant Design считает из этих четырёх, поэтому их достаточно обнулить здесь.
+ * Скругления минимальные: поля, кнопки, карточки и окна почти прямоугольные, как в Carbon,
+ * но углы не режут глаз. Производные токены компонентов Ant Design считает из этих значений,
+ * поэтому их достаточно задать здесь.
  */
 export const applicationTheme: ThemeConfig = {
     token: {
-        borderRadius: 0,
-        borderRadiusLG: 0,
-        borderRadiusSM: 0,
-        borderRadiusXS: 0,
-        borderRadiusOuter: 0,
+        borderRadius: 2,
+        borderRadiusLG: 4,
+        borderRadiusSM: 2,
+        borderRadiusXS: 1,
+        borderRadiusOuter: 2,
         motionDurationFast: '0.05s',
         motionDurationMid: '0.1s',
         motionDurationSlow: '0.15s',

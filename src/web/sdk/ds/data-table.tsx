@@ -30,7 +30,9 @@
  * стоят по 32 px (размер `sm`), поэтому строка из двух полей — 64 px, как строка `xl` у Carbon,
  * предназначенная для двух строк значения. Заголовок той же высоты, что строки.
  *
- * Ячейка рисует рамку фокуса сама (`:focus-within`), поэтому содержимое при фокусе не сдвигается.
+ * Ячейка с двумя режимами рисует рамку фокуса сама, поэтому содержимое при фокусе не сдвигается.
+ * Ячейка с элементом без режимов, например переключателем или кнопками способа оплаты, рамки
+ * не рисует: фокус показывает сам элемент, и вторая рамка вокруг него только сбивала бы.
  * Содержимое ячейки отмечает своё состояние атрибутами: `data-cell-state="editing"` — ячейка
  * в режиме редактирования (фон поля), `data-cell-invalid` — значение не прошло проверку (красная
  * рамка). Поля ввода внутри ячейки не имеют своей рамки и отступа по горизонтали: их текст стоит
@@ -211,12 +213,15 @@ function dataTableStyleSheet(): string {
         `.${cell}[data-type="number"], .${cell}[data-type="money"] { font-variant-numeric: tabular-nums; }`,
         `.${cell}[data-control] { justify-content: center; padding: 0; }`,
         `.${cell}[data-sortable] { cursor: pointer; user-select: none; }`,
-        `.${cell}:focus-within, .${cell}:focus-visible { outline: 2px solid var(--data-table-focus); outline-offset: -2px; }`,
+        // Рамка фокуса только у значения ячейки с двумя режимами и у поля, в котором оно редактируется.
+        `.${cell}:focus-visible, .${cell}:has(> [data-cell-target]:focus), .${cell}:has(> [data-cell-state="editing"]):focus-within { outline: 2px solid var(--data-table-focus); outline-offset: -2px; }`,
         `.${cell}:has([data-cell-state="editing"]) { background: var(--data-table-editing-background); }`,
         // Собственное поле ячейки занимает её целиком: отступ ячейки переходит внутрь поля.
         `.${cell}:has(> [data-cell-editor="native"]) { padding-inline: 0; }`,
         `.${cell} > [data-cell-editor="native"] > .${input} { align-self: stretch; box-sizing: border-box; width: 100%; height: 100%; margin: 0; padding: 0 var(--data-table-cell-padding); border: 0; outline: none; background: transparent; color: inherit; font: inherit; text-align: inherit; }`,
-        `.${cell} > [data-cell-editor="native"] > .${input} + * { margin-inline-end: var(--data-table-cell-padding); }`,
+        // Справа от поля стоят кнопка подбора или календаря и значок ошибки. Отступ ячейки получает
+        // последний из них: иначе значок ошибки после кнопки прижимался бы к краю ячейки.
+        `.${cell} > [data-cell-editor="native"] > :last-child:not(.${input}) { margin-inline-end: var(--data-table-cell-padding); }`,
         `.${cell}:has([data-cell-invalid]) { outline: 2px solid var(--data-table-error); outline-offset: -2px; }`,
         // Содержимое ячейки с двумя режимами занимает её целиком: щелчок в любом месте ячейки
         // попадает в него, а рамку фокуса рисует сама ячейка.
