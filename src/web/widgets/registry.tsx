@@ -7,7 +7,7 @@
  * не добавлена пара компонентов.
  */
 import { ValueSuggestionInput } from './value-suggestions';
-import { Flex, Select, Typography } from 'antd';
+import { Flex, Select } from 'antd';
 import { useState, type ComponentType } from 'react';
 import { compositeVariant } from '../../server/metadata/composite';
 import type { CompositeValue } from '../../server/metadata/descriptions';
@@ -20,6 +20,7 @@ import { BooleanDisplay, DateDisplay, DateTimeDisplay, MoneyDisplay, NumberDispl
 import { BooleanInput, DateInput, DateTimeInput, MoneyInput, NumberInput, StringInput, defined, useInputHandle } from './inputs';
 import { CompositeFluentInput } from './composite-fluent-input';
 import { compositeTypeTitle } from './composite-text';
+import { Text } from '../sdk/ds/text';
 import type { CompositeInputModes, CompositeInputProperties, DisplayProperties, FieldValues, InputProperties, Widget, WidgetField } from './widget';
 
 /** Пары компонентов по видам полей. */
@@ -75,7 +76,7 @@ function CompositeDisplay({ field, value }: DisplayProperties<CompositeValue>) {
                 // Вариант могли убрать из конфигурации; значение всё равно показывается по своему типу.
                 : <FieldDisplay field={compositeVariant(field.variants, value) ?? { kind: value.type, target: null }} value={value.value} />}
             {' '}
-            <Typography.Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>· {compositeTypeTitle(metadata, value.type, reference)}</Typography.Text>
+            <Text.Helper noWrap>· {compositeTypeTitle(metadata, value.type, reference)}</Text.Helper>
         </>
     );
 }

@@ -1,5 +1,5 @@
-import { Alert, Button, Card, Flex, Typography } from 'antd';
-import { FieldDisplay, useObjectView, useOpenRecord, useRecordList, useRecords } from '../../web/sdk';
+import { Alert, Button, Flex, Typography } from 'antd';
+import { FieldDisplay, Panel, useObjectView, useOpenRecord, useRecordList, useRecords } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /** Число продаж в фиде: экран показывает последние операции, а не полный список. */
@@ -53,7 +53,7 @@ function AvailableSales() {
     const details = useRecords(sales, list.records.map((sale) => sale.guid));
     return (
         // Ширину карточки задаёт колонка страницы; товары, не поместившиеся в строку, обрезаются многоточием.
-        <Card size="small" title="Последние продажи">
+        <Panel title="Последние продажи">
             {list.error !== null ? (
                 <Alert type="error" showIcon title="Не удалось прочитать продажи" description={list.error.message} />
             ) : list.records.length === 0 ? (
@@ -83,6 +83,6 @@ function AvailableSales() {
                     })}
                 </Flex>
             )}
-        </Card>
+        </Panel>
     );
 }

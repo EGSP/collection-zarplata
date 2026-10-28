@@ -24,6 +24,8 @@ covers:
 | `fieldInput`, `FluidField` | Сборка собственного поля ввода для обеих [компоновок](components.md#компоновка-полей) и обёртка поля с подписью в сегменте |
 | `useActionConfirmation` | [Запрос подтверждения действия](hooks.md#выполнение-действий): `confirm(action)` и окно `dialog` |
 | `spacing`, `breakpoints`, `breakpointWidths`, `gridColumns` | Значения раскладки: [шкала отступов, точки перелома](../components.md#шкала-отступов-и-стек), их ширины и число колонок |
+| `useAccountingColors` | [Смысловые цвета учёта](hooks.md#поверхность-и-цвета) текущей темы |
+| `useLayer` | [Уровень и фоны](hooks.md#поверхность-и-цвета) ближайшей поверхности |
 | `Icons`, `Pictograms` | [Реестры значков](../web-sdk.md#иконки-и-пиктограммы) |
 
 `hasOpenDialog` принимает корневой элемент экрана и не учитывает окно, в котором показан сам экран. Иначе форма в модальном окне сочла бы себя перекрытой собственным окном и отключила бы сочетания клавиш.
@@ -50,5 +52,9 @@ covers:
 | `RecordFormOptions`, `RecordFormActionInput` | Настройки [`useRecordForm`](hooks.md#userecordform) (`beforeSave`, `atomicPosting`) и входные данные `run`: значения либо функция от записанной записи |
 | `SetValueOptions` | Параметры `FormData.setValue`: `validate: false` откладывает проверку ([«Данные формы»](hooks.md#данные-формы)) |
 | `FieldLayout`, `FieldInputComponent`, `FieldInputLayouts`, `FieldInputMark`, `FluidInputProperties`, `LaidOutInputProperties` | [Компоновка полей](components.md#компоновка-полей) и контракт собственного поля ввода |
+| `ButtonSize`, `ButtonProperties`, `MainActionButtonProperties` | Размер [кнопки](components.md#кнопки) `sm`, `md`, `lg`, `xl` и свойства кнопок |
+| `LayerLevel`, `LayerColors`, `LayerProperties`, `PanelProperties` | Уровень [поверхности](components.md#поверхности) (0–3), фоны уровня и свойства `Layer` и `Panel` |
+| `TextTone`, `TextHeadingVariant`, `TextProperties`, `TextHeadingProperties`, `TextCommonProperties` | Цвет и ступень заголовка [ролей текста](components.md#роли-текста) и их свойства |
+| `AccountingTone`, `AccountingColor` | Смысловой цвет учёта (`total`, `debt`, `overpayment`, `warning`) и его оттенки: `text`, `solid`, `solidHover`, `background`, `backgroundStrong` |
 | `TablePartOptions` | [Настройки вида табличной части](components.md#табличная-часть) |
 | `<Компонент>Properties` | Свойства компонента SDK, например `TileProperties` |

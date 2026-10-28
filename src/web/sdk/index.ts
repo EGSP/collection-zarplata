@@ -6,7 +6,8 @@
  * экран импортирует только его, а остальные модули `src/web` остаются внутренними и могут меняться.
  *
  * Модули SDK разложены по слоям дизайн-системы: `ds` — основа (сетка, колонка, стек, шкала
- * отступов, иконки, плитка), `derivations` — компоненты, собранные из `ds`, `external` — компоненты,
+ * отступов, иконки, плитка, кнопка, поверхности, текст, смысловые цвета), `derivations` —
+ * компоненты, собранные из `ds`, например кнопка главного действия формы, `external` — компоненты,
  * которые пока не следуют правилам дизайн-системы, `platform` — блоки, которые знают о платформе:
  * данные, права, описания объектов, область окна, фокус. Раскладку экран строит компонентами `ds`;
  * контролы, которых в `ds` пока нет, берёт из Ant Design напрямую.
@@ -117,6 +118,15 @@ export { Pictograms, type PictogramName } from './ds/pictograms';
 
 // Плитка перехода к странице.
 export { Tile, type TileProperties } from './ds/tile';
+
+// Кнопки с размерами Carbon и кнопка главного действия формы.
+export { Button, type ButtonProperties, type ButtonSize } from './ds/button';
+export { MainActionButton, type MainActionButtonProperties } from './derivations/main-action-button';
+
+// Поверхности по уровням вложенности, роли текста и смысловые цвета учёта.
+export { Layer, Panel, useLayer, type LayerColors, type LayerLevel, type LayerProperties, type PanelProperties } from './ds/layer';
+export { Text, type TextCommonProperties, type TextHeadingProperties, type TextHeadingVariant, type TextProperties, type TextTone } from './ds/text';
+export { useAccountingColors, type AccountingColor, type AccountingTone } from './ds/colors';
 
 // Действия.
 export { ActionButton, actionApplies, actionSuccessMessage, type ActionButtonProperties } from './platform/action-button';

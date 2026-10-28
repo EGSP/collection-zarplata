@@ -12,7 +12,7 @@
  * для каждого ссылочного варианта. Пункт открывает форму новой записи в модальном окне, а записанная
  * там запись становится значением поля вместо строки.
  */
-import { AutoComplete, Button, Flex, Tooltip, Typography, type AutoCompleteProps } from 'antd';
+import { AutoComplete, Button, Flex, Tooltip, type AutoCompleteProps } from 'antd';
 import { useContext, useMemo, useState } from 'react';
 import { compositeReference } from '../../server/metadata/composite';
 import type { CompositeValue } from '../../server/metadata/descriptions';
@@ -22,6 +22,7 @@ import { findObjectView, useMetadata } from '../data-provider/metadata';
 import { useObjectReferencePresentation } from '../references/presentation';
 import { recordSuggestionKey, useRecordSuggestions } from '../references/record-suggestions';
 import { Icons } from '../sdk/ds/icons';
+import { Text } from '../sdk/ds/text';
 import { RecordDialogContext } from '../sdk/platform/open-record';
 import { compositeTypeTitle, defaultInterpretation, displayedText, editableText, textInterpretations } from './composite-text';
 import { defined, useInputHandle } from './inputs';
@@ -200,9 +201,7 @@ export function CompositeFluentInput({ field, value, onChange, disabled, id, ref
                 )}
             </Flex>
             {value !== null && value !== undefined && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {compositeTypeTitle(metadata, value.type, reference)}
-                </Typography.Text>
+                <Text.Helper>{compositeTypeTitle(metadata, value.type, reference)}</Text.Helper>
             )}
         </Flex>
     );

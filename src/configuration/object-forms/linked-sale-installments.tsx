@@ -1,7 +1,7 @@
 /** Формы связанных рассрочек в обычном просмотре продажи, без права на её изменение. */
-import { Alert, Button, Flex, Typography } from 'antd';
+import { Alert, Flex, Typography } from 'antd';
 import { useState } from 'react';
-import { ActionDialog, Icons, useAction, useActionResult, useObjectView, useRecords, type FormValues, type ObjectView } from '../../web/sdk';
+import { ActionDialog, Button, Icons, useAction, useActionResult, useObjectView, useRecords, type FormValues, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { InstallmentPayments, LinkedInstallmentForm, paidAmount, type LinkedInstallment } from './linked-installment-form';
 
@@ -41,9 +41,6 @@ function InstallmentsPage({ sale, view, page }: { readonly sale: string; readonl
 /** Последняя дата взноса служит исходной датой разрешённого закрытия. */
 const closingDate = (installment: LinkedInstallment) => installment.payments.reduce<string | null>((latest, payment) => payment.date !== null && (latest === null || new Date(payment.date).getTime() > new Date(latest).getTime()) ? payment.date : latest, null);
 
-/** Крупные действия под рассрочкой удобнее находить и нажимать после просмотра взносов. */
-const installmentActionStyle = { height: 48, paddingInline: 24 };
-
 /**
  * Взнос и закрытие выполняются над конкретной рассрочкой, не записывая форму продажи.
  * Таблица просмотра перечитывается из кеша после действия; локальной копии записи здесь нет.
@@ -79,9 +76,10 @@ export function LinkedInstallmentActions({ installment, view, disabled = false }
         await execute({ object: Objects.document.saleInstallment, action: dialog, payload: { ...input, installment: installment.guid }, successMessage: dialog === 'pay' ? 'Взнос принят' : 'Рассрочка закрыта' });
     };
     return <>
+        {/* Крупные кнопки (48 px) удобнее находить и нажимать после просмотра взносов. */}
         <Flex gap="middle" wrap>
-            {pay !== undefined && <Button type="primary" size="large" style={installmentActionStyle} icon={<Icons.acceptPayment />} disabled={!actionable || balance <= 0} onClick={() => setDialog('pay')}>Взнос</Button>}
-            {close !== undefined && <Button size="large" style={installmentActionStyle} icon={<Icons.closeInstallment />} disabled={!actionable || balance !== 0} onClick={() => setDialog('close')}>Закрыть</Button>}
+            {pay !== undefined && <Button type="primary" size="lg" icon={<Icons.acceptPayment />} disabled={!actionable || balance <= 0} onClick={() => setDialog('pay')}>Взнос</Button>}
+            {close !== undefined && <Button size="lg" icon={<Icons.closeInstallment />} disabled={!actionable || balance !== 0} onClick={() => setDialog('close')}>Закрыть</Button>}
         </Flex>
         {action !== undefined && <ActionDialog action={{ ...action, input: action.input.filter((field) => field.name !== 'installment').map((field) => field.name === 'closedAt' ? { ...field, initial: closingDate(installment) } : field) }} onExecute={run} onClose={() => setDialog(null)} />}
     </>;
