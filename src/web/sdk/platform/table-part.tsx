@@ -1,19 +1,26 @@
-import { Button, Flex, Form, Table, Typography, type TableProps } from 'antd';
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentType, type Key, type ReactNode, type Ref, type RefObject } from 'react';
-import type { FormTablePart } from '../../../server/ui/descriptions';
-import { FieldDisplay, FieldInput, hasInput } from '../../widgets/registry';
+import { Form, Typography } from 'antd';
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentType, type Key, type KeyboardEvent, type ReactNode, type Ref } from 'react';
+import type { FormField, FormTablePart } from '../../../server/ui/descriptions';
+import { hasInput } from '../../widgets/registry';
 import { fieldRules, isMarkedRequired } from '../../widgets/validation';
 import type { InputHandle, InputProperties } from '../../widgets/widget';
 import { RecordTablePart } from './record-table-part';
 import { useFieldFocus } from './field-focus';
+import { fieldColumn } from './field-cells';
+import { CellValue, TableCell } from './table-cell';
+import { useBreakpoint } from '../ds/breakpoints';
+import { Button } from '../ds/button';
+import { DataTable, type DataTableColumn, type DataTableExpansion } from '../ds/data-table';
 import { Icons } from '../ds/icons';
+import { Stack } from '../ds/stack';
+import { columnGroups, tableLayoutAt, type ColumnSize, type TableLayouts } from '../ds/table-layout';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
 import { newRowValues } from './record-values';
 
 /**
  * Настройки вида табличной части. Их задаёт собственная форма или элемент конфигурации, когда
- * стандартная таблица перегружена для своей задачи: например, у продажи узкие колонки кода
- * и стоимости, строка итогов и кнопка «Товар» вместо «Добавить строку». Форма передаёт
+ * стандартная таблица перегружена для своей задачи: например, у продажи узкая колонка кода,
+ * код над названием на узком экране, строка итогов и кнопка «Товар» вместо «Добавить строку». Форма передаёт
  * настройки части через `FieldGroup`, элемент на месте части передаёт их `TablePart` сам.
  */
 export interface TablePartOptions {
@@ -23,17 +30,18 @@ export interface TablePartOptions {
      */
     readonly showTitle?: boolean | undefined;
     /**
-     * Ширины колонок в пикселях по именам. С ними таблица раскладывается по заданным ширинам,
-     * а колонки без ширины делят остаток поровну. Так ширины не меняются при вводе: в обычной
-     * раскладке браузер подгоняет колонки под содержимое, и они сдвигаются с каждым символом.
+     * Размеры колонок по именам вместо размера по виду поля: наименьшая ширина в знаках и доля
+     * остатка. Например, `{ code: { minimum: 8 }, comment: { minimum: 16, weight: 3 } }`: код не растёт,
+     * а комментарий получает три доли остатка. Пикселей настройка не принимает: колонки следуют
+     * за шрифтом и делят место таблицы сами.
      */
-    readonly columnWidths?: { readonly [column: string]: number } | undefined;
+    readonly columnSizes?: { readonly [column: string]: ColumnSize } | undefined;
     /**
-     * Доли остатка ширины у колонок без заданной ширины. По умолчанию доля каждой равна 1,
-     * то есть остаток делится поровну. Например, `{ name: 1, comment: 2 }` отдаёт названию треть
-     * остатка, а комментарию две трети. Действует вместе с `columnWidths`.
+     * Схемы отображения по точкам перелома: какие колонки объединить в составные. Схема действует
+     * от своей точки и шире; уже самой узкой названной точки колонки выводятся по одной, и таблица
+     * прокручивается. Порядок колонок в схеме задаёт и порядок обхода с клавиатуры.
      */
-    readonly columnShares?: { readonly [column: string]: number } | undefined;
+    readonly layouts?: TableLayouts | undefined;
     /**
      * Поля ввода колонок по именам вместо виджета вида поля, например переключатель способа оплаты.
      * Поле получает те же свойства, что и виджет, и так же участвует в обходе с клавиатуры.
@@ -108,13 +116,16 @@ interface Row {
 }
 
 /**
- * Табличная часть формы: таблица, в каждой ячейке которой стоит поле ввода из реестра виджетов.
+ * Табличная часть формы: таблица дизайн-системы (`DataTable`), каждая ячейка которой —
+ * ячейка с двумя режимами (`TableCell`): значение показывается текстом, а поле ввода из реестра
+ * виджетов появляется на его месте, только пока ячейка редактируется.
  *
  * Компонент получает только описание табличной части и работает внутри формы Ant Design:
  * значение ячейки лежит в форме по пути «табличная часть, номер строки, поле». Сервер называет
  * поле с ошибкой таким же путём, поэтому его ошибки сопоставляются с ячейками напрямую.
- * Переходы между ячейками обрабатываются до виджета; открытый список выбора или календарь
- * получает Enter сам. При выходе назад из первой ячейки компонент возвращает управление форме.
+ * Enter в поле переходит к редактированию следующей ячейки, а в последней ячейке последней
+ * строки добавляет строку; открытый список выбора или календарь получает Enter сам. При выходе
+ * назад из первой ячейки компонент возвращает управление форме.
  *
  * Строки записываются в том порядке, в котором стоят на форме: сервер при записи заменяет
  * строки целиком.
@@ -167,11 +178,18 @@ interface RowTableProperties extends TablePartProperties {
     readonly remove: (index: number) => void;
 }
 
+/** Размер колонки номера строки: до трёх цифр. */
+const lineNumberSize: ColumnSize = { minimum: 3 };
+
+/** Сдвиг по строкам и колонкам для стрелок в режиме просмотра. */
+const arrows: { readonly [Key in string]?: readonly [number, number] } = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+
 /**
  * Фокус ячеек хранится по устойчивому ключу строки, поэтому удаление строки не сдвигает
  * ссылки на поля остальных строк. Новая строка получает фокус после регистрации её полей.
+ * Редактируется не больше одной ячейки: её имя хранит таблица.
  */
-function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnWidths, columnShares, columnInputs, addTitle = 'Добавить строку', addIcon = <Icons.add />, initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false, expandedRow }: RowTableProperties) {
+function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnSizes, layouts, columnInputs, addTitle = 'Добавить строку', addIcon = <Icons.add />, initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false, expandedRow }: RowTableProperties) {
     const form = Form.useFormInstance();
     const watched: unknown = Form.useWatch(part.name, { form, preserve: true });
     const values = (Array.isArray(watched) ? watched : form.getFieldValue(part.name) ?? []) as Record<string, unknown>[];
@@ -180,14 +198,29 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     // Строки с `expandedRow` раскрыты изначально, поэтому хранится то, что свернул пользователь:
     // новая строка раскрыта без отдельного учёта.
     const [collapsedKeys, setCollapsedKeys] = useState<ReadonlyArray<Key>>([]);
+    const [editing, setEditing] = useState<string | null>(null);
     const cells = useFieldFocus();
     const pendingRow = useRef<number | null>(null);
-    const inputColumns = part.columns.filter((column) => !column.readOnly && hasInput(column));
+    // Порядок обхода следует за порядком на экране: по схеме отображения текущей точки перелома.
+    const point = useBreakpoint();
+    const screenOrder = columnGroups(part.columns.map((column) => column.name), tableLayoutAt(layouts, point)).flat();
+    const inputColumns = screenOrder
+        .flatMap((name) => part.columns.find((column) => column.name === name) ?? [])
+        .filter((column) => !column.readOnly && hasInput(column));
     const cellName = (row: Row, column: string) => `${row.key}/${column}`;
-    const focusCell = (rowIndex: number, columnIndex: number) => {
+    // Ячейка с собственным полем или флажком режимов не имеет: фокус сразу получает её поле.
+    const direct = (column: FormField) => columnInputs?.[column.name] !== undefined || column.kind === 'boolean';
+    /** Переводит фокус на ячейку; `edit` сразу открывает её поле, иначе фокус получает значение. */
+    const focusCell = (rowIndex: number, columnIndex: number, edit = true) => {
         const row = rows[rowIndex];
         const column = inputColumns[columnIndex];
-        if (row !== undefined && column !== undefined) cells.focus(cellName(row, column.name));
+        if (row === undefined || column === undefined) return;
+        const name = cellName(row, column.name);
+        if (edit && !direct(column)) setEditing(name);
+        else {
+            setEditing(null);
+            cells.focus(name);
+        }
     };
     const addRow = () => {
         if (disabled || fixedRows || inputColumns.length === 0 || pendingRow.current !== null) return;
@@ -215,148 +248,129 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
         },
     }));
 
-    // Ширина нужна только для долей остатка: без них таблица за размером не следит.
-    const container = useRef<HTMLDivElement>(null);
-    const tableWidth = useElementWidth(container, columnWidths !== undefined && columnShares !== undefined);
+    /**
+     * Клавиши обхода. Обработчик стоит над таблицей и узнаёт ячейку по `data-cell-name`. Enter
+     * в поле переходит к следующей ячейке, Shift+Enter — к предыдущей; стрелки в режиме просмотра
+     * переводят фокус между значениями. Остальные клавиши ячейка обрабатывает сама.
+     */
+    const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (disabled || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing) return;
+        if (!(event.target instanceof HTMLElement) || hasOpenDialog(event.currentTarget) || hasOpenPicker(event.target)) return;
+        const cell = event.target.closest<HTMLElement>('[data-cell-name]');
+        const name = cell?.dataset['cellName'];
+        if (cell === null || name === undefined) return;
+        const [rowKey, columnName] = name.split('/');
+        const rowIndex = rows.findIndex((row) => String(row.key) === rowKey);
+        const columnIndex = inputColumns.findIndex((column) => column.name === columnName);
+        if (rowIndex < 0 || columnIndex < 0) return;
+        const viewing = cell.hasAttribute('data-cell-target');
+        const arrow = arrows[event.key];
+        if (viewing && arrow !== undefined && !event.shiftKey) {
+            event.preventDefault();
+            focusCell(rowIndex + arrow[0], columnIndex + arrow[1], false);
+            return;
+        }
+        // Enter на значении начинает редактирование: его обрабатывает сама ячейка.
+        if (event.key !== 'Enter' || viewing) return;
+        if (event.target.closest('button, a') !== null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        if (event.shiftKey) {
+            if (columnIndex > 0) focusCell(rowIndex, columnIndex - 1);
+            else if (rowIndex > 0) focusCell(rowIndex - 1, inputColumns.length - 1);
+            else {
+                setEditing(null);
+                onPrevious?.();
+            }
+        } else if (columnIndex < inputColumns.length - 1) focusCell(rowIndex, columnIndex + 1);
+        else if (rowIndex < rows.length - 1) focusCell(rowIndex + 1, 0);
+        else addRow();
+    };
+
+    // Схемы конфигурации называют только колонки данных: номер строки всегда первый, удаление — последнее.
+    const layoutsWithService = layouts === undefined ? undefined : Object.fromEntries(Object.entries(layouts)
+        .map(([point, layout]) => [point, ['lineNumber', ...layout, 'remove']])) as TableLayouts;
     // Колонка удаления строки есть, только если строки можно удалять.
     const removable = !disabled && !fixedRows;
-    const width = columnWidth(part, columnWidths, columnShares, removable, tableWidth);
-    const columns: NonNullable<TableProps<Row>['columns']> = [
+    const columns: DataTableColumn<Row>[] = [
         {
-            key: 'lineNumber', title: '№', width: serviceColumnWidth,
+            key: 'lineNumber', title: '№', type: 'number', size: lineNumberSize,
             // Скрытые колонки регистрируются невидимыми полями: форма отдаёт при записи только
             // зарегистрированные поля, и без них значения скрытых колонок не дошли бы до сервера.
-            render: (_value, row, index) => <>{index + 1}{hiddenColumns.map((name) => <Form.Item key={name} name={[row.name, name]} hidden noStyle />)}</>,
+            render: (row, index) => <>{index + 1}{hiddenColumns.map((name) => <Form.Item key={name} name={[row.name, name]} hidden noStyle />)}</>,
         },
-        ...part.columns.map((column) => {
-            const columnWidth = width(column.name);
-            return {
-                key: column.name,
-                ...(columnWidth === undefined ? {} : { width: columnWidth }),
-                title: <>{column.title}{isMarkedRequired(column) && <Typography.Text type="danger"> *</Typography.Text>}</>,
-                render: (_value: unknown, row: Row, rowIndex: number) => (
-                    <div onKeyDownCapture={(event) => {
-                        if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.metaKey || event.nativeEvent.isComposing || disabled || hasOpenDialog(event.currentTarget) || hasOpenPicker(event.target)) return;
-                        if (event.target instanceof HTMLElement && event.target.closest('button, a') !== null) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (event.repeat) return;
-                        const columnIndex = inputColumns.findIndex((candidate) => candidate.name === column.name);
-                        if (columnIndex < 0) return;
-                        if (event.shiftKey) {
-                            if (columnIndex > 0) focusCell(rowIndex, columnIndex - 1);
-                            else if (rowIndex > 0) focusCell(rowIndex - 1, inputColumns.length - 1);
-                            else onPrevious?.();
-                        } else if (columnIndex < inputColumns.length - 1) focusCell(rowIndex, columnIndex + 1);
-                        else if (rowIndex < rows.length - 1) focusCell(rowIndex + 1, 0);
-                        else addRow();
-                    }}>
-                        <Form.Item name={[row.name, column.name]} rules={fieldRules(column)} style={{ margin: 0 }}>
-                            {column.readOnly ? <FieldDisplay field={column} /> : <CellInput field={column} input={columnInputs?.[column.name]} ref={cells.register(cellName(row, column.name))} />}
-                        </Form.Item>
-                    </div>
-                ),
-            };
-        }),
+        ...part.columns.map((column): DataTableColumn<Row> => ({
+            key: column.name,
+            // Тип и размер выводятся из вида поля; размер можно переопределить настройкой части.
+            ...fieldColumn(column),
+            ...(columnSizes?.[column.name] === undefined ? {} : { size: columnSizes[column.name] }),
+            title: <span>{column.title}{isMarkedRequired(column) && <Typography.Text type="danger"> *</Typography.Text>}</span>,
+            render: (row) => {
+                const name = cellName(row, column.name);
+                return (
+                    <Form.Item name={[row.name, column.name]} rules={fieldRules(column)} noStyle>
+                        {column.readOnly || !hasInput(column)
+                            ? <CellValue field={column} type={fieldColumn(column).type} />
+                            : <TableCell
+                                name={name}
+                                field={column}
+                                type={fieldColumn(column).type}
+                                input={columnInputs?.[column.name]}
+                                disabled={disabled}
+                                editing={editing === name}
+                                onEdit={() => setEditing(name)}
+                                onLeave={() => setEditing((current) => (current === name ? null : current))}
+                                ref={cells.register(name)}
+                            />}
+                    </Form.Item>
+                );
+            },
+        })),
     ];
     if (removable) columns.push({
-        key: 'remove', width: serviceColumnWidth,
-        render: (_value, row) => <Button type="text" icon={<Icons.removeRow />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
+        key: 'remove', title: '', type: 'free', size: 'control',
+        render: (row) => <Button type="text" icon={<Icons.removeRow />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
     });
-    return (
-        <Flex ref={container} vertical gap="small" align="flex-start" data-table-part={part.name}>
-            {showTitle && <TablePartTitle>{part.title}</TablePartTitle>}
-            <Table<Row> size="small" style={{ width: '100%' }} rowKey="key" columns={columns} dataSource={[...rows]} pagination={false}
-                {...(columnWidths === undefined ? {} : { tableLayout: 'fixed' as const })}
-                {...(totals.length === 0 || rows.length === 0 ? {} : { summary: () => <TotalsRow part={part} values={values} totals={totals} removable={removable} /> })}
-                expandable={expandedRow !== undefined ? {
-                    expandedRowKeys: rows.map((row) => row.key).filter((key) => !collapsedKeys.includes(key)),
-                    // Антд отдаёт раскрытые строки; свёрнутыми считаются все остальные.
-                    onExpandedRowsChange: (open) => setCollapsedKeys(rows.map((row) => row.key).filter((key) => !open.includes(key))),
-                    rowExpandable: (row) => expandedRow(values[row.name] ?? {}, row.name) !== null,
-                    expandedRowRender: (row) => expandedRow(values[row.name] ?? {}, row.name),
-                } : expanded.length === 0 ? {} : {
-                expandedRowKeys: [...expandedKeys],
-                onExpandedRowsChange: setExpandedKeys,
-                rowExpandable: (row) => expanded.some((column) => typeof values[row.name]?.[column.name] === 'string'),
-                expandedRowRender: (row) => expandedKeys.includes(row.key) ? <Flex vertical gap="small">{expanded.filter((column) => typeof values[row.name]?.[column.name] === 'string').map((column) => <RecordTablePart key={column.name} object={column.target!} guid={String(values[row.name]?.[column.name])} part={column.expandedTablePart!} />)}</Flex> : null,
-            }} locale={{ emptyText: 'Строк нет' }} />
-            {!disabled && !fixedRows && <Button icon={addIcon} onClick={addRow}>{addTitle}</Button>}
-        </Flex>
-    );
-}
-
-/** Ширина служебных колонок: номера строки и кнопки удаления. */
-const serviceColumnWidth = 48;
-
-/**
- * Ширины колонок части по настройкам. Без `columnWidths` ширины не задаются, и таблица
- * раскладывается по содержимому. С ними колонка без ширины получает свою долю остатка: ширину
- * таблицы за вычетом заданных ширин и служебных колонок. Браузер не применяет к колонке ширину
- * через `calc` с процентами, поэтому доля считается в пикселях от измеренной ширины таблицы.
- * Пока ширина не измерена или долей нет, гибким колонкам ширина не задаётся, и браузер делит
- * остаток поровну.
- */
-function columnWidth(
-    part: FormTablePart,
-    widths: TablePartOptions['columnWidths'],
-    shares: TablePartOptions['columnShares'],
-    removable: boolean,
-    tableWidth: number,
-): (column: string) => number | undefined {
-    if (widths === undefined) return () => undefined;
-    const flexible = part.columns.filter((column) => widths[column.name] === undefined).map((column) => column.name);
-    if (shares === undefined || flexible.length === 0 || tableWidth === 0) return (column) => widths[column];
-    const fixed = part.columns.reduce((sum, column) => sum + (widths[column.name] ?? 0), serviceColumnWidth * (removable ? 2 : 1));
-    const share = (column: string) => shares[column] ?? 1;
-    const total = flexible.reduce((sum, column) => sum + share(column), 0);
-    const rest = Math.max(tableWidth - fixed, 0);
-    return (column) => widths[column] ?? Math.floor(rest * share(column) / total);
-}
-
-/** Ширина элемента в пикселях; следит за её изменением. До первого измерения равна нулю. */
-function useElementWidth(element: RefObject<HTMLElement | null>, enabled: boolean): number {
-    const [width, setWidth] = useState(0);
-    useLayoutEffect(() => {
-        const target = element.current;
-        if (!enabled || target === null) return;
-        const observer = new ResizeObserver(([entry]) => setWidth(Math.floor(entry?.contentRect.width ?? 0)));
-        observer.observe(target);
-        return () => observer.disconnect();
-    }, [enabled]);
-    return width;
-}
-
-/** Поле ввода ячейки: поле из настроек колонки либо виджет вида поля. Значение передаёт элемент формы Ant Design. */
-function CellInput({ input: Input = FieldInput, ...properties }: InputProperties<unknown> & { readonly input?: ComponentType<InputProperties<unknown>> | undefined }) {
-    return <Input {...properties} />;
-}
-
-interface TotalsRowProperties {
-    readonly part: FormTablePart;
-    readonly values: ReadonlyArray<Record<string, unknown>>;
-    readonly totals: ReadonlyArray<string>;
-    /** У таблицы есть колонка кнопок удаления: строка итогов оставляет под ней пустую ячейку. */
-    readonly removable: boolean;
-}
-
-/**
- * Строка «Итого» под строками таблицы: суммы колонок из `totals` по текущим значениям формы,
- * поэтому итог меняется вместе с вводом. Подпись стоит в первой колонке без суммы.
- */
-function TotalsRow({ part, values, totals, removable }: TotalsRowProperties) {
+    // Подпись «Итого» стоит в первой колонке без суммы.
     const labelColumn = part.columns.find((column) => !totals.includes(column.name))?.name;
+    const summary = totals.length === 0 || rows.length === 0 ? undefined : Object.fromEntries(part.columns.flatMap((column): [string, ReactNode][] => {
+        if (totals.includes(column.name)) {
+            // Итог передаётся числом: таблица форматирует его по типу колонки, как значения строк.
+            return [[column.name, values.reduce((total, row) => total + (typeof row[column.name] === 'number' ? row[column.name] as number : 0), 0)]];
+        }
+        return column.name === labelColumn ? [[column.name, 'Итого']] : [];
+    }));
+    const expansion: DataTableExpansion<Row> | undefined = expandedRow !== undefined ? {
+        isExpandable: (row) => expandedRow(values[row.name] ?? {}, row.name) !== null,
+        isExpanded: (row) => !collapsedKeys.includes(row.key),
+        onToggle: (row, _index, open) => setCollapsedKeys((keys) => (open ? keys.filter((key) => key !== row.key) : [...keys, row.key])),
+        render: (row) => expandedRow(values[row.name] ?? {}, row.name),
+    } : expanded.length === 0 ? undefined : {
+        isExpandable: (row) => expanded.some((column) => typeof values[row.name]?.[column.name] === 'string'),
+        isExpanded: (row) => expandedKeys.includes(row.key),
+        onToggle: (row, _index, open) => setExpandedKeys((keys) => (open ? [...keys, row.key] : keys.filter((key) => key !== row.key))),
+        render: (row) => (
+            <Stack gap={3}>
+                {expanded.filter((column) => typeof values[row.name]?.[column.name] === 'string').map((column) => <RecordTablePart key={column.name} object={column.target!} guid={String(values[row.name]?.[column.name])} part={column.expandedTablePart!} />)}
+            </Stack>
+        ),
+    };
     return (
-        <Table.Summary.Row>
-            <Table.Summary.Cell index={0} />
-            {part.columns.map((column, index) => (
-                <Table.Summary.Cell key={column.name} index={index + 1}>
-                    {totals.includes(column.name)
-                        ? <Typography.Text strong><FieldDisplay field={column} value={values.reduce((sum, row) => sum + (typeof row[column.name] === 'number' ? row[column.name] as number : 0), 0)} /></Typography.Text>
-                        : column.name === labelColumn ? <Typography.Text strong>Итого</Typography.Text> : null}
-                </Table.Summary.Cell>
-            ))}
-            {removable && <Table.Summary.Cell index={part.columns.length + 1} />}
-        </Table.Summary.Row>
+        <Stack gap={3} align="stretch">
+            {showTitle && <TablePartTitle>{part.title}</TablePartTitle>}
+            <div data-table-part={part.name} onKeyDownCapture={onKeyDownCapture}>
+                <DataTable<Row>
+                    columns={columns}
+                    rows={rows}
+                    rowKey={(row) => row.key}
+                    layouts={layoutsWithService}
+                    expansion={expansion}
+                    summary={summary}
+                    interactive={!disabled}
+                />
+            </div>
+            {!disabled && !fixedRows && <div><Button icon={addIcon} onClick={addRow}>{addTitle}</Button></div>}
+        </Stack>
     );
 }

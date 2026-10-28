@@ -18,6 +18,8 @@ import type { ComponentProps, ComponentType } from 'react';
 import Icon, {
     ApartmentOutlined,
     AppstoreOutlined,
+    ArrowDownOutlined,
+    ArrowUpOutlined,
     BankOutlined,
     BarChartOutlined,
     BookOutlined,
@@ -32,6 +34,7 @@ import Icon, {
     DownloadOutlined,
     EditOutlined,
     ExclamationCircleFilled,
+    ExclamationCircleOutlined,
     ExportOutlined,
     FileTextOutlined,
     FilterOutlined,
@@ -53,6 +56,7 @@ import Icon, {
     SaveOutlined,
     SearchOutlined,
     SettingOutlined,
+    SwapOutlined,
     ShopOutlined,
     ShoppingCartOutlined,
     SkinOutlined,
@@ -126,6 +130,16 @@ export const Icons = {
     expand: RightOutlined,
     /** Раскрытая группа строк: нажатие свернёт её. */
     collapse: DownOutlined,
+    /** Колонка таблицы, по которой можно отсортировать строки; сейчас сортировка по другой колонке. */
+    sortable: SwapOutlined,
+    /** Выбор даты в календаре. */
+    calendar: CalendarOutlined,
+    /** Строки таблицы отсортированы по колонке по возрастанию. */
+    sortAscending: ArrowUpOutlined,
+    /** Строки таблицы отсортированы по колонке по убыванию. */
+    sortDescending: ArrowDownOutlined,
+    /** Значение ячейки таблицы не прошло проверку; подсказка у значка объясняет причину. */
+    invalid: ExclamationCircleOutlined,
     /** Главная вкладка. */
     home: HomeOutlined,
     /** Документация приложения. */

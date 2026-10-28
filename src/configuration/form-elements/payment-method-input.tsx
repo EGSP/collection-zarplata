@@ -1,5 +1,5 @@
 import { ConfigProvider, Flex, Segmented, Tooltip, theme, type GlobalToken } from 'antd';
-import { useImperativeHandle, useRef, type ComponentType } from 'react';
+import { createContext, useContext, useImperativeHandle, useRef, type ComponentType } from 'react';
 import { Icons, type InputProperties } from '../../web/sdk';
 
 /** Палитра Ant Design, которой отмечен способ оплаты. */
@@ -32,7 +32,8 @@ const paletteColor = (token: GlobalToken, palette: MethodPalette): string => tok
  * помещается в узкую колонку таблицы оплат.
  *
  * Значок каждого способа окрашен в его цвет. Выбранный способ залит этим цветом, а текст и значок
- * на нём белые: светлая заливка с цветным текстом сливалась с остальными вариантами.
+ * на нём белые: светлая заливка с цветным текстом сливалась с остальными вариантами. Цвета
+ * сохраняются и в режиме просмотра: по ним способ узнаётся в уже проведённой продаже.
  * Обход с клавиатуры ставит фокус на выбранный вариант, а без выбора на первый; стрелки
  * переключают варианты, как у группы переключателей.
  *
@@ -56,19 +57,19 @@ export function PaymentMethodInput({ field, value, onChange, disabled, id, ref, 
             disabled: method !== value && unavailable.includes(method),
             label: iconsOnly && description !== undefined ? (
                 <Tooltip title={method}>
-                    <span aria-label={method} style={disabled === true || method === value ? {} : { color: paletteColor(token, description.palette) }}><description.icon /></span>
+                    <span aria-label={method} style={method === value ? {} : { color: paletteColor(token, description.palette) }}><description.icon /></span>
                 </Tooltip>
             ) : (
                 <Flex gap={6} align="center">
-                    {description !== undefined && <span style={disabled === true || method === value ? {} : { color: paletteColor(token, description.palette) }}><description.icon /></span>}
+                    {description !== undefined && <span style={method === value ? {} : { color: paletteColor(token, description.palette) }}><description.icon /></span>}
                     {method}
                 </Flex>
             ),
         };
     });
     // Цвет выбора задаётся теме переключателя: у Ant Design он общий для всех вариантов,
-    // поэтому меняется вместе с выбранным способом.
-    const segmentedTheme = selected === undefined || disabled === true ? {} : {
+    // поэтому меняется вместе с выбранным способом. В режиме просмотра заливка та же.
+    const segmentedTheme = selected === undefined ? {} : {
         itemSelectedBg: paletteColor(token, selected.palette),
         itemSelectedColor: token.colorWhite,
     };
@@ -87,17 +88,18 @@ export function PaymentMethodInput({ field, value, onChange, disabled, id, ref, 
     );
 }
 
+/**
+ * Способы оплаты, недоступные в строках таблицы оплат. У продажи не больше одной оплаты способом
+ * «Рассрочка», поэтому, когда одна строка оплачена рассрочкой, таблица делает его недоступным
+ * в остальных.
+ *
+ * Список передаётся контекстом, а не отдельным компонентом колонки: колонка получает компонент
+ * поля ввода, и при смене его типа ячейки создавались бы заново. Переключатель терял бы
+ * прежнее состояние, и выбор рассрочки появлялся бы без анимации перехода.
+ */
+export const UnavailablePaymentMethods = createContext<ReadonlyArray<string>>([]);
+
 /** Способ строки оплаты одними значками: для узкой колонки таблицы оплат. */
 export function PaymentMethodIcons(properties: InputProperties<unknown>) {
-    return <PaymentMethodInput {...properties} iconsOnly />;
-}
-
-/**
- * Способ строки оплаты одними значками, когда другая строка уже оплачена рассрочкой: у продажи
- * не больше одной оплаты способом «Рассрочка», поэтому в остальных строках он недоступен.
- * Отдельный компонент, а не свойство: колонка таблицы получает компонент поля ввода, и его тип
- * должен оставаться постоянным, иначе ячейки создавались бы заново при каждой отрисовке.
- */
-export function PaymentMethodIconsWithoutInstallment(properties: InputProperties<unknown>) {
-    return <PaymentMethodInput {...properties} iconsOnly unavailable={['Рассрочка']} />;
+    return <PaymentMethodInput {...properties} iconsOnly unavailable={useContext(UnavailablePaymentMethods)} />;
 }

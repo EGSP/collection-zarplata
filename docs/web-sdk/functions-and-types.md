@@ -28,6 +28,12 @@ covers:
 | `useBreakpoint`, `breakpointAtLeast` | [Точка перелома](../components.md#точка-перелома-в-коде) ближайшего `BreakpointContainer` и проверка «не уже заданной точки»; вне контейнеров действует `sm` |
 | `useAccountingColors` | [Смысловые цвета учёта](hooks.md#поверхность-и-цвета) текущей темы |
 | `useLayer` | [Уровень и фоны](hooks.md#поверхность-и-цвета) ближайшей поверхности |
+| `columnGroups`, `tableLayoutAt` | Правила [схем отображения](../components.md#составные-колонки-и-схемы-отображения): колонки по схеме и схема для точки перелома |
+| `fieldCellType`, `fieldColumn`, `fieldColumnSize` | [Тип ячейки и размер колонки](../components.md#размер-колонки-в-знаках-и-долях) по виду поля: `fieldColumn` отдаёт тип и размер вместе, `fieldColumnSize` размер либо `undefined`, если подходит размер типа |
+| `cellTypes`, `cellAlign`, `cellColumnSize`, `formatCell`, `hasTextInput` | Правила [типов ячеек](../components.md#типы-ячеек): выравнивание, размер по типу и заголовку, текст значения, вводится ли тип текстом |
+| `cellTextRules`, `listCellMinimum` | Правила ввода типа текстом (`TextConversion`) для полей поверх собственного `input` и наименьший размер колонки со списком, 16 знаков |
+| `CellTextInput` | Собственное поле ячейки для строки, числа и суммы |
+| `CellComboInput` | [Поле ячейки со списком](../components.md#ячейка-табличной-части): собственный `input` и список вариантов под ячейкой; варианты и выбор передаёт платформа |
 | `Icons`, `Pictograms` | [Реестры значков](../web-sdk.md#иконки-и-пиктограммы) |
 
 `hasOpenDialog` принимает корневой элемент экрана и не учитывает окно, в котором показан сам экран. Иначе форма в модальном окне сочла бы себя перекрытой собственным окном и отключила бы сочетания клавиш.
@@ -40,7 +46,7 @@ covers:
 | `ActionPlacement`, `ActionConfirmation`, `ActionConfirmationTone` | Место показа действия (`buttons`, `more`, `hidden`) и настройка его окна подтверждения (`delay`, `title`, `message`, `tone`) |
 | `ActionResult`, `ActionConfirmationState`, `ActionConfirmationDialogProperties` | Результат [`useActionResult`](hooks.md#выполнение-действий) с `refresh`, результат `useActionConfirmation` и свойства [окна подтверждения](components.md#подтверждение-действия) |
 | `ObjectReference`, `FieldName`, `RecordCondition`, `RecordSort` и связанные | [Ссылки на объекты](../web-sdk.md#типизация-объектов) с точными типами записи и действий |
-| `BreakpointContainerProperties` | Свойства `BreakpointContainer`: `of="window"` или `of="element"` с `style` |
+| `BreakpointContainerProperties` | Свойства `BreakpointContainer`: `of="window"`, `of="fixed"` с `point` или `of="element"` с `style` |
 | `SpacingStep`, `Breakpoint`, `GridGutter`, `PageModel`, `ColumnCount` | Шаг шкалы отступов, точка перелома, режим зазора сетки, [модель страницы](../components.md#модели-страницы) и число колонок по точкам |
 | `ObjectTarget`, `PerformTarget`, `ListCondition` | Объект и условия запроса |
 | `RecordData`, `FormValues` | Запись общего типа и значения формы |
@@ -61,4 +67,8 @@ covers:
 | `TextTone`, `TextHeadingVariant`, `TextProperties`, `TextHeadingProperties`, `TextCommonProperties` | Цвет и ступень заголовка [ролей текста](components.md#роли-текста) и их свойства |
 | `AccountingTone`, `AccountingColor` | Смысловой цвет учёта (`total`, `debt`, `overpayment`, `warning`) и его оттенки: `text`, `solid`, `solidHover`, `background`, `backgroundStrong` |
 | `TablePartOptions` | [Настройки вида табличной части](components.md#табличная-часть) |
+| `DataTableProperties`, `DataTableColumn`, `DataTableSelection`, `DataTableExpansion`, `DataTableRowState`, `DataTableSortDirection` | Свойства и части [таблицы данных](../components.md#таблица-данных) |
+| `ColumnSize`, `ControlColumnSize`, `TableLayout`, `TableLayouts` | Размер колонки в знаках и долях, размер служебной колонки `'control'`, схема отображения и схемы по точкам перелома |
+| `CellType`, `PrimitiveCellType`, `CellInputOptions`, `CellTextInputHandle`, `CellTextInputProperties`, `TextConversion`, `CellComboInputProperties`, `CellOption`, `CellField` | Тип ячейки (`string`, `number`, `money`, `date`, `dateTime`, `boolean`, `free`) и его примитивная часть, ограничения ввода (`integer`, `maximumLength`), управление и свойства поля ячейки, перевод значения в текст и обратно, свойства поля со списком и его вариант (`key`, `label`), поле для расчёта типа |
+| `ReadOnlyTablePartProperties` | Свойства `ReadOnlyTablePart` |
 | `<Компонент>Properties` | Свойства компонента SDK, например `TileProperties` |

@@ -6,6 +6,7 @@ import { useMemo } from 'react';
 import { BrowserRouter } from 'react-router';
 import { configurationShellGroups } from '../../configuration/shell-groups';
 import { BreakpointContainer } from '../sdk/ds/breakpoints';
+import { DialogStyles } from '../sdk/ds/dialog-styles';
 import { ShellGroupsProvider } from '../sdk/platform/shell-group-content';
 import { createAuthenticationProvider } from '../authentication/authentication-provider';
 import { LoginPage } from '../authentication/login-page';
@@ -40,6 +41,8 @@ export function Application() {
     return (
         <BrowserRouter>
             <ConfigProvider locale={ruRU} theme={applicationTheme} modal={{ mask: { closable: false } }}>
+                {/* Модальные окна не выходят за пределы экрана и прокручивают тело с тенями у краёв. */}
+                <DialogStyles />
                 <AntdApplication>
                     <QueryClientProvider client={queryClient}>
                         <ShellGroupsProvider entries={configurationShellGroups}>

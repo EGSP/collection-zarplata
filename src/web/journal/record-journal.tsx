@@ -1,6 +1,6 @@
 /** Просмотр истории сохранённой записи. Чтение не выполняет действия формы и не сохраняет её ввод. */
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Avatar, Button, Collapse, Dropdown, Empty, Flex, Modal, Pagination, Skeleton, Table, Typography, theme } from 'antd';
+import { Alert, Avatar, Button, Collapse, Dropdown, Empty, Flex, Modal, Pagination, Skeleton, Typography, theme } from 'antd';
 import { HistoryOutlined, MoreOutlined, UserOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import type { JournalEntry, JournalTraceNode } from '../../server/journal/descriptions';
@@ -13,6 +13,8 @@ import { RecordLink } from '../references/reference-display';
 import { FieldDisplay } from '../widgets/registry';
 import { useWindowScope } from '../window/window-scope';
 import { useActionConfirmation } from '../sdk/platform/action-confirmation';
+import { BreakpointContainer } from '../sdk/ds/breakpoints';
+import { ReadOnlyTablePart } from '../sdk/platform/record-table-part';
 
 interface HistoryPage {
     readonly items: readonly JournalEntry[];
@@ -77,7 +79,7 @@ export function RecordMoreActions({ object, record, actions = [], onRun, busy = 
                     footer={<Button onClick={() => setOpened(false)}>Закрыть</Button>}
                     styles={{ body: { maxHeight: '65vh', overflowY: 'auto', overflowX: 'hidden' } }}
                 >
-                    <RecordJournal object={object} record={record} />
+                    <BreakpointContainer of="fixed" point="sm"><RecordJournal object={object} record={record} /></BreakpointContainer>
                 </Modal>
             )}
         </>
@@ -211,11 +213,7 @@ function JournalChanges({ entry }: { readonly entry: JournalEntry }) {
 /** Таблица сохраняет порядок строк и форматирование денег, дат и ссылок из обычных форм. */
 function JournalTablePart({ part, value }: { readonly part: FormTablePart; readonly value: unknown }) {
     if (!Array.isArray(value) || value.length === 0) return <Typography.Text type="secondary">Нет строк</Typography.Text>;
-    const rows = value.map((row: unknown, index) => ({ key: index, values: row as Record<string, unknown> }));
-    return <Table size="small" pagination={false} scroll={{ x: 'max-content', y: 260 }} dataSource={rows} columns={part.columns.map((field) => ({
-        key: field.name, title: field.title,
-        render: (_: unknown, row: typeof rows[number]) => <FieldDisplay field={field} value={row.values[field.name]} />,
-    }))} />;
+    return <ReadOnlyTablePart part={part} rows={value as ReadonlyArray<Record<string, unknown>>} />;
 }
 
 /** Историческое поле могло исчезнуть из метаданных; исходное значение остаётся доступным. */

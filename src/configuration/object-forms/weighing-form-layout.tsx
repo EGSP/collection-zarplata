@@ -1,7 +1,8 @@
-import { Card, Divider, Flex, Modal, Table } from 'antd';
+import { Card, Divider, Flex, Modal } from 'antd';
 import { useEffect, useRef, useState } from 'react';
+import { goodsColumnSizes } from './goods-columns';
 import { Objects } from '../objects.generated';
-import { FieldGroup, Icons, MainActionButton, recordFormElements, RecordFormPage, useObjectView, useOpenRecord, useRecordForm, spacing, useWindowScope, type FormElementReference, type NewFormProperties, type RecordFormButtons, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { BreakpointContainer, DataTable, FieldGroup, Icons, MainActionButton, recordFormElements, RecordFormPage, useObjectView, useOpenRecord, useRecordForm, spacing, useWindowScope, type FormElementReference, type NewFormProperties, type RecordFormButtons, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Состояния строки отвеса. Совпадают со значениями в описании отвеса: форма не импортирует их
@@ -16,9 +17,8 @@ const hung = 'Вывешено';
  * обязательна, поэтому новая строка получает нулевую; продажа из отвеса переносит её, и продавец
  * вводит стоимость уже в продаже.
  *
- * Код стоит перед названием, как в продаже. Код и состояние короткие, поэтому их колонки узкие.
- * Остаток ширины делят название, продажа
- * и комментарий; комментарий стоит последним, как в продаже. Кнопка добавления подписана
+ * Код стоит перед названием, а комментарий последним, как в продаже; размеры колонок общие с ней.
+ * Уже точки `lg`, например в модальном окне, код стоит над названием, а состояние под размером. Кнопка добавления подписана
  * «Отвес»: вместе со значком «+» она читается как «+ Отвес».
  *
  * Состояние и продажа только для чтения на обеих формах отвеса. Их проставляют действия:
@@ -26,8 +26,11 @@ const hung = 'Вывешено';
  * строки в «Вывешено». Новая строка получает состояние «В отвесе» начальным значением.
  */
 const newGoodsOptions: TablePartOptions = {
-    columnWidths: { code: 110, size: 100, state: 140 },
-    columnShares: { name: 1, sale: 1, comment: 1.6 },
+    columnSizes: goodsColumnSizes,
+    layouts: {
+        sm: [['code', 'name'], ['size', 'state'], 'sale', 'comment'],
+        lg: ['code', 'name', 'size', 'state', 'sale', 'comment'],
+    },
     columnOrder: ['code', 'name', 'size', 'state', 'sale', 'comment'],
     hiddenColumns: ['postedIn1C', 'cost', 'discount', 'total'],
     readOnlyColumns: ['state', 'sale'],
@@ -109,20 +112,27 @@ function HeldLinesDialog({ open, title, confirm, lines, loading = false, onConfi
             onCancel={onCancel}
             {...(onClosed === undefined ? {} : { afterClose: onClosed })}
         >
-            <Table<HeldLine>
-                size="small"
-                pagination={false}
-                rowKey="lineNumber"
-                dataSource={[...lines]}
-                rowSelection={{ selectedRowKeys: [...selected], onChange: (keys) => setSelected(keys.map(Number)) }}
-                columns={[
-                    { key: 'lineNumber', dataIndex: 'lineNumber', title: '№', width: 48 },
-                    { key: 'code', dataIndex: 'code', title: 'Код', width: 110 },
-                    { key: 'name', dataIndex: 'name', title: 'Название' },
-                    { key: 'comment', dataIndex: 'comment', title: 'Комментарий' },
-                ]}
-                locale={{ emptyText: 'Товаров в отвесе нет' }}
-            />
+            <BreakpointContainer of="fixed" point="sm">
+                <DataTable<HeldLine>
+                    rows={lines}
+                    rowKey={(line) => line.lineNumber}
+                    selection={{
+                        mode: 'multiple',
+                        isSelected: (line) => selected.includes(line.lineNumber),
+                        onChange: (line, _index, checked) => setSelected((current) => checked ? [...current, line.lineNumber] : current.filter((number) => number !== line.lineNumber)),
+                        onChangeAll: (checked) => setSelected(checked ? lines.map((line) => line.lineNumber) : []),
+                    }}
+                    columns={[
+                        { key: 'lineNumber', title: '№', type: 'number', size: { minimum: 3 }, value: (line) => line.lineNumber },
+                        { key: 'code', title: 'Код', type: 'string', size: goodsColumnSizes['code'], value: (line) => line.code },
+                        { key: 'name', title: 'Название', type: 'string', size: goodsColumnSizes['name'], value: (line) => line.name },
+                        { key: 'comment', title: 'Комментарий', type: 'string', size: goodsColumnSizes['comment'], value: (line) => line.comment },
+                    ]}
+                    // В окне код стоит над названием, как в таблице товаров отвеса на узком месте.
+                    layouts={{ sm: ['lineNumber', ['code', 'name'], 'comment'] }}
+                    emptyText="Товаров в отвесе нет"
+                />
+            </BreakpointContainer>
         </Modal>
     );
 }

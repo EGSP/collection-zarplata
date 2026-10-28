@@ -2,6 +2,7 @@ import { ComputedValues } from './computed-values';
 import { TablePart } from './table-part';
 import { useFieldTraversal, fieldAttribute } from './field-traversal';
 import { Form, Modal } from 'antd';
+import { BreakpointContainer } from '../ds/breakpoints';
 import { useState } from 'react';
 import type { FormAction } from '../../../server/ui/descriptions';
 import { ApiError } from '../../common/api';
@@ -69,6 +70,7 @@ export function ActionDialog({ action, dateLimits, onExecute, onClose }: ActionD
         >
             {/* Окно ведёт собственный ввод: недоступность формы продажи не должна наследоваться
                 его полями. Во время выполнения запроса блокируется уже сам ввод окна. */}
+            <BreakpointContainer of="fixed" point="sm">
             <Form form={form} disabled={executing} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])) }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
                 <ComputedValues view={{ fields: action.input, tableParts: parts }} />
                 {action.input.map((field) => {
@@ -91,6 +93,7 @@ export function ActionDialog({ action, dateLimits, onExecute, onClose }: ActionD
                 })}
                 {parts.map((part) => <div key={part.name} {...{ [fieldAttribute]: part.name }}><TablePart part={part} ref={traversal.register(part.name)} onPrevious={() => traversal.previous(part.name)} disabled={executing} /></div>)}
             </Form>
+            </BreakpointContainer>
         </Modal>
     );
 }
