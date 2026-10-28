@@ -2,7 +2,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { Flex, theme, Typography } from 'antd';
 import { type ComponentType, createContext, useContext } from 'react';
 import type { ModuleKind } from '../../common/modules-graph';
-import { Icons } from '../sdk/icons';
+import { Icons } from '../sdk/ds/icons';
 import { dependentsColor, dependentsTextColor, moduleKindTitles, moduleShapeStyle, plural } from './appearance';
 import type { Emphasis, ModuleView } from './graph-model';
 

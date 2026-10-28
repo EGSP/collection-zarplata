@@ -2,7 +2,7 @@ import { useLogout } from '@refinedev/core';
 import { App, Button, Flex, Layout, Result, theme, Typography } from 'antd';
 import { Pending } from '../common/pending';
 import { useMetadata } from '../data-provider/metadata';
-import { Icons } from '../sdk/icons';
+import { Icons } from '../sdk/ds/icons';
 import { TabPages } from '../tabs/tab-pages';
 import { TabStrip } from '../tabs/tab-strip';
 import { useWindowTabs } from '../tabs/window-tabs';

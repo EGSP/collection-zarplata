@@ -52,8 +52,8 @@ function AvailableSales() {
     });
     const details = useRecords(sales, list.records.map((sale) => sale.guid));
     return (
-        // Фид уже блока рассрочек, чем был: товары обрезаются многоточием, а ФИО и долгам нужно место.
-        <Card size="small" title="Последние продажи" style={{ flex: 1.5, minWidth: 280 }}>
+        // Ширину карточки задаёт колонка страницы; товары, не поместившиеся в строку, обрезаются многоточием.
+        <Card size="small" title="Последние продажи">
             {list.error !== null ? (
                 <Alert type="error" showIcon title="Не удалось прочитать продажи" description={list.error.message} />
             ) : list.records.length === 0 ? (

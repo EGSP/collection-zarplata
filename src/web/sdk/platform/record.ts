@@ -1,8 +1,8 @@
 import { useMany, useOne } from '@refinedev/core';
 import { useCallback, useMemo } from 'react';
-import type { ApiError } from '../common/api';
-import { resourceName } from '../data-provider/perform';
-import { recordGuid, type RecordData } from '../data-provider/records';
+import type { ApiError } from '../../common/api';
+import { resourceName } from '../../data-provider/perform';
+import { recordGuid, type RecordData } from '../../data-provider/records';
 import type { ReadObject } from './object-reference';
 
 /** Запись справочника или документа типа `Record`, прочитанная по `guid`, и состояние её чтения. */

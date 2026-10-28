@@ -5,7 +5,7 @@ import ruRU from 'antd/locale/ru_RU';
 import { useMemo } from 'react';
 import { BrowserRouter } from 'react-router';
 import { configurationShellGroups } from '../../configuration/shell-groups';
-import { ShellGroupsProvider } from '../sdk/shell-group-content';
+import { ShellGroupsProvider } from '../sdk/platform/shell-group-content';
 import { createAuthenticationProvider } from '../authentication/authentication-provider';
 import { LoginPage } from '../authentication/login-page';
 import { Pending } from '../common/pending';

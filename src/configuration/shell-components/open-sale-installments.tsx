@@ -115,8 +115,9 @@ function AvailableSaleInstallments() {
     const minimum = Math.min(...debts);
     const maximum = Math.max(...debts);
     return (
-        // Блок шире отвесов: в строке ФИО и сумма, и при узком блоке ФИО обрезалось бы.
-        <Card size="small" title="Рассрочки по продажам" style={{ flex: 1.5, minWidth: 320 }}>
+        // Ширину карточки задаёт колонка страницы: рабочее место даёт ей больше места, чем отвесам,
+        // потому что в строке стоят ФИО и сумма.
+        <Card size="small" title="Рассрочки по продажам">
             {list.error !== null ? (
                 <Alert type="error" showIcon title="Не удалось прочитать документы" description={list.error.message} />
             ) : list.records.length === 0 ? (

@@ -1,6 +1,6 @@
 import { Input } from 'antd';
 import { useEffect, useRef, useState } from 'react';
-import { useDebounced } from '../common/debounced';
+import { useDebounced } from '../../common/debounced';
 
 /** Задержка поиска после ввода, в миллисекундах: запрос уходит, когда пользователь перестал печатать. */
 const searchDelay = 300;

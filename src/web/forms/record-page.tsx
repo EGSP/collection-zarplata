@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router';
 import { NotFoundPage } from '../common/not-found';
 import { newRecordSegment } from '../common/paths';
 import { objectPath, useObjectView } from '../sdk';
-import { draftValues } from '../sdk/open-record';
+import { draftValues } from '../sdk/platform/open-record';
 import { ExistingRecordForm } from './existing-record-form';
 import { ObjectRecordForm } from './object-forms';
 import { Pending } from '../common/pending';

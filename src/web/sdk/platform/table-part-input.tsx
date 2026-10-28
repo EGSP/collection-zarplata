@@ -4,9 +4,9 @@
  */
 import { Form } from 'antd';
 import type { ComponentType, Ref } from 'react';
-import type { FormTablePart } from '../../server/ui/descriptions';
-import type { InputHandle } from '../widgets/widget';
-import { validationMessage } from '../widgets/validation';
+import type { FormTablePart } from '../../../server/ui/descriptions';
+import type { InputHandle } from '../../widgets/widget';
+import { validationMessage } from '../../widgets/validation';
 import { TablePart, TablePartTitle, type TablePartOptions } from './table-part';
 import { useFormElement } from './form-data';
 

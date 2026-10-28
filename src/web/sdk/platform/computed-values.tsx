@@ -1,7 +1,7 @@
 import { Form } from 'antd';
 import { useLayoutEffect, useRef } from 'react';
-import { computeFields } from '../../common/formulas';
-import type { FormView } from '../../server/ui/descriptions';
+import { computeFields } from '../../../common/formulas';
+import type { FormView } from '../../../server/ui/descriptions';
 
 /** Пересчитывает формулы при пользовательском вводе и при изменении строк через SDK. */
 export function ComputedValues({ view, saved }: { readonly view: Pick<FormView, 'fields' | 'tableParts'>; readonly saved?: Readonly<Record<string, unknown>> | null }) {

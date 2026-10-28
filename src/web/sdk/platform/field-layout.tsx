@@ -15,7 +15,7 @@
  */
 import { Space, Typography } from 'antd';
 import type { ComponentType, ReactNode } from 'react';
-import type { InputProperties } from '../widgets/widget';
+import type { InputProperties } from '../../widgets/widget';
 
 /** Компоновка поля: `stacked` — подпись над полем, `fluid` — подпись в сегменте перед значением. */
 export type FieldLayout = 'stacked' | 'fluid';

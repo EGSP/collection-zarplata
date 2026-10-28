@@ -1,10 +1,10 @@
 import { Button, Flex, Input, Select } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FilterOperator, ListFilter } from '../../server/ui/descriptions';
-import { useDebounced } from '../common/debounced';
-import type { ListCondition } from '../data-provider/data-provider';
-import { FieldInput, hasInput } from '../widgets/registry';
-import { Icons } from './icons';
+import type { FilterOperator, ListFilter } from '../../../server/ui/descriptions';
+import { useDebounced } from '../../common/debounced';
+import type { ListCondition } from '../../data-provider/data-provider';
+import { FieldInput, hasInput } from '../../widgets/registry';
+import { Icons } from '../ds/icons';
 
 /** Названия способов сравнения для пользователя. */
 const operatorTitles: { readonly [Operator in FilterOperator]: string } = {

@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import type { ModulesGraph } from '../../common/modules-graph';
 import { ApiError, request } from '../common/api';
 import { Pending } from '../common/pending';
-import { Icons } from '../sdk/icons';
+import { Icons } from '../sdk/ds/icons';
 import { DetailsPanel, type PinnedFocus } from './details-panel';
 import { GraphCanvas } from './graph-canvas';
 import { buildGraphView, emphasisOf, type Focus, type Selection } from './graph-model';

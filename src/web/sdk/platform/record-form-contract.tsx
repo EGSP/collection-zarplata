@@ -17,10 +17,10 @@
  * собственной и стандартной форм в области окна одинаково.
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import type { FormAction } from '../../server/ui/descriptions';
-import type { PerformTarget } from '../data-provider/perform';
-import { recordGuid, type RecordData } from '../data-provider/records';
-import { UnsavedChangesContext, useWindowScope } from '../window/window-scope';
+import type { FormAction } from '../../../server/ui/descriptions';
+import type { PerformTarget } from '../../data-provider/perform';
+import { recordGuid, type RecordData } from '../../data-provider/records';
+import { UnsavedChangesContext, useWindowScope } from '../../window/window-scope';
 import type { FormElementComponent } from './form-data';
 import type { FormValues } from './record-values';
 

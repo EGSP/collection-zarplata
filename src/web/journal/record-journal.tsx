@@ -12,7 +12,7 @@ import { useRecordPresentation } from '../references/presentation';
 import { RecordLink } from '../references/reference-display';
 import { FieldDisplay } from '../widgets/registry';
 import { useWindowScope } from '../window/window-scope';
-import { useActionConfirmation } from '../sdk/action-confirmation';
+import { useActionConfirmation } from '../sdk/platform/action-confirmation';
 
 interface HistoryPage {
     readonly items: readonly JournalEntry[];

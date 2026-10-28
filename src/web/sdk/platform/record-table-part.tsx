@@ -1,12 +1,12 @@
 import { Alert, Table, theme } from 'antd';
 import { useMany } from '@refinedev/core';
-import type { ApiError } from '../common/api';
-import type { FormTablePart } from '../../server/ui/descriptions';
-import { useObjectView } from '../data-provider/metadata';
-import type { RecordData } from '../data-provider/records';
-import { FieldDisplay } from '../widgets/registry';
+import type { ApiError } from '../../common/api';
+import type { FormTablePart } from '../../../server/ui/descriptions';
+import { useObjectView } from '../../data-provider/metadata';
+import type { RecordData } from '../../data-provider/records';
+import { FieldDisplay } from '../../widgets/registry';
 import type { ReadObject } from './object-reference';
-import { resourceName } from '../data-provider/perform';
+import { resourceName } from '../../data-provider/perform';
 
 /**
  * Отметка строк просмотра флажками. Отметки хранит вызывающий экран: просмотр только показывает

@@ -1,7 +1,8 @@
 import { Flex, Typography } from 'antd';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useWindowFrame, useWindowTitle } from '../window/window-scope';
+import { useWindowFrame, useWindowTitle } from '../../window/window-scope';
+import { layoutClasses, type PageModel } from '../ds/layout';
 
 /** Свойства каркаса страницы. */
 export interface PageProperties {
@@ -16,19 +17,27 @@ export interface PageProperties {
     readonly marks?: ReactNode;
     /** Кнопки действий. */
     readonly actions?: ReactNode;
+    /**
+     * Модель ширины страницы из Carbon. `high-density` (по умолчанию) занимает всю ширину области:
+     * спискам, таблицам и рабочим местам полезно всё место. `product` ограничивает ширину точкой
+     * `max` сетки (1584 px) и прижимает страницу влево; так выводятся формы записей.
+     * В модальном окне ширину задаёт окно, и модель не действует.
+     */
+    readonly model?: PageModel | undefined;
     readonly children?: ReactNode;
 }
 
 /**
  * Каркас страницы: заголовок с отметками состояния, кнопки действий и содержимое.
  * Страница сообщает свой заголовок ближайшей области окна, поэтому каркас выводится только
- * на странице, показанной в области окна. Раскладку содержимого экран задаёт сам компонентами Ant Design.
+ * на странице, показанной в области окна. Раскладку содержимого экран задаёт сам: сеткой, колонками
+ * и стеком из слоя `ds`.
  *
  * Где стоят заголовок и кнопки, зависит от области. Во вкладке они выводятся над содержимым.
  * У модального окна есть рамка, и каркас выводит заголовок с отметками в шапку окна, а кнопки
  * в его нижнюю часть: иначе у окна было бы два заголовка, а кнопки уезжали бы при прокрутке формы.
  */
-export function Page({ title, windowTitle = title, marks, actions, children }: PageProperties) {
+export function Page({ title, windowTitle = title, marks, actions, model = 'high-density', children }: PageProperties) {
     useWindowTitle(windowTitle);
     const frame = useWindowFrame();
     if (frame !== null) {
@@ -57,7 +66,7 @@ export function Page({ title, windowTitle = title, marks, actions, children }: P
         );
     }
     return (
-        <Flex vertical gap="middle">
+        <Flex vertical gap="middle" {...(model === 'product' ? { className: layoutClasses.productPage } : {})}>
             <Flex justify="space-between" align="flex-start" gap="middle" wrap>
                 <Flex vertical gap="small">
                     <Typography.Title level={3} style={{ margin: 0 }}>

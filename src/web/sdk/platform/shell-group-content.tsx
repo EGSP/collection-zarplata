@@ -1,7 +1,8 @@
 /** Отрисовка клиентских групп из заранее объявленного дерева конфигурации. */
-import { Col, Flex, Row, theme, type ColProps } from 'antd';
+import { Flex } from 'antd';
 import { createContext, useContext, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
-import { findObjectView, useMetadata } from '../data-provider/metadata';
+import { findObjectView, useMetadata } from '../../data-provider/metadata';
+import { Column, Grid, type ColumnCount } from '../ds/grid';
 import type { ShellGroup, ShellGroupEntry } from './shell-groups';
 
 const ShellGroupsContext = createContext<ReadonlyArray<ShellGroupEntry>>([]);
@@ -20,7 +21,6 @@ export function ShellGroupsProvider({ entries, children }: { readonly entries: R
 export function ShellGroupContent({ group, onContent }: { readonly group: ShellGroup; readonly onContent?: (visible: boolean) => void }) {
     const entries = useContext(ShellGroupsContext);
     const metadata = useMetadata().data;
-    const { token } = theme.useToken();
     const container = useRef<HTMLDivElement>(null);
     const [visible, setVisible] = useState(false);
     useLayoutEffect(() => {
@@ -40,7 +40,7 @@ export function ShellGroupContent({ group, onContent }: { readonly group: ShellG
         if (!('component' in content)) {
             const nested = <ShellGroupContent key={index} group={content} />;
             // Вложенная группа в сетке занимает всю строку: у неё своя раскладка.
-            return group.orientation === 'grid' ? <Col key={index} span={24}>{nested}</Col> : nested;
+            return group.orientation === 'grid' ? <Column key={index}>{nested}</Column> : nested;
         }
         if (content.requiredObjects?.some((object) => findObjectView(metadata, object) === undefined)) return null;
         return group.orientation === 'grid'
@@ -49,9 +49,9 @@ export function ShellGroupContent({ group, onContent }: { readonly group: ShellG
     });
     if (group.orientation === 'grid') {
         return (
-            <Row ref={container} data-shell-group={group.name} gutter={[token.margin, token.margin]} style={{ display: visible ? undefined : 'none' }}>
-                {contents}
-            </Row>
+            <div ref={container} data-shell-group={group.name} hidden={!visible}>
+                <Grid>{contents}</Grid>
+            </div>
         );
     }
     return (
@@ -62,10 +62,10 @@ export function ShellGroupContent({ group, onContent }: { readonly group: ShellG
 }
 
 /**
- * Ширина ячейки сетки по ширине окна, в долях из 24 колонок Ant Design: на телефоне ячейка
- * на всю строку, на широком экране четыре ячейки в строке.
+ * Ширина ячейки сетки в колонках: на узком контейнере ячейка на всю строку, на среднем
+ * две ячейки в строке, начиная с `lg` — четыре.
  */
-const gridCellSpans: ColProps = { xs: 24, sm: 12, lg: 8, xxl: 6 };
+const gridCellSpan: ColumnCount = { md: 4 };
 
 /**
  * Ячейка сетки с компонентом. Компонент может вернуть `null`, и тогда ячейка скрывается:
@@ -84,10 +84,10 @@ function GridCell({ component: Component }: { readonly component: ComponentType 
         return () => observer.disconnect();
     }, []);
     return (
-        <Col {...gridCellSpans} style={{ display: empty ? 'none' : undefined }}>
+        <Column span={gridCellSpan} hidden={empty}>
             <div ref={content} data-shell-component>
                 <Component />
             </div>
-        </Col>
+        </Column>
     );
 }

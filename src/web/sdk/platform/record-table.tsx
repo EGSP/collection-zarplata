@@ -1,18 +1,18 @@
 import { Switch, Button, Dropdown, Flex, Table, theme, type TableProps } from 'antd';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import type { ListColumn, ObjectView } from '../../server/ui/descriptions';
-import { compositeReference } from '../../server/metadata/composite';
+import type { ListColumn, ObjectView } from '../../../server/ui/descriptions';
+import { compositeReference } from '../../../server/metadata/composite';
 import { useSearchParams } from 'react-router';
 import { RecordTablePart } from './record-table-part';
-import { recordPath } from '../common/paths';
-import { useAction } from '../data-provider/actions';
-import { useObjectView } from '../data-provider/metadata';
-import { recordGuid, type RecordData } from '../data-provider/records';
-import { ListPresentationsContext } from '../references/presentation';
-import { FieldDisplay } from '../widgets/registry';
+import { recordPath } from '../../common/paths';
+import { useAction } from '../../data-provider/actions';
+import { useObjectView } from '../../data-provider/metadata';
+import { recordGuid, type RecordData } from '../../data-provider/records';
+import { ListPresentationsContext } from '../../references/presentation';
+import { FieldDisplay } from '../../widgets/registry';
 import { actionSuccessMessage } from './action-button';
-import { Icons } from './icons';
+import { Icons } from '../ds/icons';
 import type { FieldName, ListedObject } from './object-reference';
 import type { RecordList } from './record-list';
 

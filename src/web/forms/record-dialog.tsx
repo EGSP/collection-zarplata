@@ -20,7 +20,7 @@ import { Button, Modal, theme } from 'antd';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NotFoundPage } from '../common/not-found';
 import { useObjectView, useWindowScope, type FormValues, type PerformTarget } from '../sdk';
-import { RecordDialogContext, type OpenRecordDialog } from '../sdk/open-record';
+import { RecordDialogContext, type OpenRecordDialog } from '../sdk/platform/open-record';
 import { WindowScopeProvider } from '../window/window-scope';
 import { ExistingRecordForm } from './existing-record-form';
 import { ObjectRecordForm } from './object-forms';

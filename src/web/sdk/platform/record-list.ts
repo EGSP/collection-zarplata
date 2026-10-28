@@ -12,12 +12,12 @@
  */
 import { useTable, type CrudFilter } from '@refinedev/core';
 import { useCallback, useMemo } from 'react';
-import type { ListSort } from '../../server/ui/descriptions';
-import type { ReferencePresentations } from '../../server/ui/reference-presentation';
-import type { ApiError } from '../common/api';
-import { crudFilters, crudSort, listConditions, listOrder, searchFilters, searchOf, withoutSearch, type ListCondition } from '../data-provider/data-provider';
-import { resourceName } from '../data-provider/perform';
-import type { RecordData } from '../data-provider/records';
+import type { ListSort } from '../../../server/ui/descriptions';
+import type { ReferencePresentations } from '../../../server/ui/reference-presentation';
+import type { ApiError } from '../../common/api';
+import { crudFilters, crudSort, listConditions, listOrder, searchFilters, searchOf, withoutSearch, type ListCondition } from '../../data-provider/data-provider';
+import { resourceName } from '../../data-provider/perform';
+import type { RecordData } from '../../data-provider/records';
 import type { ListedObject, RecordCondition, RecordSort } from './object-reference';
 
 /** Размер страницы списка, если экран не задал свой. */

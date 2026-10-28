@@ -1,5 +1,5 @@
 import { Tabs, theme, Tooltip } from 'antd';
-import { Icons } from '../sdk/icons';
+import { Icons } from '../sdk/ds/icons';
 import { useWindowTabs } from './window-tabs';
 
 /** Ключ вкладки главного экрана в полосе. Номера остальных вкладок числовые и с ним не совпадают. */

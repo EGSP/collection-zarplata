@@ -12,11 +12,11 @@
  * берутся импортом только типа, а вид и имя ссылки получаются из пути обращения
  * `Objects.document.sample`, который компилятор сверяет с билдерами.
  */
-import type { FilterOperator, ListSort } from '../../server/ui/descriptions';
-import type { ListCondition } from '../data-provider/data-provider';
-import type { PerformTarget } from '../data-provider/perform';
-export { objectReferences } from '../../common/object-reference';
-export type { ObjectReference, ObjectReferenceOf, ObjectReferences } from '../../common/object-reference';
+import type { FilterOperator, ListSort } from '../../../server/ui/descriptions';
+import type { ListCondition } from '../../data-provider/data-provider';
+import type { PerformTarget } from '../../data-provider/perform';
+export { objectReferences } from '../../../common/object-reference';
+export type { ObjectReference, ObjectReferenceOf, ObjectReferences } from '../../../common/object-reference';
 
 /**
  * Объект, строки списка которого имеют тип `Row`. Подходит и ссылка на объект, и описание

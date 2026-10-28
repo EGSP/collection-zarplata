@@ -5,8 +5,8 @@
  */
 import { Button, Flex, Modal, Typography, theme } from 'antd';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { ActionConfirmation, FormAction } from '../../server/ui/descriptions';
-import { Icons } from './icons';
+import type { ActionConfirmation, FormAction } from '../../../server/ui/descriptions';
+import { Icons } from '../ds/icons';
 
 /** Свойства окна подтверждения. */
 export interface ActionConfirmationDialogProperties {

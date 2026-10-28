@@ -7,7 +7,7 @@ import type { ObjectReferenceValue } from '../../server/metadata/descriptions';
 import { useObjectView } from '../data-provider/metadata';
 import type { DisplayProperties, FieldValues } from '../widgets/widget';
 import { noAccessText, useReferencePresentation } from './presentation';
-import { useOpenRecord } from '../sdk/open-record';
+import { useOpenRecord } from '../sdk/platform/open-record';
 import type { ReactNode } from 'react';
 
 /** Отображение ссылки: представление записи, которое открывает её форму. */

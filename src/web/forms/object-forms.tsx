@@ -17,7 +17,7 @@ import type { ObjectFormKind } from '../../server/metadata/object-forms';
 import type { PerformTarget } from '../data-provider/perform';
 import { ObjectList } from '../lists/object-list';
 import { StandardRecordForm, type FormPresentation, type FormValues, type FormView, type ObjectView, type RecordData } from '../sdk';
-import { RecordFormHostContext, type RecordFormHostValue } from '../sdk/record-form-contract';
+import { RecordFormHostContext, type RecordFormHostValue } from '../sdk/platform/record-form-contract';
 import { formElementComponent } from './form-elements';
 import type { ObjectFormPropertiesByKind } from './object-form-module';
 
