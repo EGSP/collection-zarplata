@@ -132,14 +132,21 @@ const classes = {
     cell: 'data-table-cell',
     expanded: 'data-table-expanded',
     empty: 'data-table-empty',
+    input: 'data-table-input',
 } as const;
+
+/**
+ * Класс поля ввода ячейки. Поле ставится прямо в ячейку и само несёт её внутренний отступ:
+ * щелчок в любом месте ячейки попадает в поле, а текст стоит там же, где заголовок.
+ */
+export const dataTableInputClass = classes.input;
 
 /**
  * Правила таблицы. Цвета и размеры приходят CSS-переменными с корневого элемента: так правила
  * общие для всех таблиц, а тема Ant Design задаёт значения при отрисовке.
  */
 function dataTableStyleSheet(): string {
-    const { frame, scroll, body, row, header, group, cell, expanded, empty } = classes;
+    const { frame, scroll, body, row, header, group, cell, expanded, empty, input } = classes;
     return [
         `.${frame} { position: relative; }`,
         `.${scroll} { overflow-x: auto; }`,
@@ -149,22 +156,36 @@ function dataTableStyleSheet(): string {
         // Полужирный шрифт задаётся ячейкам, а не строке: минимумы колонок в `ch` считаются по шрифту
         // строки, и у полужирной строки заголовка колонки вышли бы шире, чем у строк данных.
         `.${header} { background: var(--data-table-header-background); }`,
+        // Разделители. Строки таблицы разделены сплошной линией, поля составной колонки внутри
+        // строки — пунктиром светлее: так видно, что поля под пунктиром относятся к той же строке.
+        // У таблицы с составными колонками граница строк темнее, а строки чередуют фон (zebra
+        // у Carbon): строка в две подстроки читается одним блоком даже при беглом взгляде.
+        `.${frame}[data-stacked] .${row} { border-bottom-color: var(--data-table-row-border); }`,
+        `.${row}[data-striped] { background: var(--data-table-stripe); }`,
         `.${header} .${cell}, .${row}[data-summary] .${cell} { font-weight: var(--data-table-header-weight); }`,
         `.${body} > .${row}:not(.${header})[data-clickable] { cursor: pointer; }`,
         `.${body} > .${row}:not(.${header}):not([data-state="locked"]):hover { background: var(--data-table-hover); }`,
         `.${row}[data-selected] { background: var(--data-table-selected); }`,
         `.${row}[data-state="muted"] { color: var(--data-table-muted); }`,
         `.${row}[data-state="locked"] { background: var(--data-table-locked-background); color: var(--data-table-locked-text); }`,
-        `.${group} { display: flex; flex-direction: column; justify-content: center; min-width: 0; }`,
+        `.${group} { display: flex; flex-direction: column; min-width: 0; }`,
         // Длинное значение переносится, а не обрезается: таблица показывает значение целиком.
         `.${cell} { display: flex; align-items: center; gap: ${spacing[3]}px; min-width: 0; min-height: var(--data-table-row-height); padding-inline: var(--data-table-cell-padding); overflow-wrap: anywhere; }`,
+        // Ячейка занимает всю высоту своей доли строки: у обычной колонки рядом с составной
+        // рамка фокуса и щелчок охватывают строку целиком, а поля составной колонки делят свободное место поровну.
+        `.${group} > .${cell} { flex: 1 1 auto; }`,
         `.${group}[data-stacked] > .${cell} { min-height: var(--data-table-stacked-height); }`,
+        `.${group}[data-stacked] > .${cell} + .${cell} { border-top: 1px dashed var(--data-table-subrow-border); }`,
         `.${cell}[data-align="end"] { justify-content: flex-end; text-align: right; font-variant-numeric: tabular-nums; }`,
         `.${cell}[data-align="end"] input { text-align: right; }`,
         `.${cell}[data-control] { justify-content: center; padding: 0; }`,
         `.${cell}[data-sortable] { cursor: pointer; user-select: none; }`,
         `.${cell}:focus-within, .${cell}:focus-visible { outline: 2px solid var(--data-table-focus); outline-offset: -2px; }`,
         `.${cell}:has([data-cell-state="editing"]) { background: var(--data-table-editing-background); }`,
+        // Собственное поле ячейки занимает её целиком: отступ ячейки переходит внутрь поля.
+        `.${cell}:has(> [data-cell-editor="native"]) { padding-inline: 0; }`,
+        `.${cell} > [data-cell-editor="native"] > .${input} { align-self: stretch; box-sizing: border-box; width: 100%; height: 100%; margin: 0; padding: 0 var(--data-table-cell-padding); border: 0; outline: none; background: transparent; color: inherit; font: inherit; text-align: inherit; }`,
+        `.${cell} > [data-cell-editor="native"] > .${input} + * { margin-inline-end: var(--data-table-cell-padding); }`,
         `.${cell}:has([data-cell-invalid]) { outline: 2px solid var(--data-table-error); outline-offset: -2px; }`,
         // Содержимое ячейки с двумя режимами занимает её целиком: щелчок в любом месте ячейки
         // попадает в него, а рамку фокуса рисует сама ячейка.
@@ -216,6 +237,8 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     const byKey = new Map(columns.map((column) => [column.key, column]));
     const groups = columnGroups(columns.map((column) => column.key), tableLayoutAt(layouts, point))
         .map((keys) => keys.map((key) => byKey.get(key)!));
+    // Таблица с составными колонками разделяет строки заметнее и чередует их фон.
+    const stacked = groups.some((group) => group.length > 1);
     // Служебные колонки стоят перед колонками данных: раскрытие строки, затем выбор.
     const tracks = [
         ...(expansion === undefined ? [] : [columnTrack('control')]),
@@ -228,6 +251,9 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         '--data-table-stacked-height': `${stackedHeight}px`,
         '--data-table-cell-padding': `${cellPadding}px`,
         '--data-table-border': token.colorBorderSecondary,
+        '--data-table-row-border': token.colorTextQuaternary,
+        '--data-table-subrow-border': token.colorBorder,
+        '--data-table-stripe': token.colorFillQuaternary,
         '--data-table-header-background': layer.backgroundStrong,
         '--data-table-header-weight': String(token.fontWeightStrong),
         '--data-table-hover': token.controlItemBgHover,
@@ -319,6 +345,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                 <div
                     role="row"
                     className={classes.row}
+                    {...(stacked && index % 2 === 1 ? { 'data-striped': true } : {})}
                     {...(selected ? { 'data-selected': true, 'aria-selected': true } : {})}
                     {...(state === undefined ? {} : { 'data-state': state })}
                     {...(onRowClick === undefined ? {} : { 'data-clickable': true, onClick: (event: MouseEvent) => { if (!fromControl(event)) onRowClick(row, index); } })}
@@ -378,7 +405,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
 
     return (
         <Spin spinning={loading}>
-            <div ref={frame} className={classes.frame} style={variables}>
+            <div ref={frame} className={classes.frame} style={variables} {...(stacked ? { 'data-stacked': true } : {})}>
                 <div ref={scroller} className={classes.scroll}>
                     <div className={classes.body} role={interactive ? 'grid' : 'table'}>
                         {header}

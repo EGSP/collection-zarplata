@@ -14,9 +14,11 @@
  * Tab или щелчок вне ячейки     → значение остаётся, ячейка возвращается к просмотру
  * ```
  *
- * Поле в режиме редактирования без рамки и горизонтального отступа: значение стоит на той же
- * вертикали, что заголовок колонки, и не сдвигается при входе в редактирование. Рамку фокуса
- * и фон поля рисует ячейка таблицы (`DataTable`).
+ * Строку, число и сумму ячейка редактирует собственным полем (`cell-editors.tsx`): обычный
+ * `input` занимает ячейку целиком и несёт её отступ, поэтому текст не сдвигается при входе
+ * в редактирование, а рамку фокуса и фон поля рисует только ячейка (`DataTable`). Ввод,
+ * начатый с символа, заменяет прежнее значение; щелчок, Enter и F2 ставят каретку в конец.
+ * Виды со списком или календарём редактируются виджетом реестра без рамки и отступа.
  *
  * Флажок и собственное поле колонки (`columnInputs`) режимов не имеют: такой элемент сам служит
  * и показом, и вводом, как переключатель «Да» / «Нет».
@@ -32,6 +34,7 @@ import type { FormField } from '../../../server/ui/descriptions';
 import { FieldDisplay, FieldInput } from '../../widgets/registry';
 import type { InputHandle, InputProperties } from '../../widgets/widget';
 import { Icons } from '../ds/icons';
+import { cellEditor, type CellEditorHandle } from './cell-editors';
 
 /** Свойства ячейки. `value`, `onChange` и `id` передаёт `Form.Item`. */
 export interface TableCellProperties {
@@ -70,6 +73,9 @@ export function TableCell({ name, field, input: CustomInput, value, onChange, id
     const element = useRef<HTMLDivElement>(null);
     const display = useRef<HTMLDivElement>(null);
     const control = useRef<InputHandle>(null);
+    const editor = useRef<CellEditorHandle>(null);
+    // Ввод начат с символа: собственное поле выделяет прежний текст, и символ его заменяет.
+    const startedByTyping = useRef(false);
     // Значение до начала редактирования: к нему Escape возвращает ячейку. Запоминается при входе
     // в редактирование, кто бы его ни начал: щелчок по ячейке или переход клавишей Enter из соседней.
     const initial = useRef<unknown>(undefined);
@@ -79,16 +85,23 @@ export function TableCell({ name, field, input: CustomInput, value, onChange, id
     // Фокус вернётся к значению после выхода из редактирования клавишей, а не щелчком в другом месте.
     const returnFocus = useRef(false);
     const direct = CustomInput !== undefined || field.kind === 'boolean';
+    const Editor = CustomInput === undefined ? cellEditor(field) : null;
     const invalid = errors.length > 0;
 
     useImperativeHandle(ref, () => ({
-        focus: () => (direct || editing ? control.current?.focus() : display.current?.focus()),
-    }), [direct, editing]);
+        focus: () => {
+            if (editing && Editor !== null) editor.current?.focus(false);
+            else if (direct || editing) control.current?.focus();
+            else display.current?.focus();
+        },
+    }), [direct, editing, Editor]);
 
     // Поле получает фокус сразу после появления, в том же кадре: символ, с которого пользователь
     // начал ввод, попадает уже в него.
     useLayoutEffect(() => {
-        if (editing && !direct) control.current?.focus();
+        if (editing && Editor !== null) editor.current?.focus(startedByTyping.current);
+        else if (editing && !direct) control.current?.focus();
+        startedByTyping.current = false;
         if (!editing && returnFocus.current) {
             returnFocus.current = false;
             display.current?.focus();
@@ -145,10 +158,14 @@ export function TableCell({ name, field, input: CustomInput, value, onChange, id
             onLeave();
         };
         return (
-            <div ref={element} data-cell-name={name} data-cell-state="editing" {...(invalid ? { 'data-cell-invalid': true } : {})} onKeyDown={onKeyDown}>
-                <ConfigProvider variant="borderless" theme={borderless}>
-                    <Input {...inputProperties} />
-                </ConfigProvider>
+            <div ref={element} data-cell-name={name} data-cell-state="editing" {...(Editor === null ? {} : { 'data-cell-editor': 'native' })} {...(invalid ? { 'data-cell-invalid': true } : {})} onKeyDown={onKeyDown}>
+                {Editor !== null
+                    ? <Editor field={field} value={value} onChange={onChange} ref={editor} {...(id === undefined ? {} : { id })} />
+                    : (
+                        <ConfigProvider variant="borderless" theme={borderless}>
+                            <Input {...inputProperties} />
+                        </ConfigProvider>
+                    )}
                 {problem}
             </div>
         );
@@ -168,6 +185,7 @@ export function TableCell({ name, field, input: CustomInput, value, onChange, id
         } else if (event.key.length === 1 && event.key !== ' ' || event.key === 'Backspace') {
             // Поле должно появиться и получить фокус до того, как браузер вставит символ: тогда
             // символ попадёт в поле, и ввод начинается с первой нажатой клавиши, как в электронной таблице.
+            startedByTyping.current = event.key !== 'Backspace';
             flushSync(start);
         }
     };
