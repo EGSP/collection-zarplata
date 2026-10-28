@@ -21,10 +21,10 @@ const installmentMethod = 'Рассрочка';
 const simpleColumns = { amount: { md: 2 }, receiver: { md: 6, lg: 14 } } as const;
 
 /**
- * Ширины колонок таблицы оплат. Способ выбирается кнопками из одних значков, и колонке хватает
- * их ширины; сумме хватает трети прежней ширины, а остальное получает «Куда оплачено».
+ * Размеры колонок таблицы оплат. Способ выбирается кнопками из одних значков, и колонка
+ * не растёт сверх их ширины; сумма получает размер по виду поля, а остаток — «Куда оплачено».
  */
-const columnWidths = { method: 150, amount: 150 };
+const columnSizes = { method: { minimum: 18 } };
 
 /**
  * Поле с подписью над ним. Подпись и ошибки самой части показывает форма. Ширину поле получает
@@ -111,7 +111,7 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
         // У продажи не больше одной оплаты рассрочкой: когда она есть, в остальных строках способ недоступен.
         const installmentTaken = rows.some((payment) => payment.method === installmentMethod);
         const options: TablePartOptions = {
-            columnWidths,
+            columnSizes,
             columnInputs: { method: installmentTaken ? PaymentMethodIconsWithoutInstallment : PaymentMethodIcons },
             addTitle: 'Оплата',
             newRow: () => ({ ...newRowValues(part), amount: rows.length > 0 && remaining > 0 ? remaining : null }),

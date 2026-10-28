@@ -6,7 +6,7 @@
  * экран импортирует только его, а остальные модули `src/web` остаются внутренними и могут меняться.
  *
  * Модули SDK разложены по слоям дизайн-системы: `ds` — основа (сетка, колонка, стек, шкала
- * отступов, иконки, плитка, кнопка, поверхности, текст, смысловые цвета), `derivations` —
+ * отступов, иконки, плитка, кнопка, поверхности, текст, смысловые цвета, таблица данных), `derivations` —
  * компоненты, собранные из `ds`, например кнопка главного действия формы, `external` — компоненты,
  * которые пока не следуют правилам дизайн-системы, `platform` — блоки, которые знают о платформе:
  * данные, права, описания объектов, область окна, фокус. Раскладку экран строит компонентами `ds`;
@@ -46,7 +46,7 @@ export type {
     SortDirection,
     ValidationRules,
 } from '../../server/ui/descriptions';
-export { RecordTablePart, type RecordTablePartProperties, type RecordTableSelection } from './platform/record-table-part';
+export { ReadOnlyTablePart, RecordTablePart, type ReadOnlyTablePartProperties, type RecordTablePartProperties, type RecordTableSelection } from './platform/record-table-part';
 export { useObjectView, usePageView } from '../data-provider/metadata';
 export type { PerformTarget } from '../data-provider/perform';
 
@@ -113,6 +113,11 @@ export { Grid, Column, type GridProperties, type ColumnProperties, type ColumnCo
 export { Stack, type StackProperties } from './ds/stack';
 export { spacing, breakpoints, breakpointWidths, gridColumns, type SpacingStep, type Breakpoint, type GridGutter, type PageModel } from './ds/layout';
 export { BreakpointContainer, useBreakpoint, breakpointAtLeast, type BreakpointContainerProperties } from './ds/breakpoints';
+
+// Таблица данных: колонки по размерам в знаках и долях, составные колонки по точкам перелома.
+export { DataTable, type DataTableColumn, type DataTableExpansion, type DataTableProperties, type DataTableRowState, type DataTableSelection, type DataTableSortDirection } from './ds/data-table';
+export { columnGroups, tableLayoutAt, type ColumnSize, type ControlColumnSize, type TableLayout, type TableLayouts } from './ds/table-layout';
+export { fieldColumnSize, type SizedField } from './platform/column-sizes';
 
 // Иконки по смыслу: добавление, открытие, удаление и прочие; крупные пиктограммы разделов.
 export { Icons, type IconName } from './ds/icons';

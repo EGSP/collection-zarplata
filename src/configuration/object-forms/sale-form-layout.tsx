@@ -1,5 +1,6 @@
 import { Card, Divider, Form } from 'antd';
 import { useEffect, useState } from 'react';
+import { goodsColumnSizes } from './goods-columns';
 import { PostedIn1CSwitch } from './posted-in-1c-switch';
 import { SaleChanges } from './sale-changes';
 import { LinkedSaleInstallments } from './linked-sale-installments';
@@ -8,10 +9,14 @@ import { Objects } from '../objects.generated';
 import { Column, FieldGroup, Grid, Icons, MainActionButton, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, spacing, Stack, type ColumnCount, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
- * Вид таблицы товаров: сначала код, затем название во всех режимах продажи.
- * Код и стоимость короткие, поэтому их колонки вдвое уже, чем досталось бы
- * им в общей раскладке. Остаток ширины делят название и комментарий: названию треть, комментарию
- * две трети, потому что название товара короче комментария к нему. Комментарий стоит последним:
+ * Вид таблицы товаров: сначала код, затем название во всех режимах продажи. Размеры колонок
+ * общие с отвесом и возвратом (`goodsColumnSizes`).
+ *
+ * На узком месте колонки объединяются. Уже `lg`, например в модальном окне, код стоит над
+ * названием, «Проведено в 1С» — под размером, скидка — под стоимостью. На `lg` объединены только
+ * код и название: так таблица на мониторе шириной 1200 px помещается без прокрутки. С `xlg`
+ * колонки идут по одной.
+ * Комментарий стоит последним:
  * его заполняют реже остальных колонок, и при вводе строки он не прерывает путь от названия
  * к стоимости. «Проведено в 1С» выбирается переключателем «Да» / «Нет». Сумма продажи
  * выводится строкой «Итого» под колонкой итогов строк, а не отдельным полем под таблицей.
@@ -19,8 +24,12 @@ import { Column, FieldGroup, Grid, Icons, MainActionButton, recordFormElements, 
  * заполняет форма отвеса, когда открывает продажу из него, а продавцу он не нужен.
  */
 const goodsOptions: TablePartOptions = {
-    columnWidths: { code: 110, size: 100, postedIn1C: 130, cost: 120, discount: 110, total: 120 },
-    columnShares: { name: 1, comment: 1.6 },
+    columnSizes: goodsColumnSizes,
+    layouts: {
+        sm: [['code', 'name'], ['size', 'postedIn1C'], ['cost', 'discount'], 'total', 'comment'],
+        lg: [['code', 'name'], 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
+        xlg: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
+    },
     columnOrder: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
     columnInputs: { postedIn1C: PostedIn1CSwitch },
     addTitle: 'Товар',

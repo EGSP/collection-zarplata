@@ -1,5 +1,14 @@
-import { RecordTablePart, useActionResult, useFormData, useFormValue, type RecordData } from '../../web/sdk';
+import { RecordTablePart, useActionResult, useFormData, useFormValue, type RecordData, type TableLayouts } from '../../web/sdk';
 import { Objects } from '../objects.generated';
+
+/**
+ * Схемы таблицы товаров продажи. Таблица стоит под строкой основания и уже формы, поэтому
+ * колонки объединены так же, как у товаров продажи на узком месте; с `xlg` они идут по одной.
+ */
+const saleGoodsLayouts: TableLayouts = {
+    sm: [['code', 'name'], ['size', 'postedIn1C'], ['cost', 'discount'], 'total', ['comment', 'weighingLine']],
+    xlg: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment', 'weighingLine'],
+};
 
 /** Поля товара, по которым строка возврата признаётся копией строки продажи. */
 const lineKey = (line: RecordData) => JSON.stringify([line.name, line.code, line.size ?? null, line.comment, line.cost, line.discount]);
@@ -72,6 +81,7 @@ export function RefundSaleGoods({ sale }: { readonly sale: string }) {
             object={Objects.document.sale}
             guid={sale}
             part="goods"
+            layouts={saleGoodsLayouts}
             selection={{
                 disabled: form.readOnly,
                 locked: lockedRows,

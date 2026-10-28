@@ -1,10 +1,13 @@
-import { Alert, Table, theme } from 'antd';
+import { Alert } from 'antd';
 import { useMany } from '@refinedev/core';
 import type { ApiError } from '../../common/api';
 import type { FormTablePart } from '../../../server/ui/descriptions';
 import { useObjectView } from '../../data-provider/metadata';
 import type { RecordData } from '../../data-provider/records';
 import { FieldDisplay } from '../../widgets/registry';
+import { DataTable, type DataTableColumn } from '../ds/data-table';
+import type { TableLayouts } from '../ds/table-layout';
+import { fieldColumnSize } from './column-sizes';
 import type { ReadObject } from './object-reference';
 import { resourceName } from '../../data-provider/perform';
 
@@ -36,10 +39,12 @@ export interface RecordTablePartProperties {
     readonly part: string;
     readonly onRowClick?: ((row: RecordData) => void) | undefined;
     readonly selection?: RecordTableSelection | undefined;
+    /** Схемы отображения по точкам перелома, как у `TablePart`. */
+    readonly layouts?: TableLayouts | undefined;
 }
 
 /** Показывает часть только для чтения; одновременные просмотры загружаются общим пакетом get. */
-export function RecordTablePart({ object, guid, part, onRowClick, selection }: RecordTablePartProperties) {
+export function RecordTablePart({ object, guid, part, onRowClick, selection, layouts }: RecordTablePartProperties) {
     const view = useObjectView(object);
     const { query } = useMany<RecordData, ApiError>({
         resource: resourceName(object), ids: [guid],
@@ -50,26 +55,56 @@ export function RecordTablePart({ object, guid, part, onRowClick, selection }: R
     if (query.isError) return <Alert type="error" title="Не удалось прочитать строки" description={query.error.message} />;
     if (description === undefined) return <Alert type="warning" title="Табличная часть недоступна" />;
     const rows = query.data?.data[0]?.[part];
-    return <ReadOnlyTablePart part={description} rows={Array.isArray(rows) ? rows : []} loading={query.isFetching} onRowClick={onRowClick} selection={selection} />;
+    return <ReadOnlyTablePart part={description} rows={Array.isArray(rows) ? rows : []} loading={query.isFetching} onRowClick={onRowClick} selection={selection} layouts={layouts} />;
 }
 
-/** Таблица уже прочитанных строк; колонки совпадают с описанием формы. */
-export function ReadOnlyTablePart({ part, rows, loading = false, onRowClick, selection }: { readonly part: FormTablePart; readonly rows: ReadonlyArray<RecordData>; readonly loading?: boolean; readonly onRowClick?: ((row: RecordData) => void) | undefined; readonly selection?: RecordTableSelection | undefined }) {
-    const { token } = theme.useToken();
+/** Виды полей, значения которых прижимаются к правому краю ячейки, как принято для чисел. */
+const rightAligned: ReadonlySet<string> = new Set(['number', 'money']);
+
+/** Свойства таблицы уже прочитанных строк. */
+export interface ReadOnlyTablePartProperties {
+    readonly part: FormTablePart;
+    readonly rows: ReadonlyArray<RecordData>;
+    readonly loading?: boolean | undefined;
+    readonly onRowClick?: ((row: RecordData) => void) | undefined;
+    readonly selection?: RecordTableSelection | undefined;
+    /** Схемы отображения по точкам перелома, как у `TablePart`. */
+    readonly layouts?: TableLayouts | undefined;
+}
+
+/**
+ * Таблица уже прочитанных строк; колонки совпадают с описанием формы, а их размеры выводятся
+ * из видов полей. Строки сравниваются по номеру: таблица показывает те же объекты, что переданы в `rows`.
+ */
+export function ReadOnlyTablePart({ part, rows, loading = false, onRowClick, selection, layouts }: ReadOnlyTablePartProperties) {
     const locked = new Set(selection?.locked?.(rows) ?? []);
-    return <Table<RecordData> size="small" pagination={false} loading={loading} dataSource={[...rows]} rowKey={(_row, index) => index!}
-        columns={part.columns.map((field) => ({ key: field.name, dataIndex: field.name, title: field.title, render: (value: unknown) => <FieldDisplay field={field} value={value} /> }))}
-        {...(selection === undefined ? {} : { rowSelection: {
-            selectedRowKeys: [...selection.selected(rows)],
-            columnWidth: 48,
-            getCheckboxProps: (row: RecordData) => ({ disabled: selection.disabled === true || locked.has(rows.indexOf(row)) }),
-            // Таблица показывает те же объекты строк, что переданы в `rows`, поэтому номер строки находится по ссылке.
-            onSelectAll: (checked: boolean) => selection.onToggleAll(rows, checked),
-            onSelect: (row: RecordData, checked: boolean) => selection.onToggle(rows, rows.indexOf(row), checked),
-        } })}
-        onRow={(row) => ({
-            ...(onRowClick === undefined ? {} : { onClick: () => onRowClick(row), style: { cursor: 'pointer' } }),
+    const selected = new Set(selection?.selected(rows) ?? []);
+    const columns = part.columns.map((field): DataTableColumn<RecordData> => ({
+        key: field.name,
+        title: field.title,
+        size: fieldColumnSize(field),
+        align: rightAligned.has(field.kind) ? 'end' : 'start',
+        render: (row) => <FieldDisplay field={field} value={row[field.name]} />,
+    }));
+    return (
+        <DataTable<RecordData>
+            columns={columns}
+            rows={rows}
+            rowKey={(_row, index) => index}
+            layouts={layouts}
+            loading={loading}
             // Недоступная для отметки строка залита серым, чтобы отличаться от строк, которые можно отметить.
-            ...(locked.has(rows.indexOf(row)) ? { style: { background: token.colorFillTertiary, color: token.colorTextTertiary } } : {}),
-        })} locale={{ emptyText: 'Строк нет' }} />;
+            rowState={(_row, index) => (locked.has(index) ? 'locked' : undefined)}
+            {...(onRowClick === undefined ? {} : { onRowClick: (row: RecordData) => onRowClick(row) })}
+            {...(selection === undefined ? {} : {
+                selection: {
+                    mode: 'multiple' as const,
+                    isSelected: (_row: RecordData, index: number) => selected.has(index),
+                    isDisabled: (_row: RecordData, index: number) => selection.disabled === true || locked.has(index),
+                    onChange: (_row: RecordData, index: number, checked: boolean) => selection.onToggle(rows, index, checked),
+                    onChangeAll: (checked: boolean) => selection.onToggleAll(rows, checked),
+                },
+            })}
+        />
+    );
 }

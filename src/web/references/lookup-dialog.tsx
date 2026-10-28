@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Alert, Flex, Input, Modal, Table } from 'antd';
+import { Alert, Flex, Input, Modal, Pagination } from 'antd';
 import { useState } from 'react';
 import type { ObjectView } from '../../server/ui/descriptions';
 import { ApiError } from '../common/api';
@@ -7,6 +7,9 @@ import { useDebounced } from '../common/debounced';
 import { perform, resourceName } from '../data-provider/perform';
 import type { RecordData } from '../data-provider/records';
 import { FieldDisplay } from '../widgets/registry';
+import { BreakpointContainer } from '../sdk/ds/breakpoints';
+import { DataTable } from '../sdk/ds/data-table';
+import { fieldColumnSize } from '../sdk/platform/column-sizes';
 
 /** Задержка перед запросом после ввода поиска: строки не запрашиваются на каждую букву. */
 const searchDelay = 300;
@@ -54,6 +57,7 @@ export function LookupDialog({ object, value, onSelect, onClose }: LookupDialogP
     });
     return (
         <Modal open title={`Подбор: ${object.title}`} width={960} footer={null} onCancel={onClose}>
+            <BreakpointContainer of="fixed" point="sm">
             <Flex vertical gap="middle">
                 <Input.Search
                     autoFocus
@@ -66,28 +70,30 @@ export function LookupDialog({ object, value, onSelect, onClose }: LookupDialogP
                     }}
                 />
                 {error !== null && <Alert type="error" showIcon title="Не удалось выполнить подбор" description={error instanceof ApiError ? error.message : String(error)} />}
-                <Table<LookupPage['rows'][number]>
-                    size="small"
-                    rowKey="guid"
+                <DataTable<LookupPage['rows'][number]>
+                    rowKey={(row) => row.guid}
                     loading={isFetching}
-                    dataSource={[...(data?.rows ?? [])]}
+                    rows={data?.rows ?? []}
                     columns={lookup.columns.map((column) => ({
                         key: column.name,
                         title: column.title,
-                        render: (_value: unknown, row: RecordData) => <FieldDisplay field={column} value={row[column.name]} />,
+                        size: fieldColumnSize(column),
+                        align: column.kind === 'money' || column.kind === 'number' ? 'end' : 'start',
+                        render: (row: RecordData) => <FieldDisplay field={column} value={row[column.name]} />,
                     }))}
-                    pagination={{ current: page, pageSize, total: data?.total ?? 0, showSizeChanger: false, onChange: setPage }}
-                    rowClassName={(row) => (row.guid === value ? 'ant-table-row-selected' : '')}
-                    onRow={(row) => ({
-                        style: { cursor: 'pointer' },
-                        onClick: () => {
-                            onSelect(row.guid);
-                            onClose();
-                        },
-                    })}
-                    locale={{ emptyText: isFetching ? 'Загрузка…' : 'Ничего не найдено' }}
+                    // Текущее значение поля отмечено как выбранная строка.
+                    selection={{ mode: 'single', isSelected: (row) => row.guid === value, onChange: (row) => { onSelect(row.guid); onClose(); } }}
+                    onRowClick={(row) => {
+                        onSelect(row.guid);
+                        onClose();
+                    }}
+                    emptyText={isFetching ? 'Загрузка…' : 'Ничего не найдено'}
                 />
+                <Flex justify="flex-end">
+                    <Pagination current={page} pageSize={pageSize} total={data?.total ?? 0} showSizeChanger={false} onChange={setPage} />
+                </Flex>
             </Flex>
+            </BreakpointContainer>
         </Modal>
     );
 }

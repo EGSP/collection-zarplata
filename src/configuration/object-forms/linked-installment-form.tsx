@@ -144,6 +144,6 @@ export function InstallmentPayments({ part, payments, disabled, register, onChan
     }, [rows]);
     return <Form form={form} component={false} disabled={disabled} initialValues={{ payments }}>
         {/* Ширину таблицы взносов задаёт колонка раскладки рассрочки. */}
-        <TablePart part={part} showTitle={false} disabled={disabled} hiddenColumns={['shift']} columnWidths={{ date: 190, method: 160, amount: 150 }} addTitle="Добавить взнос" />
+        <TablePart part={part} showTitle={false} disabled={disabled} hiddenColumns={['shift']} addTitle="Добавить взнос" />
     </Form>;
 }

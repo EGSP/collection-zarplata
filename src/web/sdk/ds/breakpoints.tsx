@@ -6,6 +6,8 @@
  *
  * Точку задаёт ближайший `BreakpointContainer` выше по дереву. Контейнеры ставятся там, где
  * раскладка делится на области: окно браузера в корне приложения и область страницы вкладки.
+ * Модальное окно ничего не измеряет и сразу задаёт точку `sm` (`of="fixed"`): все окна приложения
+ * уже области вкладки, и таблица в окне раскладывается как на узком месте.
  * Компонент не знает, в каком контейнере стоит, и только спрашивает `useBreakpoint()`:
  *
  * ```tsx
@@ -46,16 +48,19 @@ export function breakpointAtLeast(current: Breakpoint, point: Breakpoint): boole
 
 /**
  * Свойства контейнера. `of="window"` измеряет окно браузера и не выводит своего элемента.
- * Без `of` контейнер выводит блок со стилем `style` и измеряет ширину его содержимого без полей,
- * как контейнерный запрос CSS.
+ * `of="fixed"` ничего не измеряет и не выводит элемента: он сразу задаёт точку `point`, например
+ * `sm` для модального окна. Без `of` контейнер выводит блок со стилем `style` и измеряет ширину
+ * его содержимого без полей, как контейнерный запрос CSS.
  */
 export type BreakpointContainerProperties =
     | { readonly of: 'window'; readonly children: ReactNode }
+    | { readonly of: 'fixed'; readonly point: Breakpoint; readonly children: ReactNode }
     | { readonly of?: 'element'; readonly style?: CSSProperties; readonly children: ReactNode };
 
 /** Граница области раскладки: сообщает вложенным компонентам свою точку перелома. */
 export function BreakpointContainer(properties: BreakpointContainerProperties) {
     if (properties.of === 'window') return <WindowContainer>{properties.children}</WindowContainer>;
+    if (properties.of === 'fixed') return <FixedContainer point={properties.point}>{properties.children}</FixedContainer>;
     return <ElementContainer style={properties.style}>{properties.children}</ElementContainer>;
 }
 
@@ -82,6 +87,16 @@ function windowBreakpoint(): Breakpoint {
 function WindowContainer({ children }: { readonly children: ReactNode }) {
     const point = useSyncExternalStore(subscribeToWindow, windowBreakpoint);
     return <BreakpointContext.Provider value={point}>{children}</BreakpointContext.Provider>;
+}
+
+/**
+ * Заданная точка, но не шире точки внешнего контейнера: область внутри не бывает шире той,
+ * в которой стоит. Так окно с точкой `lg` на узком экране всё равно получит узкую точку.
+ */
+function FixedContainer({ point, children }: { readonly point: Breakpoint; readonly children: ReactNode }) {
+    const outer = useContext(BreakpointContext);
+    const narrower = breakpointAtLeast(point, outer) ? outer : point;
+    return <BreakpointContext.Provider value={narrower}>{children}</BreakpointContext.Provider>;
 }
 
 /** Ширина содержимого элемента без полей: по ней же считает контейнерный запрос CSS. */

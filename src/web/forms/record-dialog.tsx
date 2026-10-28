@@ -17,6 +17,7 @@
  * страницу вкладки, и пользователь может перейти на другую вкладку или закрыть эту, не закрывая окна.
  */
 import { Button, Modal, theme } from 'antd';
+import { BreakpointContainer } from '../sdk/ds/breakpoints';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NotFoundPage } from '../common/not-found';
 import { useObjectView, useWindowScope, type FormValues, type PerformTarget } from '../sdk';
@@ -173,7 +174,8 @@ function RecordDialogWindow({ width, onHeader, onFooter, children }: RecordDialo
                 ...(layer === null ? {} : { mask: { position: 'absolute' }, wrapper: { position: 'absolute' } }),
             }}
         >
-            {children}
+            {/* Окно уже области вкладки: таблицы в нём раскладываются как на узком месте. */}
+            <BreakpointContainer of="fixed" point="sm">{children}</BreakpointContainer>
         </Modal>
     );
 }

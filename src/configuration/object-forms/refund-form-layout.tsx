@@ -1,4 +1,5 @@
 import { Card } from 'antd';
+import { goodsColumnSizes } from './goods-columns';
 import { RefundSaleGoods } from './refund-sale-goods';
 import { FieldGroup, Icons, MainActionButton, recordFormElements, RecordFormPage, Stack, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
@@ -26,9 +27,19 @@ const basesOptions: TablePartOptions = {
 /**
  * «Товары на возврат» заполняют флажки у товаров под строками оснований: строки копируются из продаж, а не
  * вводятся вручную. Поэтому строки фиксированы, а все колонки только для чтения.
+ *
+ * Колонки стоят в порядке продажи и с её размерами. Уже `xlg` код стоит над названием, а уже `lg`
+ * объединены ещё размер и «Проведено в 1С», стоимость и скидка, комментарий и продажа.
  */
 const goodsOptions: TablePartOptions = {
     fixedRows: true,
+    columnSizes: goodsColumnSizes,
+    columnOrder: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment', 'sale'],
+    layouts: {
+        sm: [['code', 'name'], ['size', 'postedIn1C'], ['cost', 'discount'], 'total', ['comment', 'sale']],
+        lg: [['code', 'name'], 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment', 'sale'],
+        xlg: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment', 'sale'],
+    },
     readOnlyColumns: ['name', 'code', 'size', 'comment', 'postedIn1C', 'cost', 'discount', 'total', 'sale'],
 };
 
