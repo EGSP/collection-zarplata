@@ -1,11 +1,11 @@
-import { Button, Card, Divider, Form } from 'antd';
+import { Card, Divider, Form } from 'antd';
 import { useEffect, useState } from 'react';
 import { PostedIn1CSwitch } from './posted-in-1c-switch';
 import { SaleChanges } from './sale-changes';
 import { LinkedSaleInstallments } from './linked-sale-installments';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
 import { Objects } from '../objects.generated';
-import { Column, FieldGroup, Grid, Icons, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, spacing, Stack, type ColumnCount, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { Column, FieldGroup, Grid, Icons, MainActionButton, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, spacing, Stack, type ColumnCount, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Вид таблицы товаров: сначала код, затем название во всех режимах продажи.
@@ -40,11 +40,6 @@ const dividerStyle = { marginBlock: spacing[6] };
  */
 const saleButtons: RecordFormButtons = { actions: [], postAndClose: false };
 
-/**
- * Размер кнопки «Продать». Это главное действие продавца у кассы, поэтому кнопка заметно крупнее
- * обычной крупной кнопки Ant Design и сразу находится взглядом под оплатой.
- */
-const sellButtonStyle = { height: 64, paddingInline: 48, fontSize: 20 };
 
 /** Ширины оплат и блока рассрочки в колонках сетки: вместе они занимают строку начиная с `lg`. */
 const paymentSpan: ColumnCount = { lg: 10 };
@@ -237,23 +232,21 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
                         </Grid>
                         <div>
                             {sell !== undefined && (
-                                <Button
+                                <MainActionButton
                                     type="primary"
-                                    size="large"
                                     icon={<Icons.sell />}
-                                    style={sellButtonStyle}
                                     loading={state.running !== null && (state.running === sell.name || state.running === sellWithInstallment?.name)}
                                     disabled={state.running !== null}
                                     // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
                                     onClick={() => runSell().catch(() => undefined)}
                                 >
                                     {withInstallment ? 'Продать + Рассрочка' : 'Продать'}
-                                </Button>
+                                </MainActionButton>
                             )}
                             {changesAvailable && !editing && (
-                                <Button type="primary" size="large" icon={<Icons.edit />} style={sellButtonStyle} disabled={state.running !== null} onClick={() => setEditing(true)}>
+                                <MainActionButton type="primary" icon={<Icons.edit />} disabled={state.running !== null} onClick={() => setEditing(true)}>
                                     Внести изменения
-                                </Button>
+                                </MainActionButton>
                             )}
                         </div>
                     </Stack>

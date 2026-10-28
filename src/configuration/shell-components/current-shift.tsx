@@ -1,5 +1,5 @@
-import { Alert, Button, Card, Flex, Typography } from 'antd';
-import { ActionButton, FieldDisplay, RecordLink, useListControls, useObjectView, useOpenRecord } from '../../web/sdk';
+import { Alert, Button, Flex, Typography } from 'antd';
+import { ActionButton, FieldDisplay, Panel, RecordLink, useListControls, useObjectView, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { employeeCount, useCurrentShift } from './current-shift-state';
 
@@ -31,7 +31,7 @@ export default function CurrentShift() {
 
     const creatable = view?.form?.actions.some((action) => action.name === 'save') === true;
     return (
-        <Card size="small" title="Текущая смена">
+        <Panel title="Текущая смена">
             <Flex justify="space-between" align="center" gap="middle" wrap>
                 {!known ? (
                     <Typography.Text type="secondary">Загрузка…</Typography.Text>
@@ -59,6 +59,6 @@ export default function CurrentShift() {
                     </ActionButton>
                 </Flex>
             </Flex>
-        </Card>
+        </Panel>
     );
 }

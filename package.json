@@ -15,6 +15,7 @@
     "build:docs": "vitepress build docs",
     "docs:dev": "vitepress dev docs --port 5174",
     "docs:check": "node scripts/documentation-check.ts",
+    "styles:report": "node scripts/inline-styles-report.ts",
     "build:executable": "npm run build && node scripts/build-executable.mjs",
     "metadata:generate": "node scripts/metadata-generate.ts",
     "start": "node --enable-source-maps dist/server/main.js",

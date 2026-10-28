@@ -1,6 +1,7 @@
-import { theme, Typography } from 'antd';
+import { theme } from 'antd';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
+import { Text } from './text';
 
 /** Свойства плитки перехода. */
 export interface TileProperties {
@@ -65,9 +66,7 @@ export function Tile({ title, to, pictogram }: TileProperties) {
             }}
         >
             {/* Заголовок обычного начертания, как заголовки Carbon: крупный размер выделяет его без жирности. */}
-            <Typography.Text style={{ fontSize: token.fontSizeHeading4, lineHeight: token.lineHeightHeading4 }}>
-                {title}
-            </Typography.Text>
+            <Text.Heading variant="03">{title}</Text.Heading>
             {/* Пиктограммы Carbon крупнее иконок действий: размер берётся из шкалы размеров темы. */}
             <span aria-hidden style={{ alignSelf: 'flex-end', fontSize: token.sizeXXL, lineHeight: 0 }}>
                 {pictogram}

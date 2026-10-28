@@ -1,6 +1,6 @@
-import { Alert, Button, Card, Divider, Flex, Result, Spin, theme, Typography } from 'antd';
+import { Alert, Button, Divider, Flex, Result, Spin, theme, Typography } from 'antd';
 import type { ComponentType } from 'react';
-import { ActionButton, Column, FieldDisplay, Grid, Icons, Page, RecordLink, Stack, useObjectView, useOpenRecord, type ColumnCount, type PerformTarget } from '../../web/sdk';
+import { ActionButton, Column, FieldDisplay, Grid, Icons, Layer, Page, Panel, RecordLink, Stack, Text, useObjectView, useOpenRecord, type ColumnCount, type PerformTarget } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { employeeCount, useCurrentShift, type OpenShiftState } from '../shell-components/current-shift-state';
 import OpenSaleInstallments from '../shell-components/open-sale-installments';
@@ -12,7 +12,7 @@ function useCreatable(object: PerformTarget): boolean {
     return useObjectView(object)?.form?.actions.some((action) => action.name === 'save') === true;
 }
 
-/** Высота тайла действия: такой она была с пояснением в три строки. */
+/** Высота содержимого тайла действия: такой она была с пояснением в три строки. */
 const actionTileHeight = 168;
 
 /**
@@ -49,26 +49,23 @@ interface ActionTileProperties {
  * оформить операцию, а найти прежние документы можно в разделе «Продажи».
  *
  * Тайла нет у пользователя без права записи документа: кнопка, которая всегда завершается
- * отказом, продавцу не нужна. Оформление тайла повторяет `Tile` из SDK: фон карточки без рамки
- * и скруглённые углы, поэтому тайлы действий и плитки главного экрана выглядят одинаково.
+ * отказом, продавцу не нужна. Тайл — поверхность первого уровня: фон карточки без рамки
+ * и скруглённые углы, как у `Tile` из SDK, поэтому тайлы действий и плитки главного экрана
+ * выглядят одинаково. Заголовок той же ступени, что у плитки.
  */
 function ActionTile({ title, action, icon: Icon, object }: ActionTileProperties) {
-    const { token } = theme.useToken();
     const openRecord = useOpenRecord();
     if (!useCreatable(object)) return null;
     return (
         <Column span={columns.actionTile}>
-            <Flex
-                vertical
-                justify="space-between"
-                gap="middle"
-                style={{ height: '100%', minHeight: actionTileHeight, padding: token.padding, borderRadius: token.borderRadiusLG, background: token.colorBgContainer }}
-            >
-                <Typography.Text style={{ fontSize: token.fontSizeHeading4, lineHeight: token.lineHeightHeading4 }}>{title}</Typography.Text>
-                <Button type="primary" size="large" block icon={<Icon />} onClick={() => void openRecord(object, null)}>
-                    {action}
-                </Button>
-            </Flex>
+            <Layer>
+                <Flex vertical justify="space-between" gap="middle" style={{ minHeight: actionTileHeight }}>
+                    <Text.Heading variant="03">{title}</Text.Heading>
+                    <Button type="primary" size="large" block icon={<Icon />} onClick={() => void openRecord(object, null)}>
+                        {action}
+                    </Button>
+                </Flex>
+            </Layer>
         </Column>
     );
 }
@@ -81,7 +78,7 @@ function ActionTile({ title, action, icon: Icon, object }: ActionTileProperties)
 function ShiftHeader({ shift }: { readonly shift: OpenShiftState }) {
     const shifts = Objects.document.shift;
     return (
-        <Card size="small">
+        <Panel>
             <Flex justify="space-between" align="center" gap="middle" wrap>
                 <Flex gap="large" align="center" wrap>
                     <Typography.Text strong>
@@ -96,7 +93,7 @@ function ShiftHeader({ shift }: { readonly shift: OpenShiftState }) {
                     Закрыть смену
                 </ActionButton>
             </Flex>
-        </Card>
+        </Panel>
     );
 }
 
@@ -114,7 +111,7 @@ function ClosedShift() {
         <Flex vertical justify="center" style={{ minHeight: '60vh' }}>
             <Grid>
                 <Column span={closedShiftSpan} offset={closedShiftOffset}>
-                    <Card>
+                    <Panel>
                         <Result
                             icon={<Icons.openShift />}
                             title="Смена не открыта"
@@ -127,7 +124,7 @@ function ClosedShift() {
                                 )
                             }
                         />
-                    </Card>
+                    </Panel>
                 </Column>
             </Grid>
         </Flex>

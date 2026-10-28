@@ -1,7 +1,7 @@
-import { Alert, Button, Card, ConfigProvider, Divider, Flex, Table, theme, Typography } from 'antd';
+import { Alert, Button, ConfigProvider, Divider, Flex, Table, Typography } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { FieldDisplay, FieldInput, FluidField, Page, RecordLink, useActionResult, useRecordList } from '../../web/sdk';
+import { Column, FieldDisplay, FieldInput, FluidField, Grid, Layer, Page, Panel, RecordLink, spacing, Stack, Text, useActionResult, useLayer, useRecordList, type AccountingTone } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PaymentTotals, PeriodSummary, SummaryGoodsBlock } from '../period-summary';
 
@@ -44,19 +44,23 @@ function SummaryCell({ index, children, align }: { readonly index: number; reado
 /** Блок отчёта: заголовок и содержимое; пустой блок сообщает, что строк нет. */
 function Block({ title, empty, children }: { readonly title: string; readonly empty: boolean; readonly children: ReactNode }) {
     return (
-        <Card size="small" title={title}>
+        <Panel title={title}>
             {empty ? <Typography.Text type="secondary">Строк нет</Typography.Text> : children}
-        </Card>
+        </Panel>
     );
 }
 
 /**
- * Сумма в рассрочку, ещё не погашенная целиком: тёмно-фиолетовая и жирная. Так в колонке видно,
+ * Сумма в рассрочку, ещё не погашенная целиком: жирная, цвета долга. Так в колонке видно,
  * у каких продаж рассрочка не закрыта, а в итоге — полная сумма в рассрочку без учёта взносов.
  */
 function OpenInstallment({ value }: { readonly value: number }) {
-    const { token } = theme.useToken();
-    return <Typography.Text strong style={{ color: token.purple8 }}><Money value={value} /></Typography.Text>;
+    return <Text tone="debt" strong><Money value={value} /></Text>;
+}
+
+/** Непогашенная часть долга должника: цвета долга, как незакрытая рассрочка выше. */
+function Debt({ value }: { readonly value: number }) {
+    return <Text tone="debt"><Money value={value} /></Text>;
 }
 
 /** Ячейка из двух строк: основное значение и пояснение под ним. */
@@ -64,7 +68,7 @@ function TwoLines({ first, second }: { readonly first: ReactNode; readonly secon
     return (
         <Flex vertical align="flex-end">
             <span style={{ whiteSpace: 'nowrap' }}>{first}</span>
-            <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal', whiteSpace: 'nowrap' }}>{second}</Typography.Text>
+            <Text.Helper noWrap>{second}</Text.Helper>
         </Flex>
     );
 }
@@ -98,29 +102,31 @@ const paymentColumns = <Row extends PaymentRow>() => [
     },
 ];
 
-/** Заливка зоны таблицы: фон строк, фон заголовка и наведения. */
-interface Fill {
-    readonly body: string;
-    readonly header: string;
+/**
+ * Зона продаж с заливкой: подзаголовок и таблица на одной поверхности. Без `tone` зона берёт фон
+ * следующего уровня и отличается от панели серым; со смысловым цветом залита им.
+ */
+function FilledZone({ title, tone, empty, children }: { readonly title: string; readonly tone?: AccountingTone; readonly empty: boolean; readonly children: ReactNode }) {
+    return (
+        <Layer padding={4} {...(tone === undefined ? {} : { tone })}>
+            <Flex vertical gap={spacing[3]}>
+                <Text strong>{title}</Text>
+                {empty ? <Text tone="secondary">Строк нет</Text> : <ZoneTable>{children}</ZoneTable>}
+            </Flex>
+        </Layer>
+    );
 }
 
 /**
- * Зона продаж с заливкой: подзаголовок и таблица на одном фоне. Ячейки таблицы рисуют свой фон,
- * поэтому заливка передаётся и в токены таблицы через `ConfigProvider`, а не только в обёртку.
- * Цвета взяты из светлых оттенков палитры Ant Design: основной текст на них читается с прежним
- * контрастом, а заголовок таблицы чуть темнее строк.
+ * Таблица на фоне поверхности. Ячейки таблицы рисуют свой фон, поэтому фон поверхности передаётся
+ * и в токены таблицы, а заголовок и наведение берут более тёмный фон той же поверхности.
  */
-function FilledZone({ title, fill, empty, children }: { readonly title: string; readonly fill: Fill; readonly empty: boolean; readonly children: ReactNode }) {
-    const { token } = theme.useToken();
+function ZoneTable({ children }: { readonly children: ReactNode }) {
+    const layer = useLayer();
     return (
-        <div style={{ background: fill.body, borderRadius: token.borderRadiusLG, padding: token.paddingSM }}>
-            <Typography.Text strong style={{ display: 'block', marginBottom: token.marginXS }}>{title}</Typography.Text>
-            {empty ? <Typography.Text type="secondary">Строк нет</Typography.Text> : (
-                <ConfigProvider theme={{ components: { Table: { colorBgContainer: fill.body, headerBg: fill.header, footerBg: fill.header, rowHoverBg: fill.header } } }}>
-                    {children}
-                </ConfigProvider>
-            )}
-        </div>
+        <ConfigProvider theme={{ components: { Table: { colorBgContainer: layer.background, headerBg: layer.backgroundStrong, footerBg: layer.backgroundStrong, rowHoverBg: layer.backgroundStrong } } }}>
+            {children}
+        </ConfigProvider>
     );
 }
 
@@ -198,29 +204,28 @@ function AllSalesTable({ totals }: { readonly totals: PeriodSummary['allSales'] 
 
 /**
  * Отчёт за период: продажи, взносы и должники, товары в отвесе. Продажи — одна группа из трёх зон:
- * проведённое в 1С залито жёлтым, непроведённое — серым, чтобы их нельзя было спутать. Под ними
- * синяя зона «Всего» складывает обе. Взносы
+ * проведённое в 1С залито цветом предупреждения, непроведённое — серым фоном вложенной поверхности,
+ * чтобы их нельзя было спутать. Под ними зона «Всего» цвета итога складывает обе. Взносы
  * и должники — одна группа о рассрочках, их таблицы разделены линией.
  */
 function Summary({ summary }: { readonly summary: PeriodSummary }) {
-    const { token } = theme.useToken();
     const { payments, weighings, debtors } = summary;
     return (
         <Flex vertical gap="middle">
-            <Card size="small" title="Продажи">
+            <Panel title="Продажи">
                 <Flex vertical gap="middle">
-                    <FilledZone title="Проведено в 1С" fill={{ body: token.colorWarningBg, header: token.colorWarningBgHover }} empty={summary.postedIn1C.rows.length === 0}>
+                    <FilledZone title="Проведено в 1С" tone="warning" empty={summary.postedIn1C.rows.length === 0}>
                         <GoodsTable block={summary.postedIn1C} />
                     </FilledZone>
-                    <FilledZone title="Не проведено в 1С" fill={{ body: token.colorFillQuaternary, header: token.colorFillTertiary }} empty={summary.notPostedIn1C.rows.length === 0}>
+                    <FilledZone title="Не проведено в 1С" empty={summary.notPostedIn1C.rows.length === 0}>
                         <GoodsTable block={summary.notPostedIn1C} />
                     </FilledZone>
-                    <FilledZone title="Всего" fill={{ body: token.colorPrimaryBg, header: token.colorPrimaryBgHover }} empty={summary.allSales.count === 0}>
+                    <FilledZone title="Всего" tone="total" empty={summary.allSales.count === 0}>
                         <AllSalesTable totals={summary.allSales} />
                     </FilledZone>
                 </Flex>
-            </Card>
-            <Card size="small" title="Рассрочки">
+            </Panel>
+            <Panel title="Рассрочки">
                 <Typography.Text strong>Взносы</Typography.Text>
                 {payments.rows.length === 0 ? <div><Typography.Text type="secondary">Строк нет</Typography.Text></div> : (
                     <Table
@@ -246,7 +251,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                         )}
                     />
                 )}
-                <Divider style={{ marginBlock: token.margin }} />
+                <Divider style={{ marginBlock: spacing[5] }} />
                 <Typography.Text strong>Должники</Typography.Text>
                 {debtors.rows.length === 0 ? <div><Typography.Text type="secondary">Строк нет</Typography.Text></div> : (
                     <Table
@@ -267,7 +272,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                                         { title: 'Продажа', key: 'sale', render: (_value, row) => <Reference kind="document" name="sale" guid={row.sale} /> },
                                         { title: 'Рассрочка', key: 'installment', render: (_value, row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
                                         { title: 'Сумма рассрочки', key: 'amount', align: 'right', render: (_value, row) => <Money value={row.amount} /> },
-                                        { title: 'Непогашенная часть долга', key: 'debt', align: 'right', render: (_value, row) => <Money value={row.debt} /> },
+                                        { title: 'Непогашенная часть долга', key: 'debt', align: 'right', render: (_value, row) => <Debt value={row.debt} /> },
                                     ]}
                                 />
                             ),
@@ -275,7 +280,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                         columns={[
                             { title: 'Покупатель', key: 'person', render: (_value, row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
                             { title: 'Рассрочек', key: 'count', align: 'right', render: (_value, row) => row.installments.length },
-                            { title: 'Непогашенная часть долга', key: 'debt', align: 'right', render: (_value, row) => <Money value={row.debt} /> },
+                            { title: 'Непогашенная часть долга', key: 'debt', align: 'right', render: (_value, row) => <Debt value={row.debt} /> },
                         ]}
                         summary={() => (
                             <Table.Summary.Row>
@@ -283,12 +288,12 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                                 <SummaryCell index={0} />
                                 <SummaryCell index={1}>Итого</SummaryCell>
                                 <SummaryCell index={2} />
-                                <SummaryCell index={3} align="right"><Money value={debtors.total} /></SummaryCell>
+                                <SummaryCell index={3} align="right"><Text tone="debt" strong><Money value={debtors.total} /></Text></SummaryCell>
                             </Table.Summary.Row>
                         )}
                     />
                 )}
-            </Card>
+            </Panel>
             <Block title="Товары в отвесе" empty={weighings.rows.length === 0}>
                 <Table
                     size="small"
@@ -338,24 +343,29 @@ export default function PeriodSummaryPage() {
     return (
         <Page title="Сводка за период">
             <Flex vertical gap="middle">
-                <Card size="small">
-                    <Flex gap="middle" wrap>
-                        <div style={{ width: 200 }}>
+                <Panel>
+                    {/* Поля периода стоят в колонках сетки, как поля форм, кнопки выбора — в оставшихся колонках строки. */}
+                    <Grid gutter="narrow">
+                        <Column span={{ md: 4 }}>
                             <FluidField label="С" required>
                                 {/* Пустое значение не принимается: отчёт всегда строится за какие-то дни. */}
                                 <FieldInput field={dayField} value={from} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setFrom(value); } }} />
                             </FluidField>
-                        </div>
-                        <div style={{ width: 200 }}>
+                        </Column>
+                        <Column span={{ md: 4 }}>
                             <FluidField label="По" required>
                                 <FieldInput field={dayField} value={to} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setTo(value); } }} />
                             </FluidField>
-                        </div>
-                        {/* Без проведённых закрытий незакрытый период начинается с начала учёта: дня для кнопки нет. */}
-                        <Button disabled={unclosedStart === null} onClick={() => { setChosen(true); if (unclosedStart !== null) setFrom(unclosedStart); setTo(today()); }}>С незакрытого периода</Button>
-                        <Button onClick={() => { setChosen(true); setFrom(today()); setTo(today()); }}>За сегодня</Button>
-                    </Flex>
-                </Card>
+                        </Column>
+                        <Column span={{ md: 8 }}>
+                            <Stack orientation="horizontal" gap={3} wrap>
+                                {/* Без проведённых закрытий незакрытый период начинается с начала учёта: дня для кнопки нет. */}
+                                <Button disabled={unclosedStart === null} onClick={() => { setChosen(true); if (unclosedStart !== null) setFrom(unclosedStart); setTo(today()); }}>С незакрытого периода</Button>
+                                <Button onClick={() => { setChosen(true); setFrom(today()); setTo(today()); }}>За сегодня</Button>
+                            </Stack>
+                        </Column>
+                    </Grid>
+                </Panel>
                 {from > to ? (
                     <Alert type="warning" showIcon title="Начало периода позже его конца" />
                 ) : report.data === undefined ? (

@@ -1,5 +1,5 @@
 import { Flex, Tag, Typography } from 'antd';
-import { FieldDisplay, RecordLink, useFormData, useObjectView, useRecordList } from '../../web/sdk';
+import { FieldDisplay, RecordLink, Text, useFormData, useObjectView, useRecordList } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /**
@@ -58,11 +58,12 @@ function LinkedInstallments({ sale }: { readonly sale: string }) {
                     <Typography.Text>
                         Сумма <FieldDisplay field={{ kind: 'money', target: null }} value={installment.amount} />
                     </Typography.Text>
+                    {/* Остаток — долг покупателя по рассрочке, поэтому сумма окрашена цветом долга. */}
                     <Typography.Text>
-                        Остаток <FieldDisplay field={{ kind: 'money', target: null }} value={installment.balance} />
+                        Остаток <Text tone="debt"><FieldDisplay field={{ kind: 'money', target: null }} value={installment.balance} /></Text>
                     </Typography.Text>
-                    {!installment.posted && <Tag style={{ marginInlineEnd: 0 }}>Черновик</Tag>}
-                    {installment.closedAt !== null && <Tag color="green" style={{ marginInlineEnd: 0 }}>Закрыта</Tag>}
+                    {!installment.posted && <Tag>Черновик</Tag>}
+                    {installment.closedAt !== null && <Tag color="green">Закрыта</Tag>}
                 </Flex>
             ))}
         </Flex>

@@ -11,6 +11,8 @@ covers:
   - src/web/data-provider/actions.ts
   - src/web/data-provider/metadata.ts
   - src/web/window/window-scope.tsx
+  - src/web/sdk/ds/layer.tsx
+  - src/web/sdk/ds/colors.ts
 ---
 
 # Хуки Web SDK
@@ -83,6 +85,19 @@ const sale = sales.records.get(guid);
 `useActionResult({ object, action, payload, enabled, refreshInterval })` читает результат собственного действия, которое только читает данные, например перечень уже возвращённых товаров. Это запрос с кешем (`ActionQuery`): он возвращает `data`, `loading` и `refresh` (тип `ActionResult`), обновляется после любого изменяющего действия и не показывает уведомлений. Отказ, например нехватка права на действие, оставляет `data` пустым. `refresh()` читает результат заново: он нужен, когда данные на сервере могли измениться без действия этого клиента, например сервер отклонил запись из-за изменений другого пользователя. Пока `enabled` равен `false`, запрос не отправляется. Число в `refreshInterval` (миллисекунды) включает перечитывание результата с этим интервалом, `false` (по умолчанию) отключает его: параметр нужен, когда сервер меняет данные сам, например пока идёт резервная копия. Изменяющие действия выполняет `useAction`.
 
 `useActionConfirmation()` возвращает `confirm(action)` и `dialog`. Экран с собственной кнопкой вызывает `confirm` перед `useAction` или `state.run` и выводит `dialog`; для действия без `confirmation` ответ `true` приходит сразу. Окно и его правила описаны в [«Компонентах»](components.md#подтверждение-действия).
+
+## Поверхность и цвета
+
+`useLayer()` возвращает `LayerColors`: `level` (0–3) и фоны `background` и `backgroundStrong` ближайшей поверхности `Layer` или `Panel`. Вне поверхностей это уровень 0, фон страницы. Хук нужен компонентам, которые закрашивают себя сами: ячейки таблицы Ant Design перекрывают фон поверхности, поэтому экран передаёт его в токены таблицы.
+
+```tsx
+const layer = useLayer();
+<ConfigProvider theme={{ components: { Table: { colorBgContainer: layer.background, headerBg: layer.backgroundStrong } } }}>
+    <Table … />
+</ConfigProvider>
+```
+
+`useAccountingColors()` возвращает смысловые цвета учёта текущей темы: по ключам `total`, `debt`, `overpayment` и `warning` лежат `AccountingColor` с оттенками `text`, `solid`, `solidHover`, `background`, `backgroundStrong`. Цвет текста выбирает свойство `tone` компонентов `Text`, а хук нужен контролам, у которых цвет задаётся токеном, например переключателю. Смысл цветов описан в разделе [«Компоненты и раскладка»](../components.md#смысловые-цвета).
 
 ## Данные формы
 

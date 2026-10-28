@@ -1,6 +1,6 @@
-import { Button, Card } from 'antd';
+import { Card } from 'antd';
 import { RefundSaleGoods } from './refund-sale-goods';
-import { FieldGroup, Icons, recordFormElements, RecordFormPage, Stack, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { FieldGroup, Icons, MainActionButton, recordFormElements, RecordFormPage, Stack, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Новый возврат записывается и проводится одним запросом: если проведение отклонено, например по
@@ -11,8 +11,6 @@ const refundFormOptions: RecordFormOptions = { atomicPosting: true };
 /** Новый возврат: стандартные действия не выводятся, их заменяет кнопка «Оформить возврат». */
 const refundButtons: RecordFormButtons = { actions: [], postAndClose: false };
 
-/** Размер главной кнопки: как у кнопки «Отвесить» на форме отвеса. */
-const mainButtonStyle = { height: 64, paddingInline: 48, fontSize: 20 };
 
 /**
  * Основания возврата. Строку добавляет связь с продажей, а не пустая строка: значок цепи показывает,
@@ -62,18 +60,16 @@ function RefundFormLayout({ state }: { readonly state: RecordFormState }) {
                     {/* Обёртка не даёт стеку растянуть кнопку на всю ширину. */}
                     <div>
                         {post !== undefined && (
-                            <Button
+                            <MainActionButton
                                 type="primary"
-                                size="large"
                                 icon={<Icons.refund />}
-                                style={mainButtonStyle}
                                 loading={state.running === post.name}
                                 disabled={state.running !== null}
                                 // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
                                 onClick={() => state.run(post).catch(() => undefined)}
                             >
                                 Оформить возврат
-                            </Button>
+                            </MainActionButton>
                         )}
                     </div>
                 </Stack>

@@ -1,6 +1,6 @@
-import { Alert, Button, Card, Flex, Typography } from 'antd';
+import { Alert, Button, Flex, Typography } from 'antd';
 import type { ReactNode } from 'react';
-import { useObjectView, useOpenRecord, useReferencePresentation, type ApiError, type ObjectView, type PerformTarget } from '../../web/sdk';
+import { Panel, useObjectView, useOpenRecord, useReferencePresentation, type ApiError, type ObjectView, type PerformTarget } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /**
@@ -47,7 +47,7 @@ export function DebtList<Row extends DebtRow>({ title, object, rows, total, load
     const persons = useObjectView(Objects.catalog.physicalPersons);
     const openRecord = useOpenRecord();
     return (
-        <Card size="small" title={title}>
+        <Panel title={title}>
             {error !== null ? (
                 <Alert type="error" showIcon title="Не удалось прочитать документы" description={error.message} />
             ) : rows.length === 0 ? (
@@ -64,6 +64,6 @@ export function DebtList<Row extends DebtRow>({ title, object, rows, total, load
                     {total > rows.length && <Typography.Text type="secondary">Показаны первые {rows.length} из {total}</Typography.Text>}
                 </Flex>
             )}
-        </Card>
+        </Panel>
     );
 }

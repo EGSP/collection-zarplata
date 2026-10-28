@@ -1,5 +1,5 @@
-import { Alert, Button, Card, Flex, Typography } from 'antd';
-import { FieldDisplay, useObjectView, useOpenRecord, useRecordList, useRecords } from '../../web/sdk';
+import { Alert, Button, Typography } from 'antd';
+import { FieldDisplay, Panel, spacing, Text, useObjectView, useOpenRecord, useRecordList, useRecords } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /** Число продаж в фиде: экран показывает последние операции, а не полный список. */
@@ -53,36 +53,31 @@ function AvailableSales() {
     const details = useRecords(sales, list.records.map((sale) => sale.guid));
     return (
         // Ширину карточки задаёт колонка страницы; товары, не поместившиеся в строку, обрезаются многоточием.
-        <Card size="small" title="Последние продажи">
+        <Panel title="Последние продажи">
             {list.error !== null ? (
                 <Alert type="error" showIcon title="Не удалось прочитать продажи" description={list.error.message} />
             ) : list.records.length === 0 ? (
                 <Typography.Text type="secondary">{list.loading ? 'Загрузка…' : 'Продаж пока нет'}</Typography.Text>
             ) : (
-                <Flex vertical>
+                // Строки — кнопки на общей сетке из четырёх колонок: время, способ оплаты, товары, сумма.
+                // Кнопка продолжает колонки списка (subgrid), поэтому колонки всех строк стоят ровно
+                // по самому длинному значению без заданной ширины; товары получают оставшееся место.
+                <div style={{ display: 'grid', gridTemplateColumns: 'max-content max-content minmax(0, 1fr) max-content', columnGap: spacing[5] }}>
                     {list.records.map((sale) => {
                         const goods = details.records.get(sale.guid)?.goods.map((line) => line.name).join(', ') ?? '';
                         return (
-                            <Button key={sale.guid} type="text" size="small" block onClick={() => void openRecord(sales, sale.guid)}>
-                                <Flex gap="middle" align="center" style={{ width: '100%', minWidth: 0 }}>
-                                    {/* Время и способ оплаты не уже самого длинного значения: колонки строк стоят ровно. */}
-                                    <Typography.Text type="secondary" style={{ flexShrink: 0, minWidth: 88, textAlign: 'left' }}>
-                                        {shortTime(sale.date)}
-                                    </Typography.Text>
-                                    <Typography.Text style={{ flexShrink: 0, minWidth: 88, textAlign: 'left' }}>{sale.paymentMode}</Typography.Text>
-                                    {/* Нулевая минимальная ширина позволяет тексту сжиматься внутри Flex и обрезаться многоточием. */}
-                                    <Typography.Text type="secondary" ellipsis={{ tooltip: goods }} style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                                        {goods}
-                                    </Typography.Text>
-                                    <span style={{ flexShrink: 0 }}>
-                                        <FieldDisplay field={{ kind: 'money', target: null }} value={sale.amount} />
-                                    </span>
-                                </Flex>
+                            <Button key={sale.guid} type="text" size="small" block onClick={() => void openRecord(sales, sale.guid)}
+                                style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'subgrid', alignItems: 'center', textAlign: 'left' }}>
+                                <Text tone="secondary" noWrap>{shortTime(sale.date)}</Text>
+                                <Text noWrap>{sale.paymentMode}</Text>
+                                <Text tone="secondary" ellipsis>{goods}</Text>
+                                {/* Сумма прижата к правому краю колонки: разряды сумм разных строк стоят друг под другом. */}
+                                <span style={{ justifySelf: 'end' }}><FieldDisplay field={{ kind: 'money', target: null }} value={sale.amount} /></span>
                             </Button>
                         );
                     })}
-                </Flex>
+                </div>
             )}
-        </Card>
+        </Panel>
     );
 }

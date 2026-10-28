@@ -1,6 +1,6 @@
-import { Alert, Button, Card, Flex, theme, Typography } from 'antd';
+import { Alert, Button, Flex, Typography } from 'antd';
 import { useState } from 'react';
-import { FieldDisplay, Icons, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
+import { FieldDisplay, Icons, Layer, Panel, spacing, Text, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /**
@@ -48,20 +48,19 @@ function debtLevel(debt: number, minimum: number, maximum: number): DebtLevel {
  * называет продажу и остаток, а нажатие открывает продажу: продавец узнаёт рассрочку по проданному
  * товару, а не по номеру рассрочки.
  *
- * Фон покупателя показывает размер долга: без заливки, светло-бежевый и ярко-оранжевый по терцилям.
- * Раскрытые рассрочки стоят на том же фоне. Основной текст на светлых оттенках оранжевой палитры
- * Ant Design читается без потери контраста; второстепенный серый — только на бежевом и без заливки. Длинные ФИО и продажи
+ * Фон покупателя показывает размер долга: без заливки, светлый и яркий фон цвета долга по терцилям.
+ * Раскрытые рассрочки стоят на той же поверхности. Общий долг покупателя окрашен цветом долга.
+ * Основной текст на фонах цвета долга читается без потери контраста; второстепенный серый —
+ * только на светлом фоне и без заливки. Длинные ФИО и продажи
  * обрезаются многоточием, полный текст виден в подсказке, а сумма всегда остаётся у правого края.
  */
 function Debtor({ person, rows, persons, sales, level }: { readonly person: string | null; readonly rows: ReadonlyArray<InstallmentRow>; readonly persons: ObjectView | undefined; readonly sales: ObjectView | undefined; readonly level: DebtLevel }) {
-    const { token } = theme.useToken();
     const [expanded, setExpanded] = useState(false);
     const openRecord = useOpenRecord();
     const debt = rows.reduce((sum, row) => sum + row.balance, 0);
     const Toggle = expanded ? Icons.collapse : Icons.expand;
-    const background = level === 0 ? undefined : level === 1 ? token.orange1 : token.orange4;
-    return (
-        <Flex vertical style={{ background, borderRadius: token.borderRadius }}>
+    const content = (
+        <Flex vertical>
             <Button type="text" block onClick={() => setExpanded(!expanded)}>
                 {/* Кнопка оборачивает содержимое своим элементом, поэтому строку растягивает внутренний Flex: сумма стоит у правого края. */}
                 <Flex justify="space-between" align="center" gap="small" style={{ width: '100%', minWidth: 0 }}>
@@ -72,11 +71,11 @@ function Debtor({ person, rows, persons, sales, level }: { readonly person: stri
                             {person === null ? 'Без физического лица' : persons === undefined ? 'Нет доступа' : <Presentation view={persons} guid={person} />}
                         </Typography.Text>
                     </Flex>
-                    <span style={{ flexShrink: 0 }}><Money value={debt} /></span>
+                    <span style={{ flexShrink: 0 }}><Text tone="debt"><Money value={debt} /></Text></span>
                 </Flex>
             </Button>
             {expanded && rows.map((row) => (
-                <Button key={row.guid} type="text" size="small" block style={{ paddingInlineStart: 32 }}
+                <Button key={row.guid} type="text" size="small" block style={{ paddingInlineStart: spacing[7] }}
                     onClick={(event) => void openRecord(Objects.document.saleInstallment, row.guid, 'tab', { original: event.shiftKey })}>
                     <Flex justify="space-between" align="center" gap="small" style={{ width: '100%', minWidth: 0 }}>
                         {/* Серый текст на ярко-оранжевом фоне теряет контраст, поэтому там продажа выводится основным цветом. */}
@@ -87,6 +86,8 @@ function Debtor({ person, rows, persons, sales, level }: { readonly person: stri
             ))}
         </Flex>
     );
+    // Покупатель с небольшим долгом стоит прямо на панели, остальные — на поверхности цвета долга.
+    return level === 0 ? content : <Layer tone="debt" emphasis={level === 1 ? 'subtle' : 'strong'} padding={0}>{content}</Layer>;
 }
 
 /**
@@ -117,7 +118,7 @@ function AvailableSaleInstallments() {
     return (
         // Ширину карточки задаёт колонка страницы: рабочее место даёт ей больше места, чем отвесам,
         // потому что в строке стоят ФИО и сумма.
-        <Card size="small" title="Рассрочки по продажам">
+        <Panel title="Рассрочки по продажам">
             {list.error !== null ? (
                 <Alert type="error" showIcon title="Не удалось прочитать документы" description={list.error.message} />
             ) : list.records.length === 0 ? (
@@ -128,6 +129,6 @@ function AvailableSaleInstallments() {
                     {list.total > list.records.length && <Typography.Text type="secondary">Показаны первые {list.records.length} из {list.total}</Typography.Text>}
                 </Flex>
             )}
-        </Card>
+        </Panel>
     );
 }

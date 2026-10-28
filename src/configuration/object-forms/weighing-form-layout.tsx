@@ -1,7 +1,7 @@
-import { Button, Card, Divider, Flex, Modal, Table } from 'antd';
+import { Card, Divider, Flex, Modal, Table } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { Objects } from '../objects.generated';
-import { FieldGroup, Icons, recordFormElements, RecordFormPage, useObjectView, useOpenRecord, useRecordForm, spacing, useWindowScope, type FormElementReference, type NewFormProperties, type RecordFormButtons, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { FieldGroup, Icons, MainActionButton, recordFormElements, RecordFormPage, useObjectView, useOpenRecord, useRecordForm, spacing, useWindowScope, type FormElementReference, type NewFormProperties, type RecordFormButtons, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Состояния строки отвеса. Совпадают со значениями в описании отвеса: форма не импортирует их
@@ -52,8 +52,6 @@ const savedGoodsOptions: TablePartOptions = {
  */
 const weighingButtons: RecordFormButtons = { actions: [], postAndClose: false };
 
-/** Размер главных кнопок под товарами: как у кнопки «Продать» на форме продажи. */
-const mainButtonStyle = { height: 64, paddingInline: 48, fontSize: 20 };
 
 /** Отступы разделителя между частями формы: поля над ним уже оставляют место снизу. */
 const dividerStyle = { marginBlock: spacing[6] };
@@ -177,14 +175,14 @@ function SavedWeighingActions({ state }: { readonly state: RecordFormState }) {
         <>
             <Flex gap="middle" wrap>
                 {sellable && (
-                    <Button type="primary" size="large" icon={<Icons.sell />} style={mainButtonStyle} disabled={lines.length === 0 || state.running !== null} onClick={() => setChoosing('sell')}>
+                    <MainActionButton type="primary" icon={<Icons.sell />} disabled={lines.length === 0 || state.running !== null} onClick={() => setChoosing('sell')}>
                         Продать
-                    </Button>
+                    </MainActionButton>
                 )}
                 {state.editable && writeAction !== undefined && (
-                    <Button size="large" icon={<Icons.hang />} style={mainButtonStyle} disabled={lines.length === 0 || state.running !== null} onClick={() => setChoosing('hang')}>
+                    <MainActionButton icon={<Icons.hang />} disabled={lines.length === 0 || state.running !== null} onClick={() => setChoosing('hang')}>
                         Вывесить
-                    </Button>
+                    </MainActionButton>
                 )}
             </Flex>
             <HeldLinesDialog
@@ -267,18 +265,16 @@ function WeighingFormLayout({ state }: { readonly state: RecordFormState }) {
                 <FieldGroup elements={recordFormElements(state, items('Товары'))} tablePartOptions={{ goods: isNew ? newGoodsOptions : savedGoodsOptions }} {...common} />
                 <Divider style={dividerStyle} />
                 {weigh !== undefined && (
-                    <Button
+                    <MainActionButton
                         type="primary"
-                        size="large"
                         icon={<Icons.weigh />}
-                        style={mainButtonStyle}
                         loading={state.running === weigh.name}
                         disabled={state.running !== null}
                         // Об отказе сообщили уведомление и ошибки полей, поэтому ошибка вызова здесь не обрабатывается.
                         onClick={() => state.run(weigh).catch(() => undefined)}
                     >
                         Отвесить
-                    </Button>
+                    </MainActionButton>
                 )}
                 {!isNew && <SavedWeighingActions state={state} />}
             </Card>
