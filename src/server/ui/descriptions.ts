@@ -192,7 +192,8 @@ export const filterOperators: { readonly [Kind in FieldKind]: ReadonlyArray<Filt
     date: [...ordered, 'contains'],
     dateTime: [...ordered, 'contains'],
     boolean: equality,
-    reference: equality,
+    // Подстрока ищется в представлении записи, на которую ведёт ссылка: так находят рассрочки по части ФИО покупателя.
+    reference: [...equality, 'contains'],
     objectReference: equality,
     // Упорядоченное сравнение действует внутри простого типа значения; подстрока ищется в показанном тексте варианта.
     composite: [...ordered, 'contains'],

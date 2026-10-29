@@ -30,7 +30,7 @@ covers:
 | `Button`, `MainActionButton` | [Кнопка с размерами Carbon](#кнопки) и кнопка главного действия формы |
 | `Layer`, `Panel` | [Поверхности](#поверхности) по уровням вложенности |
 | `Text` | [Роли текста](#роли-текста): `Text`, `Text.Heading`, `Text.Label`, `Text.Helper` |
-| `RecordTable`, `ListFilters`, `ListSearch` | Таблица записей на `DataTable`, отбор и поиск списка |
+| `RecordTable`, `ListFilters`, `ListSearch` | Таблица записей на `DataTable`, отбор и поиск списка; `ListSearch` принимает необязательный `placeholder` (подсказка и доступное имя поля, по умолчанию «Поиск») для поиска по одному полю |
 | `RecordLink` | Ссылка на запись |
 | `RecordTablePart`, `ReadOnlyTablePart` | Просмотр табличной части другой записи (читает её сама) и таблица готовых строк только для чтения, с выбором строки нажатием или отметкой флажком (`selection`) и схемами `layouts` |
 | `FieldInput`, `FieldDisplay`, `compositeInputs` | Ввод и отображение значения по виду поля; способы ввода составного поля |

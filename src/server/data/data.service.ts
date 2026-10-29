@@ -411,7 +411,9 @@ export class DataService {
                     }
                     const entered = filter['value'];
                     const column = columns.find((candidate) => candidate.field === name);
-                    if (field.kind === 'composite' && column !== undefined) {
+                    // Ссылка и ссылочный вариант составного поля показаны представлением записи, поэтому
+                    // подстрока ищется в нём; представления порции читаются до проверки строк.
+                    if ((field.kind === 'composite' || field.kind === 'reference') && column !== undefined) {
                         containsNeedsPresentations = true;
                         predicates.push((row) => {
                             const displayed = displayedText(column, row);

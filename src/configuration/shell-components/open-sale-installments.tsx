@@ -1,11 +1,11 @@
 import { Alert, Button, Flex, Typography } from 'antd';
 import { useState } from 'react';
-import { FieldDisplay, Icons, Layer, Panel, spacing, Text, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
+import { FieldDisplay, Icons, Layer, ListSearch, Panel, spacing, Stack, Text, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /**
  * Блок «Рассрочки по продажам» на рабочем месте продавца: проведённые незакрытые рассрочки,
- * сгруппированные по покупателям. Без права читать рассрочки блока нет: проверка стоит здесь,
+ * сгруппированные по покупателям, и поиск по ФИО покупателя. Без права читать рассрочки блока нет: проверка стоит здесь,
  * потому что страница рабочего места выводит блок сама, без перечня требуемых объектов.
  */
 export default function OpenSaleInstallments() {
@@ -95,6 +95,10 @@ function Debtor({ person, rows, persons, sales, level }: { readonly person: stri
  * в порядке первой рассрочки: у покупателя может быть несколько рассрочек, и продавцу важен его
  * общий долг. Строка всегда передаёт исходную рассрочку общему серверному правилу открытия;
  * отсутствие права читать продажу завершает переход отказом. Shift открывает оригинал.
+ *
+ * Поиск отбирает рассрочки на сервере условием «покупатель содержит»: сервер сравнивает часть ФИО
+ * с представлением покупателя без учёта регистра и просматривает все рассрочки, а не только
+ * загруженную страницу. Уровни заливки во время поиска считаются по найденным покупателям.
  */
 function AvailableSaleInstallments() {
     const persons = useObjectView(Objects.catalog.physicalPersons);
@@ -110,6 +114,13 @@ function AvailableSaleInstallments() {
         sort: [{ field: 'date', direction: 'ascending' }],
         pageSize: 100,
     });
+    // Текст поиска, уже переданный списку. Поле поиска применяет ввод с задержкой, а очистку сразу.
+    const [search, setSearch] = useState('');
+    const applySearch = (text: string) => {
+        setSearch(text);
+        const needle = text.trim();
+        list.setFilter(needle === '' ? [] : [{ field: 'person', operator: 'contains', value: needle }]);
+    };
     const groups = new Map<string | null, InstallmentRow[]>();
     for (const record of list.records) groups.set(record.person, [...groups.get(record.person) ?? [], { guid: record.guid, sale: record.sale, balance: record.balance }]);
     const debts = [...groups.values()].map((rows) => rows.reduce((sum, row) => sum + row.balance, 0));
@@ -119,16 +130,21 @@ function AvailableSaleInstallments() {
         // Ширину карточки задаёт колонка страницы: рабочее место даёт ей больше места, чем отвесам,
         // потому что в строке стоят ФИО и сумма.
         <Panel title="Рассрочки по продажам">
-            {list.error !== null ? (
-                <Alert type="error" showIcon title="Не удалось прочитать документы" description={list.error.message} />
-            ) : list.records.length === 0 ? (
-                <Typography.Text type="secondary">{list.loading ? 'Загрузка…' : 'Незакрытых рассрочек по продажам нет'}</Typography.Text>
-            ) : (
-                <Flex vertical>
-                    {[...groups].map(([person, rows], index) => <Debtor key={person ?? ''} person={person} rows={rows} persons={persons} sales={sales} level={debtLevel(debts[index]!, minimum, maximum)} />)}
-                    {list.total > list.records.length && <Typography.Text type="secondary">Показаны первые {list.records.length} из {list.total}</Typography.Text>}
-                </Flex>
-            )}
+            <Stack gap={3}>
+                <ListSearch value={search} onSearch={applySearch} placeholder="Поиск по ФИО покупателя" />
+                {list.error !== null ? (
+                    <Alert type="error" showIcon title="Не удалось прочитать документы" description={list.error.message} />
+                ) : list.records.length === 0 ? (
+                    <Typography.Text type="secondary">
+                        {list.loading ? 'Загрузка…' : search.trim() === '' ? 'Незакрытых рассрочек по продажам нет' : `Нет покупателей с рассрочками по запросу «${search.trim()}»`}
+                    </Typography.Text>
+                ) : (
+                    <Flex vertical>
+                        {[...groups].map(([person, rows], index) => <Debtor key={person ?? ''} person={person} rows={rows} persons={persons} sales={sales} level={debtLevel(debts[index]!, minimum, maximum)} />)}
+                        {list.total > list.records.length && <Typography.Text type="secondary">Показаны первые {list.records.length} из {list.total}</Typography.Text>}
+                    </Flex>
+                )}
+            </Stack>
         </Panel>
     );
 }
