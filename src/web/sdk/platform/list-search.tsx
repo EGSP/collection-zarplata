@@ -11,16 +11,19 @@ export interface ListSearchProperties {
     readonly value: string;
     /** Вызывается, когда пользователь ввёл другой текст. Пустая строка означает, что поиск отменён. */
     readonly onSearch: (search: string) => void;
+    /** Подсказка в пустом поле и его доступное имя, если поиск идёт не по всем колонкам. По умолчанию «Поиск». */
+    readonly placeholder?: string;
 }
 
 /**
- * Поле поиска списка: ищет фрагмент в любой видимой колонке вместе с условиями отбора.
+ * Поле поиска списка: по умолчанию ищет фрагмент в любой видимой колонке вместе с условиями отбора.
+ * Экран может искать и по одному полю, назвав его в подсказке.
  *
  * Введённый текст хранится здесь, а не берётся из действующего поиска: список получает его
  * с задержкой, и до этого поле должно показывать то, что пользователь уже набрал. Очистка поля
  * применяется сразу.
  */
-export function ListSearch({ value, onSearch }: ListSearchProperties) {
+export function ListSearch({ value, onSearch, placeholder = 'Поиск' }: ListSearchProperties) {
     const [input, setInput] = useState(value);
     const debounced = useDebounced(input, searchDelay);
 
@@ -45,8 +48,8 @@ export function ListSearch({ value, onSearch }: ListSearchProperties) {
 
     return (
         <Input
-            aria-label="Поиск"
-            placeholder="Поиск"
+            aria-label={placeholder}
+            placeholder={placeholder}
             allowClear
             value={input}
             onChange={(event) => {
