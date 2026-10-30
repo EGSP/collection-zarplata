@@ -20,7 +20,7 @@
  * Компонент стоит под проверкой входа, поэтому при завершении сессии вкладки исчезают вместе с ним,
  * и следующий вошедший пользователь не увидит вкладок предыдущего.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { homePath, newRecordPath, recordPath } from '../common/paths';
 import type { PerformTarget } from '../data-provider/perform';
@@ -38,18 +38,41 @@ export interface WindowTab {
     readonly title: string | null;
 }
 
+/** Адрес браузера, с которого приложение ушло: путь и ключ записи истории. */
+interface DepartedLocation {
+    readonly path: string;
+    readonly key: string;
+}
+
 interface TabsState {
     readonly tabs: ReadonlyArray<WindowTab>;
     /** Номер активной вкладки. При `null` открыт главный экран. */
     readonly activeId: number | null;
     /**
-     * Путь, с которого приложение уже уходит: вкладка закрыта или получила другой адрес, а адрес
+     * Адреса, с которых приложение уже ушло: вкладка закрыта или получила другой адрес, а адрес
      * браузера ещё прежний. Без этой отметки прежний адрес открыл бы вкладку заново.
+     *
+     * Отметка хранит ключ записи истории и не снимается, когда адрес сменился. React Router
+     * применяет новый адрес в переходе (`startTransition`), и срочная отрисовка, например смена
+     * заголовка вкладки, может пройти с прежним адресом уже после отрисовки с новым. Снятая
+     * отметка открыла бы тогда вкладку прежнего адреса (#89). Покинутая запись истории заменена
+     * и снова не встретится, а новый переход на тот же путь получает новый ключ и открывает вкладку.
      */
-    readonly departed: string | null;
+    readonly departed: ReadonlyArray<DepartedLocation>;
 }
 
-const initialState: TabsState = { tabs: [], activeId: null, departed: null };
+const initialState: TabsState = { tabs: [], activeId: null, departed: [] };
+
+/**
+ * Сколько покинутых адресов помнить. Устаревшая отрисовка относится к последним переходам,
+ * поэтому старые отметки отбрасываются, и список не растёт за время работы.
+ */
+const departedLimit = 20;
+
+/** Добавляет отметку покинутого адреса. */
+function depart(state: TabsState, path: string, key: string): ReadonlyArray<DepartedLocation> {
+    return [...state.departed, { path, key }].slice(-departedLimit);
+}
 
 // Номера выдаются при отрисовке, которую React может повторить. Пропуск номера ничему не мешает:
 // от номера требуется только уникальность.
@@ -61,52 +84,58 @@ function normalizePath(pathname: string): string {
     return trimmed === '' ? homePath : trimmed;
 }
 
-/** Приводит состояние вкладок к адресу браузера. Возвращает прежний объект, если менять нечего. */
-function synchronize(state: TabsState, pathname: string, search: string): TabsState {
+/**
+ * Приводит состояние вкладок к адресу браузера. Возвращает прежний объект, если менять нечего.
+ * `key` — ключ записи истории: по нему покинутый адрес отличается от нового перехода на тот же путь.
+ */
+function synchronize(state: TabsState, pathname: string, search: string, key: string): TabsState {
     const path = normalizePath(pathname);
-    if (path === state.departed) return state;
-    const settled = state.departed === null ? state : { ...state, departed: null };
-    if (path === homePath) return settled.activeId === null ? settled : { ...settled, activeId: null };
+    if (state.departed.some((location) => location.path === path && location.key === key)) return state;
+    if (path === homePath) return state.activeId === null ? state : { ...state, activeId: null };
 
-    const existing = settled.tabs.find((tab) => tab.path === path);
+    const existing = state.tabs.find((tab) => tab.path === path);
     if (existing === undefined) {
         const tab: WindowTab = { id: nextTabId++, path, search, title: null };
         // Новая вкладка встаёт сразу за активной: форма оказывается рядом со списком, из которого открыта.
-        const position = settled.tabs.findIndex((candidate) => candidate.id === settled.activeId) + 1;
-        return { ...settled, tabs: [...settled.tabs.slice(0, position), tab, ...settled.tabs.slice(position)], activeId: tab.id };
+        const position = state.tabs.findIndex((candidate) => candidate.id === state.activeId) + 1;
+        return { ...state, tabs: [...state.tabs.slice(0, position), tab, ...state.tabs.slice(position)], activeId: tab.id };
     }
     // Списки сохраняют отбор при переходе по ссылке без параметров. У форм параметры задают
     // намерение открытия (original), поэтому их нужно применять и к уже открытой скрытой вкладке.
     const isRecordForm = /^\/(catalog|document)\/[^/]+\/[^/]+/.test(path);
-    const nextSearch = isRecordForm ? search : (existing.id === settled.activeId && search !== '' ? search : existing.search);
-    if (existing.id === settled.activeId && nextSearch === existing.search) return settled;
+    const nextSearch = isRecordForm ? search : (existing.id === state.activeId && search !== '' ? search : existing.search);
+    if (existing.id === state.activeId && nextSearch === existing.search) return state;
     return {
-        ...settled,
+        ...state,
         activeId: existing.id,
-        tabs: nextSearch === existing.search ? settled.tabs : settled.tabs.map((tab) => (tab === existing ? { ...tab, search: nextSearch } : tab)),
+        tabs: nextSearch === existing.search ? state.tabs : state.tabs.map((tab) => (tab === existing ? { ...tab, search: nextSearch } : tab)),
     };
 }
 
-/** Убирает вкладку. Если она была активной, активной становится соседняя слева, а без неё главный экран. */
-function removeTab(state: TabsState, id: number): TabsState {
+/**
+ * Убирает вкладку. Если она была активной, активной становится соседняя слева, а без неё главный экран.
+ * `key` — ключ текущей записи истории: адрес активной вкладки помечается покинутым.
+ */
+function removeTab(state: TabsState, id: number, key: string): TabsState {
     const index = state.tabs.findIndex((tab) => tab.id === id);
     const removed = state.tabs[index];
     if (removed === undefined) return state;
     const tabs = state.tabs.filter((tab) => tab.id !== id);
     if (state.activeId !== id) return { ...state, tabs };
-    return { tabs, activeId: state.tabs[index - 1]?.id ?? null, departed: removed.path };
+    return { tabs, activeId: state.tabs[index - 1]?.id ?? null, departed: depart(state, removed.path, key) };
 }
 
 /**
  * Меняет путь вкладки с `from` или вложенного в него пути на `path`: так вкладка черновика
  * `/вид/имя/new/<ключ>` тоже переходит на адрес созданной записи. Вкладка с другим путём
- * не меняется. Строка запроса относилась к прежнему пути и сбрасывается.
+ * не меняется. Строка запроса относилась к прежнему пути и сбрасывается. `key` — ключ текущей
+ * записи истории: прежний адрес активной вкладки помечается покинутым.
  */
-function relocateTab(state: TabsState, id: number, from: string, path: string): TabsState {
+function relocateTab(state: TabsState, id: number, from: string, path: string, key: string): TabsState {
     const relocated = state.tabs.find((tab) => tab.id === id);
     if (relocated === undefined || (relocated.path !== from && !relocated.path.startsWith(`${from}/`)) || relocated.path === path) return state;
     const tabs = state.tabs.map((tab) => (tab === relocated ? { ...tab, path, search: '' } : tab));
-    return state.activeId === id ? { ...state, tabs, departed: relocated.path } : { ...state, tabs };
+    return state.activeId === id ? { ...state, tabs, departed: depart(state, relocated.path, key) } : { ...state, tabs };
 }
 
 function retitleTab(state: TabsState, id: number, title: string): TabsState {
@@ -151,8 +180,15 @@ export function WindowTabsProvider({ children }: { readonly children: ReactNode 
     const navigate = useNavigate();
 
     const [stored, setStored] = useState(initialState);
-    const state = synchronize(stored, location.pathname, location.search);
+    const state = synchronize(stored, location.pathname, location.search, location.key);
     if (state !== stored) setStored(state);
+
+    // Ключ записи истории, показанной на экране. Действия вкладок помечают им покинутый адрес:
+    // ключ берётся из применённой отрисовки, а не из той, что ещё может быть отброшена.
+    const shownKey = useRef(location.key);
+    useLayoutEffect(() => {
+        shownKey.current = location.key;
+    }, [location.key]);
 
     const active = state.tabs.find((tab) => tab.id === state.activeId);
     const address = active === undefined ? homePath : active.path + active.search;
@@ -179,11 +215,17 @@ export function WindowTabsProvider({ children }: { readonly children: ReactNode 
 
     const actions = useMemo<TabActions>(
         () => ({
-            remove: (id) => setStored((previous) => removeTab(previous, id)),
+            // Ключ читается при вызове: функция обновления состояния выполняется позже, при отрисовке.
+            remove: (id) => {
+                const key = shownKey.current;
+                setStored((previous) => removeTab(previous, id, key));
+            },
             // Адрес меняет только вкладка формы новой записи этого объекта. Запись может создать
             // и форма на другой странице, например на странице конфигурации: её адрес остаётся прежним.
-            recordCreated: (id, object, guid) =>
-                setStored((previous) => relocateTab(previous, id, normalizePath(newRecordPath(object)), normalizePath(recordPath(object, guid)))),
+            recordCreated: (id, object, guid) => {
+                const key = shownKey.current;
+                setStored((previous) => relocateTab(previous, id, normalizePath(newRecordPath(object)), normalizePath(recordPath(object, guid)), key));
+            },
             retitle: (id, title) => setStored((previous) => retitleTab(previous, id, title)),
             attach: (id, close) => {
                 closers.current.set(id, close);
