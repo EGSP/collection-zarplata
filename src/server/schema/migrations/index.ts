@@ -20,6 +20,10 @@ export interface MigrationPlan {
 export interface SchemaMigration {
     /** Уникальный идентификатор в возрастающем лексикографическом порядке, например `20260929_rename_field`. */
     readonly id: string;
+    /** Часть приложения, изменение которой потребовало миграции. */
+    readonly part: 'platform' | 'configuration';
+    /** Версия этой части, в релизе которой появилась миграция: `x.y.0`, потому что миграция повышает `x` или `y`. */
+    readonly version: string;
     /** Ключи изменений из сообщения об остановке запуска. */
     readonly changes: readonly string[];
     /** SQL-команды без пользовательских значений. */

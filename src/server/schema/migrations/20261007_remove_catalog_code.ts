@@ -9,6 +9,8 @@ import type { SchemaMigration } from './index.js';
  */
 export const removeCatalogCode: SchemaMigration = {
     id: '20261007_remove_catalog_code',
+    part: 'platform',
+    version: '1.0.0',
     changes: [],
     statements: [],
     prepare(previous, desired) {

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { inject } from 'postject';
+import { applicationVersions } from '../dist/server/versions/versions.js';
 
 if (process.platform !== 'win32' || process.arch !== 'x64') {
     throw new Error('Сборка исполняемого файла поддерживается на Windows x64');
@@ -103,3 +104,5 @@ await inject(outputPath, 'NODE_SEA_BLOB', readFileSync(blobPath), {
     sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
 });
 console.log(`Исполняемый файл: ${outputPath}`);
+// Комплект собирается вручную, а имя его архива должно показывать версии без запуска программы.
+console.log(`Имя архива комплекта: collection-zarplata_portable_platform-${applicationVersions.platform}_configuration-${applicationVersions.configuration}.zip`);

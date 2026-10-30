@@ -5,6 +5,8 @@ import type { SchemaMigration } from './index.js';
 /** Переносит имя справочника и guid в JSON-ссылку до удаления прежних колонок. */
 export const externalRecordReference: SchemaMigration = {
     id: '20261007_external_record_reference',
+    part: 'platform',
+    version: '1.0.0',
     changes: [],
     statements: [],
     prepare(previous) {

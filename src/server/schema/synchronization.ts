@@ -2,6 +2,8 @@ import { Effect } from 'effect';
 import type { Database } from '../database/database.effect.js';
 import type { SqlQuery } from '../database/sql.builder.js';
 import { sqlIdentifier } from '../database/sql.builder.js';
+import { configurationVersion } from '../../configuration/version.js';
+import { applicationVersions, databaseVersionProblem, parseVersion, platformVersion } from '../versions/versions.js';
 import { migrations, type SchemaMigration } from './migrations/index.js';
 import { createIndexSql, createTableSql, type ColumnStructure, type SchemaStructure } from './structure.js';
 
@@ -45,6 +47,10 @@ function validateMigrations(available: readonly SchemaMigration[], pending: read
         if (!/^[0-9]{8}_[a-z][a-z0-9_]*$/.test(migration.id) || migration.id <= preceding || ids.has(migration.id)) {
             throw new Error(`Неверный идентификатор или порядок миграции «${migration.id}»`);
         }
+        // Миграция повышает x или y, поэтому ненулевой z означает ошибку в номере.
+        if (parseVersion(migration.version)[2] !== 0) {
+            throw new Error(`Версия миграции «${migration.id}» должна оканчиваться нулём: ${migration.version}`);
+        }
         ids.add(migration.id);
         preceding = migration.id;
     }
@@ -77,7 +83,18 @@ async function readAppliedMigrations(database: Database): Promise<Set<string>> {
 }
 
 /**
- * Создаёт служебные таблицы, затем сверяет метаданные со снимком и применяет изменения.
+ * Отказывает базе, которую записала несовместимая сборка. База без строки версий осталась
+ * от сборки, не знавшей версий: её принимают проверки снимка и журнала миграций.
+ */
+async function checkDatabaseVersions(database: Database): Promise<void> {
+    const stored = await Effect.runPromise(database.get<{ platform: string; configuration: string }>(query('SELECT platform, configuration FROM platform_versions WHERE id = 1')));
+    if (stored === undefined) return;
+    const problem = databaseVersionProblem('платформа', stored.platform, platformVersion) ?? databaseVersionProblem('конфигурация', stored.configuration, configurationVersion);
+    if (problem !== undefined) throw new Error(problem);
+}
+
+/**
+ * Создаёт служебные таблицы, проверяет версии базы, затем сверяет метаданные со снимком и применяет изменения.
  * Миграции, новые элементы структуры и снимок записываются одной транзакцией;
  * ошибка в ней откатывает эти изменения и останавливает запуск.
  */
@@ -90,6 +107,9 @@ export async function synchronizeSchema(database: Database, desired: SchemaStruc
             if (!existingNames.has(table.name.toLowerCase())) yield* database.run(query(createTableSql(table)));
         }
     })));
+
+    // Проверка идёт до сверки структуры: иначе старая сборка сообщила бы о незнакомых миграциях вместо причины.
+    if (existingNames.has('platform_versions')) await checkDatabaseVersions(database);
 
     const stored = await readSnapshot(database);
     if (stored === undefined && existing.some((row) => !row.name.startsWith('sqlite_') && !bootstrap.some((table) => table.name.toLowerCase() === row.name.toLowerCase()))) {
@@ -158,5 +178,9 @@ export async function synchronizeSchema(database: Database, desired: SchemaStruc
             }
         }
         yield* database.run(query('INSERT INTO platform_schema (id, snapshot) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET snapshot = excluded.snapshot', [JSON.stringify(desired)]));
+        yield* database.run(query(
+            'INSERT INTO platform_versions (id, platform, configuration) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET platform = excluded.platform, configuration = excluded.configuration',
+            [applicationVersions.platform, applicationVersions.configuration],
+        ));
     })));
 }

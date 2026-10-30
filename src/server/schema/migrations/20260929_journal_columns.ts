@@ -8,6 +8,8 @@ import type { SchemaMigration } from './index.js';
  */
 export const journalColumns: SchemaMigration = {
     id: '20260929_journal_columns',
+    part: 'platform',
+    version: '1.0.0',
     changes: [
         'platform_journal.actorGuid: удалить колонку',
         'platform_journal.objectKind: удалить колонку',

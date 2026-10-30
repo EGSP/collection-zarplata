@@ -86,6 +86,8 @@ const platformTables: readonly TableStructure[] = [
     { name: 'platform_backup_settings', columns: [column('id', 'INTEGER', true), column('schedule', 'TEXT', true), column('keep', 'INTEGER', true), column('updatedAt', 'TEXT', true)], primaryKey: ['id'], indexes: [] },
     { name: 'platform_schema', columns: [column('id', 'INTEGER', true), column('snapshot', 'TEXT', true)], primaryKey: ['id'], indexes: [] },
     { name: 'platform_migrations', columns: [column('id', 'TEXT', true), column('appliedAt', 'TEXT', true)], primaryKey: ['id'], indexes: [] },
+    // Одна строка с версиями сборки, которая последней открыла базу.
+    { name: 'platform_versions', columns: [column('id', 'INTEGER', true), column('platform', 'TEXT', true), column('configuration', 'TEXT', true)], primaryKey: ['id'], indexes: [] },
     {
         name: 'platform_journal',
         columns: [

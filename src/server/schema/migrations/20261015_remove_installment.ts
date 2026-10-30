@@ -25,6 +25,8 @@ const table = `document_${document}`;
  */
 export const removeInstallment: SchemaMigration = {
     id: '20261015_remove_installment',
+    part: 'configuration',
+    version: '1.0.0',
     changes: [],
     statements: [],
     prepare(previous, desired) {
