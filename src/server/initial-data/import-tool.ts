@@ -19,6 +19,27 @@ const toolDirectory = isSea() ? path.dirname(process.execPath) : path.resolve(im
 const toolExecutable = path.join(toolDirectory, process.platform === 'win32' ? 'collection-xml-import.exe' : 'collection-xml-import');
 
 /**
+ * Адрес сервера для утилиты: тот, который сервер слушает (`host` настроек). Сервер, который
+ * слушает только адрес в сети магазина, не принимает соединений на `127.0.0.1`, поэтому
+ * утилита обращается к нему по этому адресу (#85):
+ *
+ * ```text
+ * 127.0.0.1, localhost, ::1   → тот же адрес
+ * 0.0.0.0, ::                 → 127.0.0.1: сервер слушает все адреса, и loopback среди них
+ * 192.168.1.71                → 192.168.1.71
+ * ```
+ *
+ * HTTP без шифрования утилита принимает и для адреса собственной сетевой карты: Windows
+ * отправляет такой запрос внутри машины, и PIN не уходит в сеть.
+ */
+export function importServerAddress(host: string, port: number): string {
+    const listened = host.trim();
+    const address = listened === '0.0.0.0' || listened === '::' ? '127.0.0.1' : listened;
+    // Адрес IPv6 в URL пишется в квадратных скобках, иначе двоеточия в нём читаются как порт.
+    return `http://${address.includes(':') ? `[${address}]` : address}:${port}`;
+}
+
+/**
  * Импортирует справочник по сопоставлению `mappings/<mapping>.mapping.json` и возвращает
  * итоговую строку утилиты со счётчиками. PIN передаётся переменной окружения, а не аргументом:
  * аргументы процесса видны другим пользователям системы. Ненулевой код завершения
