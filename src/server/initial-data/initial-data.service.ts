@@ -8,7 +8,7 @@ import { DatabaseService } from '../database/database.service.js';
 import { ServerPort } from '../settings/server-port.js';
 import { SettingsService } from '../settings/settings.service.js';
 import { InitialDataError } from './initial-data.errors.js';
-import { runImportTool } from './import-tool.js';
+import { importServerAddress, runImportTool } from './import-tool.js';
 import { createInitialUsers } from './initial-users.js';
 import { ownInstallmentRateOperations } from './own-installment-rate.js';
 import { randomEmployeeOperations } from './random-employees.js';
@@ -78,11 +78,11 @@ export class InitialDataService {
     }
 
     /**
-     * Утилита соединяется с сервером по loopback-адресу: HTTP без шифрования она разрешает
-     * только для него. Сервер должен слушать этот адрес, например `127.0.0.1` или `0.0.0.0`.
+     * Утилита соединяется с сервером по адресу, который он слушает (`importServerAddress`):
+     * сервер с адресом в сети магазина в `host` на `127.0.0.1` не отвечает.
      */
     private importCatalog(mapping: string, pin: string): Effect.Effect<void, InitialDataError> {
-        return runImportTool(mapping, `http://127.0.0.1:${this.port}`, pin).pipe(
+        return runImportTool(mapping, importServerAddress(this.settings.host, this.port), pin).pipe(
             Effect.tap((summary) => Effect.sync(() => this.logger.log(`Импорт «${mapping}»: ${summary}`))),
             Effect.asVoid,
         );

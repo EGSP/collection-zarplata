@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -35,9 +36,7 @@ func connect(address string) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
-	host := parsed.Hostname()
-	local := host == "127.0.0.1" || host == "localhost" || host == "::1"
-	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && local) {
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && isLocalHost(parsed.Hostname())) {
 		return nil, errors.New("Для удалённого сервера требуется HTTPS")
 	}
 	jar, err := cookiejar.New(nil)
@@ -51,6 +50,33 @@ func connect(address string) (*server, error) {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	return &server{client: client, address: address}, nil
+}
+
+// isLocalHost сообщает, ведёт ли адрес на этот же компьютер: loopback или адрес одной из его
+// сетевых карт. Сервер, который в магазине слушает адрес в сети, например 192.168.1.71,
+// на 127.0.0.1 не отвечает, и импорт обращается к нему по этому адресу. Запрос на собственный
+// адрес система отправляет внутри машины, поэтому PIN без HTTPS в сеть не уходит.
+func isLocalHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, address := range addresses {
+		if network, ok := address.(*net.IPNet); ok && network.IP.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // post отправляет JSON и возвращает статус и тело ответа целиком.
