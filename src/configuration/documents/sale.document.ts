@@ -12,7 +12,7 @@
  */
 import { Effect } from 'effect';
 import { ActionDispatcher } from '../../server/data/action-context.js';
-import { DataPolicyError } from '../../server/data/data.errors.js';
+import { DataPolicyError, DataValidationError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
 import { document, formula, Metadata, movements, type LookupInput, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
@@ -23,7 +23,7 @@ import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
 import { installmentTypes, ownInstallment, ownInstallmentRate } from '../installments.js';
 import { numberAndDate, rubles } from '../money.js';
-import { cash, installmentMethod, paymentColumns, paymentMethods, Payments, receiverField } from '../payments.js';
+import { cash, installmentMethod, paymentColumns, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from '../payments.js';
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
 import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
@@ -69,6 +69,9 @@ const rejected = (message: string) => Effect.fail(new DataPolicyError({ message 
 /** Оплата, по которой деньги не приняты: на её сумму оформляется рассрочка по продаже. */
 const byInstallment = (payment: SaleRecord['payments'][number]) => payment.method === installmentMethod;
 
+/** Строка оплаты продажи для сравнения с прежней записью: колонки по порядку, пустые как `null`. */
+const salePaymentKey = (payment: SaleRecord['payments'][number]) => JSON.stringify([payment.method, payment.amount, payment.receiver ?? null]);
+
 /** Сумма оплат способом «Рассрочка»: на неё оформляются рассрочки по продаже. */
 const installmentAmount = (record: SaleRecord) => record.payments.filter(byInstallment).reduce((total, payment) => total + payment.amount, 0);
 
@@ -81,9 +84,11 @@ const installmentAmount = (record: SaleRecord) => record.payments.filter(byInsta
  *
  * Способ «Рассрочка» допустим у строки сложной оплаты и у единственной оплаты продажи со способом
  * «Рассрочка». Таких строк у продажи не больше одной. У такой строки «Куда оплачено» пусто: деньги по ней не приняты и придут взносами
- * рассрочки.
+ * рассрочки. У остальных новых и изменённых строк «Куда оплачено» обязательно; строки прежней
+ * записи `existing` не проверяются (`paymentsWithoutReceiver`). Отказ называет поле строки,
+ * и форма отмечает незаполненную ячейку.
  */
-const checkPayments = (record: SaleRecord) => {
+const checkPayments = (record: SaleRecord, existing: SaleRecord | null) => {
     const mode = record.paymentMode;
     // Рассрочка по продаже оформляется на одну сумму, поэтому оплата рассрочкой у продажи одна.
     if (record.payments.filter(byInstallment).length > 1) return rejected(`У продажи не больше одной оплаты способом «${installmentMethod}»`);
@@ -93,6 +98,15 @@ const checkPayments = (record: SaleRecord) => {
         if (mode !== complexPayment && mode !== installmentMethod) return rejected(`${place}: способ «${installmentMethod}» допустим только при способе оплаты продажи «${installmentMethod}» или «${complexPayment}»`);
         // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
         if ((payment.receiver ?? null) !== null) return rejected(`${place}: у оплаты способом «${installmentMethod}» «Куда оплачено» не заполняется`);
+    }
+    const withoutReceiver = paymentsWithoutReceiver(existing?.payments ?? [], record.payments, salePaymentKey);
+    if (withoutReceiver.length > 0) {
+        // Путь поля в запросе записи: по нему форма отмечает ячейку, а при простом способе всю оплату.
+        const lines = withoutReceiver.map((index) => index + 1).join(', ');
+        return Effect.fail(new DataValidationError({
+            message: withoutReceiver.length === 1 ? `Строка оплаты ${lines}: укажите «Куда оплачено»` : `Строки оплаты ${lines}: укажите «Куда оплачено»`,
+            fields: withoutReceiver.map((index) => `payload.fields.payments.${index}.receiver`),
+        }));
     }
     if (mode !== complexPayment) {
         if (record.payments.length > 1) return rejected(`При способе оплаты «${mode}» у продажи одна оплата, а указано ${record.payments.length}`);
@@ -114,8 +128,9 @@ const checkPayments = (record: SaleRecord) => {
  */
 const salePaymentsPolicy: Policy<SaleRecord> = {
     name: 'sale-payments',
-    save: ({ proposedRecord }) => checkPayments(proposedRecord),
-    post: ({ document }) => checkPayments(document),
+    save: ({ existingRecord, proposedRecord }) => checkPayments(proposedRecord, existingRecord),
+    // При проведении строки оплат не меняются: «Куда оплачено» проверила запись перед ним.
+    post: ({ document }) => checkPayments(document, document),
 };
 
 /**
@@ -482,6 +497,11 @@ const prepareInstallment = (record: SaleRecord, amount: number, terms: Installme
     }
     if (initialAmount !== null && initialAmount >= amount) {
         return yield* rejected(`Первоначальный взнос должен быть меньше суммы рассрочки ${rubles(amount)}: при оплате всей суммы рассрочка не нужна`);
+    }
+    // Взнос принят деньгами, поэтому «Куда оплачено» обязательно, как у оплаты продажи. Проверка
+    // здесь, а не только политикой рассрочки: её отказ назвал бы строку взноса, которой продавец не видит.
+    if (initialAmount !== null && (terms.initialReceiver ?? null) === null) {
+        return yield* rejected('Укажите «Куда оплачено» первоначального взноса');
     }
     const rate = terms.type === ownInstallment ? yield* ownInstallmentRate : terms.rate ?? null;
     // Первоначальный взнос — обычный взнос рассрочки, принятый в момент оформления: его деньги
