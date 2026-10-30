@@ -1,6 +1,6 @@
 /**
  * Поля ячейки табличной части, которым нужен список: подсказки значений, выбор из вариантов,
- * ссылка на запись, дата и дата со временем. Все они построены на `CellComboInput` дизайн-системы: в ячейке стоит
+ * ссылка на запись, составное значение, дата и дата со временем. Все они построены на `CellComboInput` дизайн-системы: в ячейке стоит
  * собственный `input` без рамки и отступов Ant Design, а варианты выводятся списком под ячейкой.
  * Данные для списков (записи-подсказки, найденные записи, представление ссылки) этот модуль
  * берёт у платформы.
@@ -11,22 +11,27 @@
 import { useList, type CrudFilter } from '@refinedev/core';
 import { Calendar } from 'antd';
 import dayjs from 'dayjs';
-import { useState, type ComponentType, type Ref } from 'react';
+import { useContext, useMemo, useState, type ComponentType, type Ref } from 'react';
+import { compositeReference } from '../../../server/metadata/composite';
+import type { CompositeValue } from '../../../server/metadata/descriptions';
 import type { FormField, ObjectView } from '../../../server/ui/descriptions';
 import type { ReferencePresentations } from '../../../server/ui/reference-presentation';
 import type { ApiError } from '../../common/api';
 import { useDebounced } from '../../common/debounced';
 import { crudSort, searchFilters } from '../../data-provider/data-provider';
-import { useObjectView } from '../../data-provider/metadata';
+import { findObjectView, useMetadata, useObjectView } from '../../data-provider/metadata';
 import { resourceName } from '../../data-provider/perform';
 import type { RecordData } from '../../data-provider/records';
 import { LookupDialog } from '../../references/lookup-dialog';
-import { listRecordPresentation, useReferencePresentation } from '../../references/presentation';
+import { listRecordPresentation, useObjectReferencePresentation, useReferencePresentation } from '../../references/presentation';
 import { useRecordSuggestions } from '../../references/record-suggestions';
+import { compositeTypeTitle, defaultInterpretation, displayedText, editableText, textInterpretations } from '../../widgets/composite-text';
 import { Button } from '../ds/button';
 import { CellComboInput } from '../ds/cell-combo';
 import { cellTextRules, formatCell, type CellTextInputHandle, type PrimitiveCellType } from '../ds/cell-types';
 import { Icons } from '../ds/icons';
+import { Text } from '../ds/text';
+import { RecordDialogContext } from './open-record';
 
 /** Свойства поля ячейки. `value` и `onChange` передаёт `Form.Item` через ячейку. */
 export interface CellInputProperties {
@@ -47,6 +52,9 @@ export function listCellInput(field: FormField): ComponentType<CellInputProperti
     if (field.kind === 'reference' && field.target !== null) return ReferenceCellInput;
     if (field.kind === 'date') return DateCellInput;
     if (field.kind === 'dateTime') return DateTimeCellInput;
+    // Составное значение со способом `solid` (дата или флажок среди вариантов) текстом не набрать:
+    // его вводит виджет реестра.
+    if (field.kind === 'composite' && field.inputMode === 'fluent') return CompositeCellInput;
     return null;
 }
 
@@ -195,6 +203,125 @@ function ReferenceCombo({ field, value, onChange, id, ref, object }: CellInputPr
                 />
             )}
         </>
+    );
+}
+
+/** Вариант списка составного значения: что он делает при выборе и его подпись. */
+interface CompositeOption {
+    readonly key: string;
+    readonly label: string;
+    /** Источник варианта: «Строка», заголовок справочника, «Создать». Подписывается, когда источников несколько. */
+    readonly source: string;
+    /** Значение, которое ставит выбор, либо объект, запись которого выбор создаёт в окне. */
+    readonly action: { readonly value: CompositeValue } | { readonly create: ObjectView };
+}
+
+/**
+ * Составное значение, которое вводится текстом (способ `fluent`), например «Куда оплачено»:
+ * строка либо приёмник оплат из справочника. Правила те же, что у поля формы
+ * (`CompositeFluentInput`), но поле собственное, без рамки и отступов Ant Design.
+ *
+ * Набранный текст становится значением простого варианта: строкой, а без строкового варианта числом
+ * или суммой. Список предлагает записи целевых объектов, значения из перечня строки и, когда текст
+ * подходит нескольким вариантам, их толкования. Запись выбирается явно: Enter без выделения
+ * оставляет набранный текст строкой, а не первую найденную запись. Если записей по тексту нет,
+ * список предлагает создать её в модальном окне.
+ *
+ * Тип значения подписан справа в ячейке: строка «100» и число 100 выглядят одинаково.
+ */
+function CompositeCellInput({ field, value, onChange, id, ref }: CellInputProperties) {
+    const metadata = useMetadata().data;
+    const current = (value ?? null) as CompositeValue | null;
+    const variants = useMemo(() => field.variants ?? [], [field.variants]);
+    const [search, setSearch] = useState('');
+    const [searching, setSearching] = useState(false);
+    const targets = useMemo(() => variants.flatMap((variant): Array<ObjectView> => {
+        const object = variant.kind === 'reference' ? findObjectView(metadata, variant.target) : undefined;
+        return object === undefined ? [] : [object];
+    }), [variants, metadata]);
+    const records = useRecordSuggestions(targets, search, searching);
+
+    const reference = compositeReference(current);
+    const selected = useObjectReferencePresentation(reference);
+    const text = current === null ? '' : reference === null ? editableText(current) : selected.text;
+
+    const openDialog = useContext(RecordDialogContext);
+    const entered = search.trim();
+    const interpretations = textInterpretations(variants, search);
+    const choices = variants.find((variant) => variant.kind === 'string')?.choices ?? [];
+    const nothingFound = entered !== '' && !records.loading && records.groups.every((group) => group.suggestions.length === 0);
+    const options: ReadonlyArray<CompositeOption> = [
+        // Толкования предлагаются, только когда их несколько: единственное поле применяет само.
+        ...(interpretations.length < 2 ? [] : interpretations.map((candidate): CompositeOption => ({
+            key: `value/${candidate.type}`, source: 'Считать значением',
+            label: `${compositeTypeTitle(metadata, candidate.type, null)}: ${displayedText(candidate)}`, action: { value: candidate },
+        }))),
+        ...choices.filter((choice) => choice.toLowerCase().includes(entered.toLowerCase())).map((choice): CompositeOption => ({
+            key: `choice/${choice}`, source: 'Значения', label: choice, action: { value: { type: 'string', value: choice } },
+        })),
+        ...records.groups.flatMap((group) => group.suggestions.map((suggestion): CompositeOption => ({
+            key: `record/${suggestion.key}`, source: group.object.title, label: suggestion.label, action: { value: { type: 'reference', ...suggestion.reference } },
+        }))),
+        // Создание записи: только когда записей по тексту нет, в объекты с правом записи и там,
+        // где модальное окно можно показать.
+        ...(openDialog === null || !nothingFound ? [] : targets
+            .filter((object) => object.form?.actions.some((action) => action.name === 'save') === true)
+            .map((object): CompositeOption => ({ key: `create/${object.kind}/${object.name}`, source: 'Создать', label: `Новый: ${object.title}`, action: { create: object } }))),
+    ];
+    // Источник подписывается, только когда их несколько: иначе неясно, что именно предложено.
+    const labelled = new Set(options.map((option) => option.source)).size > 1;
+
+    /**
+     * Создаёт запись в окне и делает её значением. Справочнику, который называется своим
+     * наименованием, введённый текст передаётся наименованием. Закрытое без записи окно
+     * оставляет набранный текст значением.
+     */
+    const create = async (object: ObjectView, name: string) => {
+        if (openDialog === null) return;
+        const initial = object.kind === 'catalog' && object.presentation === null ? { name } : undefined;
+        const guid = await openDialog(object, null, initial);
+        if (guid !== null) onChange?.({ type: 'reference', kind: object.kind === 'document' ? 'document' : 'catalog', name: object.name, guid });
+    };
+
+    return (
+        // Поле не пересоздаётся при смене значения: иначе после выбора записи из него ушёл бы фокус.
+        // Текст выбранной записи ставит `onPick`, а представление прежней ссылки к началу
+        // редактирования уже прочитано для просмотра ячейки.
+        <CellComboInput
+            ref={ref}
+            {...(id === undefined ? {} : { id })}
+            label={field.title}
+            placeholder={variants.map((variant) => compositeTypeTitle(metadata, variant.kind, variant.target)).join(', ')}
+            text={text}
+            loading={records.loading}
+            options={options.map((option) => ({
+                key: option.key,
+                label: labelled ? <>{option.label} <Text.Helper noWrap>· {option.source}</Text.Helper></> : option.label,
+            }))}
+            onText={(typed) => {
+                setSearching(true);
+                setSearch(typed);
+                if (typed.trim() === '') {
+                    onChange?.(null);
+                    return;
+                }
+                // Текст, который не подходит ни одному простому варианту, служит только поиском записей:
+                // прежнее значение остаётся, пока пользователь не выберет запись.
+                const interpreted = defaultInterpretation(textInterpretations(variants, typed), current);
+                if (interpreted !== undefined) onChange?.(interpreted);
+            }}
+            onPick={(key) => {
+                const option = options.find((candidate) => candidate.key === key);
+                if (option === undefined) return undefined;
+                if ('create' in option.action) {
+                    void create(option.action.create, entered);
+                    return undefined;
+                }
+                onChange?.(option.action.value);
+                return option.action.value.type === 'reference' ? option.label : editableText(option.action.value);
+            }}
+            trailing={() => current === null ? null : <Text.Helper noWrap>{compositeTypeTitle(metadata, current.type, reference)}</Text.Helper>}
+        />
     );
 }
 
