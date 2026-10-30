@@ -38,7 +38,7 @@ import { Rights } from './configuration.generated.js';
 import { Shift } from './documents/shift.document.js';
 import { rubles } from './money.js';
 import { closedPeriodPolicy, dayOf, lastClosedThrough } from './policies/closed-period.js';
-import { cash, paymentMethods, Payments, receiverField } from './payments.js';
+import { cash, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from './payments.js';
 import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
 
@@ -245,6 +245,13 @@ const installmentRulesPolicy = (name: InstallmentName, cancelledWithBasis: Cance
             return yield* rejected(`Рассрочку можно закрыть, только когда остаток равен нулю, а он равен ${rubles(proposedRecord.balance)}`);
         }
         if (closes) yield* checkClosingDate(proposedRecord);
+        // Новые и изменённые взносы без «Куда оплачено» не принимаются; взносы, записанные
+        // до этого правила, остаются в силе. Так проверяется любая запись: «Внести»,
+        // первоначальный взнос и правка взносов в «Внести изменения» продажи.
+        const withoutReceiver = paymentsWithoutReceiver(existingRecord?.payments ?? [], proposedRecord.payments, paymentKey);
+        if (withoutReceiver.length > 0) {
+            return yield* rejected(`Взнос ${withoutReceiver.map((index) => index + 1).join(', ')}: укажите «Куда оплачено»`);
+        }
     }),
     post: ({ document: record }) => checkCustomer(record),
     // Закрытая рассрочка помечается на удаление только вместе с отменённым основанием: отмена
@@ -338,7 +345,8 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
                 .field('date', (field) => field.dateTime().title('Дата').required())
                 .field('method', (field) => field.string().title('Способ').choices(paymentMethods).required())
                 .field('amount', (field) => field.money().title('Сумма').minimum(1).required())
-                .field('receiver', receiverField))
+                // Взнос принимается деньгами: куда их приняли, указывается обязательно (раздел «Правила учёта»).
+                .field('receiver', (field) => receiverField(field).required()))
             .handle((input) => Effect.gen(function* () {
                 const record = yield* read(input.installment);
                 if (record.closedAt !== null) return yield* rejected('Рассрочка закрыта, взносов она не принимает');

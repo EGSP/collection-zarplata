@@ -43,6 +43,8 @@ export function installmentTermsProblems(terms: SaleInstallmentTerms, installmen
         ...(terms.type === ownInstallment && terms.responsibleEmployee === null ? ['Выберите ответственного сотрудника собственной рассрочки'] : []),
         ...(terms.type !== null && terms.type !== ownInstallment && terms.rate === null ? ['Выберите ставку банковской рассрочки'] : []),
         ...(terms.type === ownInstallment && terms.initialAmount !== null && terms.initialAmount >= installmentAmount ? ['Первоначальный взнос должен быть меньше суммы рассрочки'] : []),
+        // Взнос принят деньгами: как у оплаты продажи, куда их приняли, указывается обязательно.
+        ...(terms.type === ownInstallment && terms.initialAmount !== null && terms.initialReceiver === null ? ['Укажите «Куда оплачено» первоначального взноса'] : []),
     ];
 }
 

@@ -1,3 +1,4 @@
+import { Form } from 'antd';
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { RecordOf } from '../../server/metadata/index';
 import { Column, FieldInput, Grid, newRowValues, Stack, TablePart, Text, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
@@ -110,6 +111,14 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
     const paid = rows.reduce((total, payment) => total + (payment.amount ?? 0), 0);
     const remaining = saleAmount - paid;
 
+    // Отказ сервера по полю строки форма отмечает на всей части: при простом способе ячеек нет.
+    // Тогда красным выделяется только незаполненное поле, а заполненное отметку не получает.
+    // Если незаполненного нет, отметка части остаётся на обоих полях: статус не задаётся.
+    const { status } = Form.Item.useStatus();
+    const receiverMissing = status === 'error' && mode !== installmentMethod && (row?.receiver ?? null) === null;
+    const amountMissing = status === 'error' && (row?.amount ?? null) === null;
+    const fieldStatus = (missing: boolean) => receiverMissing || amountMissing ? { validateStatus: missing ? 'error' as const : '' as const } : {};
+
     if (!simple) {
         // У продажи не больше одной оплаты рассрочкой: когда она есть, в остальных строках способ недоступен.
         const installmentTaken = rows.some((payment) => payment.method === installmentMethod);
@@ -129,16 +138,21 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
         <Grid gutter="narrow">
             <Column span={simpleColumns.amount}>
                 <Labelled title={amount.title} onBlur={fillEmptyAmount}>
-                    <FieldInput field={amount} value={row?.amount ?? null} disabled={disabled} ref={ref} id={id}
-                        onChange={(entered) => onChange?.(single({ amount: typeof entered === 'number' ? entered : null }))} />
+                    {/* `Form.Item` без имени только задаёт статус поля: пустой статус снимает отметку части. */}
+                    <Form.Item noStyle {...fieldStatus(amountMissing)}>
+                        <FieldInput field={amount} value={row?.amount ?? null} disabled={disabled} ref={ref} id={id}
+                            onChange={(entered) => onChange?.(single({ amount: typeof entered === 'number' ? entered : null }))} />
+                    </Form.Item>
                 </Labelled>
             </Column>
             {/* По оплате способом «Рассрочка» деньги не приняты, и «Куда оплачено» у неё не заполняется. */}
             {mode !== installmentMethod && (
                 <Column span={simpleColumns.receiver}>
                     <Labelled title={receiver.title}>
-                        <FieldInput field={receiver} value={row?.receiver ?? null} disabled={disabled}
-                            onChange={(entered) => onChange?.(single({ receiver: (entered ?? null) as PaymentLine['receiver'] }))} />
+                        <Form.Item noStyle {...fieldStatus(receiverMissing)}>
+                            <FieldInput field={receiver} value={row?.receiver ?? null} disabled={disabled}
+                                onChange={(entered) => onChange?.(single({ receiver: (entered ?? null) as PaymentLine['receiver'] }))} />
+                        </Form.Item>
                     </Labelled>
                 </Column>
             )}
