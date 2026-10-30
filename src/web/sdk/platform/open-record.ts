@@ -20,6 +20,7 @@ import { findObjectView, useMetadata } from '../../data-provider/metadata';
 import type { PerformTarget } from '../../data-provider/perform';
 import type { FormValues } from './record-values';
 import { resolveRecordOpening } from '../../data-provider/record-opening';
+import { randomUuid } from './insecure-context';
 
 /**
  * Открывает форму записи объекта. `guid`, равный `null`, открывает форму новой записи.
@@ -100,7 +101,9 @@ export function useOpenRecord(): OpenRecord {
             const creationMode = findObjectView(metadata, object)?.form?.creationMode ?? 'tab';
             if ((mode ?? (guid === null ? creationMode : 'tab')) === 'tab') {
                 if (guid === null && options?.initial !== undefined) {
-                    const key = crypto.randomUUID();
+                    // Не `crypto.randomUUID`: на странице, открытой по http с адреса в сети, его нет,
+                    // и вкладка со значениями, например продажа из отвеса, не открывалась.
+                    const key = randomUuid();
                     drafts.set(key, options.initial);
                     await navigate(newRecordDraftPath(object, key));
                     return null;

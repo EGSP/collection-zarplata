@@ -137,6 +137,9 @@ export { Layer, Panel, useLayer, type LayerColors, type LayerLevel, type LayerPr
 export { Text, type TextCommonProperties, type TextHeadingProperties, type TextHeadingVariant, type TextProperties, type TextTone } from './ds/text';
 export { useAccountingColors, type AccountingColor, type AccountingTone } from './ds/colors';
 
+// Замены браузерных API, которых нет на странице, открытой по http с адреса в сети.
+export { randomUuid } from './platform/insecure-context';
+
 // Действия.
 export { ActionButton, actionApplies, actionSuccessMessage, type ActionButtonProperties } from './platform/action-button';
 export { ActionDialog, type ActionDialogProperties } from './platform/action-dialog';
