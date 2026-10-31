@@ -19,6 +19,8 @@ const recipient = 'recipient';
  */
 export const installmentPaymentColumns: SchemaMigration = {
     id: '20261012_installment_payment_columns',
+    part: 'configuration',
+    version: '1.0.0',
     changes: [],
     statements: [],
     prepare(previous) {

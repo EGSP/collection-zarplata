@@ -26,4 +26,5 @@
 - [Инструменты разработки](docs/development-tools.md)
 - [Документация](docs/documentation.md)
 - [Поставка](docs/delivery.md)
+- [Версии](docs/versions.md)
 - [Импорт из универсальной XML-выгрузки 1С](docs/1c-xml-import.md)

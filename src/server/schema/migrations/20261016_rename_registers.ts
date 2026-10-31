@@ -23,6 +23,8 @@ const renames = [
 
 export const renameRegisters: SchemaMigration = {
     id: '20261016_rename_registers',
+    part: 'configuration',
+    version: '1.0.0',
     changes: [],
     statements: [],
     prepare(previous, desired) {

@@ -5,6 +5,7 @@ import type { ShellSubsystem } from '../../server/ui/descriptions';
 import { Pending } from '../common/pending';
 import { useMetadata } from '../data-provider/metadata';
 import { Icons } from '../sdk/ds/icons';
+import { ApplicationVersionsText } from './application-versions';
 import { TabPages } from '../tabs/tab-pages';
 import { TabStrip } from '../tabs/tab-strip';
 import { useWindowTabs } from '../tabs/window-tabs';
@@ -115,7 +116,8 @@ interface NavigationPanelProperties {
 /**
  * Содержимое боковой панели. Одно и то же в закреплённой панели и в выдвинутой поверх страницы,
  * поэтому пункты в обоих режимах совпадают. Switcher и рабочие места отделены разделителями;
- * прокручиваются только подсистемы, а служебные пункты стоят внизу.
+ * прокручиваются только подсистемы, а служебные пункты стоят внизу. Под ними выводятся версии;
+ * в полосе иконок им негде поместиться, и они видны после разворачивания панели.
  */
 function NavigationPanel({ collapsed, switcherTitle, onSwitch, onNavigate, onOpenSubsystem }: NavigationPanelProperties) {
     const { token } = theme.useToken();
@@ -137,6 +139,11 @@ function NavigationPanel({ collapsed, switcherTitle, onSwitch, onNavigate, onOpe
                 <SubsystemMenu onOpen={onOpenSubsystem} />
             </div>
             <ServiceMenu onNavigate={onNavigate} />
+            {collapsed ? null : (
+                <div style={{ padding: token.paddingXS, textAlign: 'center' }}>
+                    <ApplicationVersionsText />
+                </div>
+            )}
         </Flex>
     );
 }

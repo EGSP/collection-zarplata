@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { Button, Card, Flex, Form, Input, type InputRef, Layout, Typography } from 'antd';
 import { useRef } from 'react';
+import { ApplicationVersionsText } from '../application/application-versions';
 import { login } from './session';
 
 interface LoginForm {
@@ -58,6 +59,9 @@ export function LoginPage() {
                             Войти
                         </Button>
                     </Form>
+                    <Flex justify="center" style={{ marginTop: 16 }}>
+                        <ApplicationVersionsText />
+                    </Flex>
                 </Card>
             </Flex>
         </Layout>
