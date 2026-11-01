@@ -1,4 +1,5 @@
-import { Button, Descriptions, Empty, Flex, Space, Table, Tag, theme, Typography } from 'antd';
+import { DataTable } from '../sdk/ds/data-table';
+import { Button, Descriptions, Empty, Flex, Space, Tag, theme, Typography } from 'antd';
 import { type ReactNode, useState } from 'react';
 import type { ModuleKind, ModulesGraphClass, ModulesGraphInjection } from '../../common/modules-graph';
 import {
@@ -272,18 +273,17 @@ function LinkDetails({ view, linkView, onSelect, onHover }: DetailsPanelProps & 
 
 function InjectionTable({ injections }: { readonly injections: ReadonlyArray<ModulesGraphInjection> }) {
     return (
-        <Table
-            size="small"
-            pagination={false}
+        <DataTable
+
             rowKey={(injection) => `${linkId(injection)}:${injection.sourceClass}:${injection.place}:${injection.position}`}
-            dataSource={[...injections]}
+            rows={[...injections]}
             columns={[
-                { key: 'source', title: 'Кто получает', render: (_, injection) => <Typography.Text code>{injection.sourceClass}</Typography.Text> },
-                { key: 'target', title: 'Что получает', render: (_, injection) => <Typography.Text code>{injection.targetClass}</Typography.Text> },
+                { key: 'source', type: 'free', size: { minimum: 18, weight: 1 }, title: 'Кто получает', render: (injection) => <Typography.Text code>{injection.sourceClass}</Typography.Text> },
+                { key: 'target', type: 'free', size: { minimum: 18, weight: 1 }, title: 'Что получает', render: (injection) => <Typography.Text code>{injection.targetClass}</Typography.Text> },
                 {
-                    key: 'place',
+                    key: 'place', type: 'free', size: { minimum: 18, weight: 1 },
                     title: 'Как',
-                    render: (_, injection) => injection.place === 'constructor'
+                    render: (injection) => injection.place === 'constructor'
                         ? `конструктор, параметр ${Number(injection.position) + 1}`
                         : `свойство ${injection.position}`,
                 },

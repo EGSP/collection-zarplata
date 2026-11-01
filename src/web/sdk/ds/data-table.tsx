@@ -39,8 +39,8 @@
  * там же, где текст заголовка.
  * Элемент с атрибутом `data-cell-target` получает щелчок по отступу ячейки вокруг него.
  */
-import { Checkbox, Radio, Spin, theme } from 'antd';
-import { Fragment, useLayoutEffect, useRef, type CSSProperties, type Key, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { Checkbox, Pagination, Radio, Spin, theme } from 'antd';
+import { Fragment, isValidElement, useLayoutEffect, useState, useRef, type CSSProperties, type Key, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import { useBreakpoint } from './breakpoints';
 import { Button } from './button';
 import { cellAlign, cellColumnSize, cellInputClass, formatCell, type CellType } from './cell-types';
@@ -142,6 +142,8 @@ export interface DataTableProperties<Row> {
      * Колонке свободного типа передают готовое содержимое. Без свойства строки итогов нет.
      */
     readonly summary?: { readonly [key: string]: unknown } | undefined;
+    /** Без total страницы нарезаются локально; с total экран передаёт уже выбранную страницу. */
+    readonly pagination?: { readonly current?: number; readonly pageSize: number; readonly total?: number; readonly onChange?: (page: number) => void } | undefined;
     readonly loading?: boolean | undefined;
     /** Текст пустой таблицы, по умолчанию «Строк нет». */
     readonly emptyText?: ReactNode;
@@ -176,7 +178,7 @@ const classes = {
 function dataTableStyleSheet(): string {
     const { frame, scroll, body, row, header, cell, expanded, empty, input } = classes;
     return [
-        `.${frame} { position: relative; }`,
+        `.${frame} { position: relative; min-width: 0; max-width: 100%; }`,
         `.${scroll} { overflow-x: auto; }`,
         // Тело не уже суммы минимумов колонок: остальное место браузер делит по долям.
         `.${body} { min-width: min-content; }`,
@@ -266,7 +268,12 @@ const cellPadding = spacing[5];
 
 /** Таблица данных. Правила и пример описаны во вводном комментарии модуля. */
 export function DataTable<Row>(properties: DataTableProperties<Row>) {
-    const { columns, rows, rowKey, layouts, selection, expansion, sort, onSort, summary, loading = false, emptyText = 'Строк нет', rowState, onRowClick, onRowDoubleClick, interactive = false } = properties;
+    const { columns, rows: sourceRows, rowKey, pagination, layouts, selection, expansion, sort, onSort, summary, loading = false, emptyText = 'Строк нет', rowState, onRowClick, onRowDoubleClick, interactive = false } = properties;
+    const [localPage, setLocalPage] = useState(1);
+    const total = pagination?.total ?? sourceRows.length;
+    // Поиск и удаление могут уменьшить список: недоступная последняя страница сбрасывается.
+    const page = Math.max(1, Math.min(pagination?.current ?? localPage, Math.ceil(total / (pagination?.pageSize ?? 10)) || 1));
+    const rows = pagination === undefined || pagination.total !== undefined ? sourceRows : sourceRows.slice((page - 1) * pagination.pageSize, page * pagination.pageSize);
     const { token } = theme.useToken();
     const layer = useLayer();
     const point = useBreakpoint();
@@ -464,6 +471,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                     </div>
                 </div>
             </div>
+            {pagination !== undefined && <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBlock: spacing[3] }}><Pagination size="small" current={page} pageSize={pagination.pageSize} total={total} showSizeChanger={false} onChange={(next) => { setLocalPage(next); pagination.onChange?.(next); }} /></div>}
         </Spin>
     );
 }
@@ -472,7 +480,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
 function summaryContent<Row>(column: DataTableColumn<Row>, value: unknown): ReactNode {
     if (value === undefined || value === null) return null;
     // Подпись «Итого» стоит в колонке любого типа: строка выводится как есть.
-    if (column.type === 'free' || typeof value === 'string') return value as ReactNode;
+    if (isValidElement(value) || column.type === 'free' || typeof value === 'string') return value as ReactNode;
     return formatCell(column.type, value);
 }
 

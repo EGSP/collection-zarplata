@@ -1,4 +1,5 @@
-import { Alert, Button, Flex, Modal, Table, Tabs, Typography } from 'antd';
+import { DataTable } from '../../web/sdk';
+import { Alert, Button, Flex, Modal, Tabs, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ActionDialog, Column, FieldDisplay, FieldInput, FluidField, FluidValue, Grid, Layer, Page, pagePath, Panel, RecordLink, Stack, Text, useAction, useActionResult, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
@@ -35,20 +36,19 @@ function ClosedPeriods() {
     const openRecord = useOpenRecord();
     if (closings.error !== null) return <Alert type="error" showIcon title="Не удалось загрузить закрытые периоды" />;
     return (
-        <Table
-            size="small"
-            rowKey="guid"
+        <DataTable
+            rowKey={(row) => row.guid}
             loading={closings.loading}
-            dataSource={[...closings.records]}
-            locale={{ emptyText: 'Закрытых периодов нет' }}
+            rows={[...closings.records]}
+            emptyText={'Закрытых периодов нет'}
             pagination={{ current: closings.page, pageSize: closings.pageSize, total: closings.total, onChange: closings.setPage }}
             columns={[
                 // Номер относится к порядку действующих периодов, а не к документу закрытия.
                 // При сортировке от новых к старым отсчёт идёт от общего количества, включая другие страницы.
-                { title: '№ периода', key: 'periodNumber', width: 110, render: (_value, _row, index) => closings.total - (closings.page - 1) * closings.pageSize - index },
-                { title: 'Период', key: 'period', render: (_value, row) => <>{row.periodStart == null ? 'С начала учёта' : <FieldDisplay field={dayField} value={row.periodStart} />} по <FieldDisplay field={dayField} value={row.closedThrough} /></> },
-                { title: 'Начислено', key: 'amount', align: 'right', render: (_value, row) => <Money value={row.amount} /> },
-                { title: '', key: 'open', render: (_value, row) => <Button type="link" onClick={() => void openRecord(Objects.document.periodClosing, row.guid)}>Открыть</Button> },
+                { title: '№ периода', key: 'periodNumber', type: 'number' as const, size: { minimum: 16, weight: 1 }, render: (_row, index) => closings.total - (closings.page - 1) * closings.pageSize - index },
+                { title: 'Период', key: 'period', type: 'free' as const, size: { minimum: 28, weight: 2 }, render: (row) => <>{row.periodStart == null ? 'С начала учёта' : <FieldDisplay field={dayField} value={row.periodStart} />} по <FieldDisplay field={dayField} value={row.closedThrough} /></> },
+                { title: 'Начислено', key: 'amount', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Money value={row.amount} /> },
+                { title: '', key: 'open', type: 'free' as const, size: { minimum: 10 }, render: (row) => <Button type="link" onClick={() => void openRecord(Objects.document.periodClosing, row.guid)}>Открыть</Button> },
             ]}
         />
     );
@@ -98,31 +98,25 @@ function Moment({ value }: { readonly value: string | null }) {
  */
 function LinesTable({ lines, installments }: { readonly lines: ReadonlyArray<PayrollLine>; readonly installments: boolean }) {
     return (
-        <Table
-            size="small"
-            pagination={false}
+        <DataTable
+
             rowKey={(line) => `${line.document.guid}-${line.goods}-${line.kind}-${line.date}-${line.base}-${line.rule}`}
-            dataSource={[...lines]}
+            rows={[...lines]}
+            layouts={{ sm: [['date', 'installmentDate', 'installmentClosedAt'], ['kind', 'document'], ['goods', 'rule'], 'base', 'rate', 'amount'], lg: [] }}
             columns={[
                 ...installments ? [
-                    { title: 'Рассрочка открыта', key: 'installmentDate', render: (_value: unknown, line: PayrollLine) => <Moment value={line.installmentDate} /> },
-                    { title: 'Рассрочка закрыта', key: 'installmentClosedAt', render: (_value: unknown, line: PayrollLine) => <Moment value={line.installmentClosedAt} /> },
-                ] : [{ title: 'Дата', key: 'date', render: (_value: unknown, line: PayrollLine) => <Moment value={line.date} /> }],
-                { title: 'Вид', dataIndex: 'kind', key: 'kind' },
-                { title: 'Документ', key: 'document', render: (_value, line) => <RecordLink reference={line.document} /> },
-                { title: 'Товар', dataIndex: 'goods', key: 'goods' },
-                { title: 'База', key: 'base', align: 'right', render: (_value, line) => <Money value={line.base} /> },
-                { title: 'Ставка, %', key: 'rate', align: 'right', render: (_value, line) => line.rate?.toLocaleString('ru-RU') ?? '' },
-                { title: 'Начислено', key: 'amount', align: 'right', render: (_value, line) => <Money value={line.amount} /> },
-                { title: 'Правило', dataIndex: 'rule', key: 'rule' },
+                    { title: 'Рассрочка открыта', key: 'installmentDate', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (line: PayrollLine) => <Moment value={line.installmentDate} /> },
+                    { title: 'Рассрочка закрыта', key: 'installmentClosedAt', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (line: PayrollLine) => <Moment value={line.installmentClosedAt} /> },
+                ] : [{ title: 'Дата', key: 'date', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (line: PayrollLine) => <Moment value={line.date} /> }],
+                { title: 'Вид', key: 'kind', type: 'string' as const, value: (row) => row.kind },
+                { title: 'Документ', key: 'document', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (line) => <RecordLink reference={line.document} /> },
+                { title: 'Товар', key: 'goods', type: 'string' as const, value: (row) => row.goods },
+                { title: 'База', key: 'base', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (line) => <Money value={line.base} /> },
+                { title: 'Ставка, %', key: 'rate', type: 'number' as const, size: { minimum: 16, weight: 1 }, render: (line) => line.rate?.toLocaleString('ru-RU') ?? '' },
+                { title: 'Начислено', key: 'amount', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (line) => <Money value={line.amount} /> },
+                { title: 'Правило', key: 'rule', type: 'string' as const, value: (row) => row.rule },
             ]}
-            summary={() => (
-                <Table.Summary.Row>
-                    <Table.Summary.Cell index={0} colSpan={installments ? 7 : 6}><Typography.Text strong>Итого</Typography.Text></Table.Summary.Cell>
-                    <Table.Summary.Cell index={1} align="right"><Typography.Text strong><Money value={totalOf(lines)} /></Typography.Text></Table.Summary.Cell>
-                    <Table.Summary.Cell index={2} />
-                </Table.Summary.Row>
-            )}
+            summary={{ kind: 'Итого', amount: totalOf(lines) }}
         />
     );
 }
@@ -162,34 +156,26 @@ function EmployeeLines({ lines }: { readonly lines: ReadonlyArray<PayrollLine> }
  * разделено на бонусы за продажи (с бонусами за выручку смены) и бонусы за рассрочки; их сумма равна «Начислено».
  */
 function PayrollTable({ result }: { readonly result: PayrollResult }) {
+    const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
     const employees = useObjectView(Objects.catalog.employees);
     const total = result.employees.reduce((sum, row) => sum + row.amount, 0);
     const installmentLines = result.lines.filter(byInstallment);
     const installmentsOf = (employee: string) => totalOf(installmentLines.filter((line) => line.employee === employee));
     return (
-        <Table
-            size="small"
-            pagination={false}
-            rowKey="employee"
-            dataSource={[...result.employees]}
-            expandable={{ expandedRowRender: (row) => <EmployeeLines lines={result.lines.filter((line) => line.employee === row.employee)} /> }}
+        <DataTable
+
+            rowKey={(row) => row.employee}
+            rows={[...result.employees]}
+            expansion={{ isExpandable: () => true, isExpanded: (row) => expanded.has(row.employee), onToggle: (row, _index, open) => setExpanded((previous) => { const next = new Set(previous); if (open) next.add(row.employee); else next.delete(row.employee); return next; }), render: (row) => <EmployeeLines lines={result.lines.filter((line) => line.employee === row.employee)} /> }}
+            layouts={{ sm: ['employee', 'sales', 'installments', 'amount'], lg: ['employee', 'sales', 'installments', 'amount'] }}
             columns={[
                 // Без права читать сотрудников сервер их описание не отдаёт.
-                { title: 'Сотрудник', key: 'employee', render: (_value, row) => employees === undefined ? 'Нет доступа' : <EmployeeName view={employees} guid={row.employee} /> },
-                { title: 'За продажи', key: 'sales', align: 'right', render: (_value, row) => <Money value={row.amount - installmentsOf(row.employee)} /> },
-                { title: 'За закрытые рассрочки', key: 'installments', align: 'right', render: (_value, row) => <Money value={installmentsOf(row.employee)} /> },
-                { title: 'Начислено', key: 'amount', align: 'right', render: (_value, row) => <Money value={row.amount} /> },
+                { title: 'Сотрудник', key: 'employee', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => employees === undefined ? 'Нет доступа' : <EmployeeName view={employees} guid={row.employee} /> },
+                { title: 'За продажи', key: 'sales', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Money value={row.amount - installmentsOf(row.employee)} /> },
+                { title: 'За закрытые рассрочки', key: 'installments', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Money value={installmentsOf(row.employee)} /> },
+                { title: 'Начислено', key: 'amount', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Money value={row.amount} /> },
             ]}
-            summary={() => (
-                <Table.Summary.Row>
-                    {/* Первая ячейка стоит под колонкой кнопок раскрытия. */}
-                    <Table.Summary.Cell index={0} />
-                    <Table.Summary.Cell index={1}><Typography.Text strong>Итого</Typography.Text></Table.Summary.Cell>
-                    <Table.Summary.Cell index={2} align="right"><Typography.Text strong><Money value={total - totalOf(installmentLines)} /></Typography.Text></Table.Summary.Cell>
-                    <Table.Summary.Cell index={3} align="right"><Typography.Text strong><Money value={totalOf(installmentLines)} /></Typography.Text></Table.Summary.Cell>
-                    <Table.Summary.Cell index={4} align="right"><Typography.Text strong><Money value={total} /></Typography.Text></Table.Summary.Cell>
-                </Table.Summary.Row>
-            )}
+            summary={{ employee: 'Итого', sales: total - totalOf(installmentLines), installments: totalOf(installmentLines), amount: total }}
         />
     );
 }
@@ -230,7 +216,7 @@ export default function PayrollPage() {
         <Page
             title="Зарплата"
             actions={(
-                <Flex gap="small">
+                <Flex gap="small" wrap>
                     {/* Ссылка, а не обработчик: переход по адресу страницы открывает её во вкладке. */}
                     <Link to={pagePath('periodSummary')}><Button>Сводка за период</Button></Link>
                     {tab === 'current' && <Button disabled={result === undefined} onClick={() => setRulesOpen(true)}>Правила</Button>}
