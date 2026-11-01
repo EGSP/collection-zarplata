@@ -3,16 +3,18 @@ import { TablePart } from './table-part';
 import { useFieldTraversal, fieldAttribute } from './field-traversal';
 import { Form, Modal } from 'antd';
 import { BreakpointContainer } from '../ds/breakpoints';
-import { useState } from 'react';
+import { useState, type ComponentType } from 'react';
 import type { FormAction } from '../../../server/ui/descriptions';
 import { ApiError } from '../../common/api';
 import { FieldDisplay, FieldInput } from '../../widgets/registry';
 import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../../widgets/validation';
 import { newInputValues, type FormValues } from './record-values';
-import type { DateLimits } from '../../widgets/widget';
+import type { DateLimits, InputProperties } from '../../widgets/widget';
 
 /** Свойства окна входных данных действия. */
 export interface ActionDialogProperties {
+    /** Замены отдельных полей ввода, как columnInputs у TablePart. Проверки и раскладку ведёт окно. */
+    readonly fieldInputs?: Readonly<Record<string, ComponentType<InputProperties<unknown>>>>;
     /** Собственное действие с входными данными. */
     readonly action: FormAction;
     /** Динамические включительные границы полей дат по имени; проверяются также перед отправкой формы. */
@@ -31,7 +33,7 @@ export interface ActionDialogProperties {
  * поля из его перечня отмечаются ошибкой. На время запроса закрытие блокируется, чтобы ответ
  * сервера и ошибки полей пришли в открытое окно.
  */
-export function ActionDialog({ action, dateLimits, onExecute, onClose }: ActionDialogProperties) {
+export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClose }: ActionDialogProperties) {
     const [form] = Form.useForm<FormValues>();
     const [executing, setExecuting] = useState(false);
     const parts = action.tableParts ?? [];
@@ -75,6 +77,7 @@ export function ActionDialog({ action, dateLimits, onExecute, onClose }: ActionD
                 <ComputedValues view={{ fields: action.input, tableParts: parts }} />
                 {action.input.map((field) => {
                     const limits = field.kind === 'date' ? dateLimits?.[field.name] : undefined;
+                    const Input = fieldInputs?.[field.name] ?? FieldInput;
                     return (
                         <Form.Item {...{ [fieldAttribute]: field.name }} key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={[
                             ...fieldRules(field),
@@ -87,7 +90,7 @@ export function ActionDialog({ action, dateLimits, onExecute, onClose }: ActionD
                                 return Promise.resolve();
                             } }],
                         ]}>
-                            {field.readOnly ? <FieldDisplay field={field} /> : <FieldInput field={field} dateLimits={limits} ref={traversal.register(field.name)} />}
+                            {field.readOnly ? <FieldDisplay field={field} /> : <Input field={field} dateLimits={limits} ref={traversal.register(field.name)} />}
                         </Form.Item>
                     );
                 })}

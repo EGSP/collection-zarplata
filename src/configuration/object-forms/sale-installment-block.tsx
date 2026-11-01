@@ -2,6 +2,7 @@ import { Button, Flex, Radio, Typography } from 'antd';
 import type { ComponentType } from 'react';
 import { FieldInput, FluidField, Icons, TablePartTitle, useObjectView, useRecord, useReferencePresentation, type FormField, type ObjectView } from '../../web/sdk';
 import { PaymentMethodInput } from '../form-elements/payment-method-input';
+import { PaymentReceiverDefault } from '../form-elements/payment-receiver-default';
 import { Objects } from '../objects.generated';
 
 /** Данные рассрочки, которые продавец вводит на форме продажи: их получает действие «Продать с рассрочкой». */
@@ -114,6 +115,9 @@ export function SaleInstallmentBlock({ terms, onChange, shift, disabled, problem
     const receiver = inputField('initialReceiver');
     return (
         <Flex vertical gap="middle">
+            <PaymentReceiverDefault method={terms.initialMethod} receiver={terms.initialReceiver} initialize
+                disabled={disabled || terms.type !== ownInstallment}
+                onChange={(initialReceiver) => onChange({ ...terms, initialReceiver })} />
             <TablePartTitle>Рассрочка</TablePartTitle>
             <Radio.Group
                 optionType="button"

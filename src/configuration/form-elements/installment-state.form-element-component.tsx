@@ -2,6 +2,7 @@ import { Button, Flex, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { ActionDialog, FieldDisplay, useFormData, useFormRestrictions, useFormValue, useRecordList } from '../../web/sdk';
 import { Objects } from '../objects.generated';
+import { InstallmentPaymentDialog } from '../object-forms/installment-payment-dialog';
 
 /**
  * Дата последнего взноса; без взносов `null`. Так же её считает сервер при проверке даты закрытия.
@@ -100,7 +101,7 @@ export default function InstallmentState() {
                 <Button type="primary" onClick={() => { form.runAction('settleByBank', { installment: saved.guid }).catch(() => undefined); }}>{settle.title}</Button>
             )}
             {paying && pay !== undefined && (
-                <ActionDialog
+                <InstallmentPaymentDialog
                     action={{ ...pay, input: pay.input.filter((field) => field.name !== 'installment') }}
                     onExecute={async (input) => {
                         await form.runAction('pay', { ...input, installment: saved.guid });

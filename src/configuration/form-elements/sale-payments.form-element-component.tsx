@@ -1,7 +1,8 @@
 import { Form } from 'antd';
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { RecordOf } from '../../server/metadata/index';
-import { Column, FieldInput, Grid, newRowValues, Stack, TablePart, Text, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
+import { Column, FieldInput, Grid, newRowValues, Stack, TablePart, Text, useFormData, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
+import { PaymentReceiverDefaults } from './payment-receiver-default';
 import type { Sale } from '../documents/sale.document';
 import { Objects } from '../objects.generated';
 import { PaymentMethodIcons, UnavailablePaymentMethods } from './payment-method-input';
@@ -73,6 +74,8 @@ function Labelled({ title, onBlur, children }: { readonly title: string; readonl
  */
 export default function SalePayments({ part, value, onChange, disabled, ref, id, onPrevious }: TablePartInputProperties<PaymentLine>) {
     const sales = Objects.document.sale;
+    const form = useFormData(sales);
+    const values = Form.useFormInstance();
     const mode = useFormValue(sales, 'paymentMode');
     const saleAmount = useFormValue(sales, 'amount') ?? 0;
     const rows = value ?? [];
@@ -84,8 +87,8 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
     const row = rows[0];
 
     /** Единственная строка простой оплаты. Без суммы и приёмника строки нет: пустая строка не прошла бы проверку суммы. */
-    const single = (changes: Partial<PaymentLine>): ReadonlyArray<PaymentLine> => {
-        const next = { ...newRowValues(part), ...row, ...changes, method: mode } as PaymentLine;
+    const single = (changes: Partial<PaymentLine>, currentRow = row): ReadonlyArray<PaymentLine> => {
+        const next = { ...newRowValues(part), ...currentRow, ...changes, method: mode } as PaymentLine;
         return next.amount === null && next.receiver === null ? [] : [next];
     };
 
@@ -95,11 +98,14 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
         previous.current = { saleAmount, mode };
         if (!simple || disabled === true || rows.length > 1) return;
         if (before.saleAmount === saleAmount && before.mode === mode) return;
-        const current = row?.amount ?? null;
+        // Подстановка приёмника могла сработать в этом же проходе эффектов: берём строку
+        // из формы, чтобы изменение суммы не затёрло её более свежую ссылку.
+        const currentRow = (values.getFieldValue('payments') as ReadonlyArray<PaymentLine>)[0];
+        const current = currentRow?.amount ?? null;
         // Сумма, которую продавец ввёл сам, отличается от прежней суммы продажи и за новой не следует.
         if (current !== null && current !== before.saleAmount) return;
         const next = saleAmount > 0 ? saleAmount : null;
-        if (current !== next) onChange?.(single({ amount: next }));
+        if (current !== next) onChange?.(single({ amount: next }, currentRow));
         // Эффект отвечает только на изменение суммы продажи и способа: остальные значения он читает текущими.
     }, [saleAmount, mode]);
 
@@ -119,23 +125,28 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
     const amountMissing = status === 'error' && (row?.amount ?? null) === null;
     const fieldStatus = (missing: boolean) => receiverMissing || amountMissing ? { validateStatus: missing ? 'error' as const : '' as const } : {};
 
-    if (!simple) {
-        // У продажи не больше одной оплаты рассрочкой: когда она есть, в остальных строках способ недоступен.
-        const installmentTaken = rows.some((payment) => payment.method === installmentMethod);
-        const options: TablePartOptions = {
-            columnSizes,
-            columnInputs: { method: PaymentMethodIcons },
-            addTitle: 'Оплата',
-            newRow: () => ({ ...newRowValues(part), amount: rows.length > 0 && remaining > 0 ? remaining : null }),
-        };
-        return (
+    // Оплата появляется вместе с положительной суммой продажи. У нулевой продажи оплат нет.
+    // Подстановка сама по себе не является вводом продавца и не отмечает форму изменённой.
+    const defaults = <PaymentReceiverDefaults rows={rows} initialize={form.saved === null} disabled={disabled === true}
+        onChange={(index, receiver) => {
+            const current = values.getFieldValue('payments') as ReadonlyArray<PaymentLine>;
+            values.setFieldValue('payments', current.map((payment, position) => position === index ? { ...payment, receiver: receiver as PaymentLine['receiver'] } : payment));
+        }} />;
+
+    // У продажи не больше одной оплаты рассрочкой: когда она есть, в остальных строках способ недоступен.
+    const installmentTaken = rows.some((payment) => payment.method === installmentMethod);
+    const options: TablePartOptions = {
+        columnSizes,
+        columnInputs: { method: PaymentMethodIcons },
+        addTitle: 'Оплата',
+        newRow: () => ({ ...newRowValues(part), amount: rows.length > 0 && remaining > 0 ? remaining : null }),
+    };
+    return (
+        <>{defaults}{!simple ? (
             <UnavailablePaymentMethods value={installmentTaken ? installmentOnly : noMethods}>
                 <TablePart showTitle={false} part={part} disabled={disabled} ref={ref} onPrevious={onPrevious} {...options} />
             </UnavailablePaymentMethods>
-        );
-    }
-    return (
-        <Grid gutter="narrow">
+        ) : <Grid gutter="narrow">
             <Column span={simpleColumns.amount}>
                 <Labelled title={amount.title} onBlur={fillEmptyAmount}>
                     {/* `Form.Item` без имени только задаёт статус поля: пустой статус снимает отметку части. */}
@@ -156,6 +167,6 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
                     </Labelled>
                 </Column>
             )}
-        </Grid>
+        </Grid>}</>
     );
 }

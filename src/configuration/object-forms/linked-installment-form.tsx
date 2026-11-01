@@ -3,6 +3,7 @@ import { Button, Divider, Flex, Form, Tag, theme, Typography, type FormInstance 
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Column, FieldDisplay, FieldInput, Grid, Icons, Stack, TablePart, Text, useOpenRecord, type FormField, type FormTablePart, type FormValues } from '../../web/sdk';
 import { Objects } from '../objects.generated';
+import { PaymentReceiverDefaults } from '../form-elements/payment-receiver-default';
 
 /** Взнос в редакторе может содержать ещё не заполненные поля. */
 export interface InstallmentPayment {
@@ -143,6 +144,11 @@ export function InstallmentPayments({ part, payments, disabled, register, onChan
         callbacks.current.onChange?.(rows as ReadonlyArray<InstallmentPayment>);
     }, [rows]);
     return <Form form={form} component={false} disabled={disabled} initialValues={{ payments }}>
+        <PaymentReceiverDefaults rows={Array.isArray(rows) ? rows as ReadonlyArray<InstallmentPayment> : payments} initialize={false} disabled={disabled}
+            onChange={(index, receiver) => {
+                const current = form.getFieldValue('payments') as ReadonlyArray<InstallmentPayment>;
+                form.setFieldValue('payments', current.map((payment, position) => position === index ? { ...payment, receiver } : payment));
+            }} />
         {/* Ширину таблицы взносов задаёт колонка раскладки рассрочки. */}
         <TablePart part={part} showTitle={false} disabled={disabled} hiddenColumns={['shift']} addTitle="Добавить взнос" />
     </Form>;
