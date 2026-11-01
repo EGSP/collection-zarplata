@@ -1,7 +1,8 @@
-import { Alert, Button, ConfigProvider, Divider, Flex, Table, Typography } from 'antd';
+import { DataTable } from '../../web/sdk';
+import { Alert, Button, Divider, Flex, Typography } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { Column, FieldDisplay, FieldInput, FluidField, Grid, Layer, Page, Panel, RecordLink, spacing, Stack, Text, useActionResult, useLayer, useRecordList, type AccountingTone } from '../../web/sdk';
+import { Column, FieldDisplay, FieldInput, FluidField, Grid, Layer, Page, Panel, RecordLink, spacing, Stack, Text, useActionResult, useRecordList, type AccountingTone } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PaymentTotals, PeriodSummary, SummaryGoodsBlock } from '../period-summary';
 
@@ -36,10 +37,6 @@ function Reference({ kind, name, guid }: { readonly kind: 'catalog' | 'document'
     return guid === null ? null : <RecordLink reference={{ kind, name, guid }} />;
 }
 
-/** Ячейка итоговой строки таблицы. */
-function SummaryCell({ index, children, align }: { readonly index: number; readonly children?: ReactNode; readonly align?: 'right' }) {
-    return <Table.Summary.Cell index={index} {...(align === undefined ? {} : { align })}><Typography.Text strong>{children}</Typography.Text></Table.Summary.Cell>;
-}
 
 /** Блок отчёта: заголовок и содержимое; пустой блок сообщает, что строк нет. */
 function Block({ title, empty, children }: { readonly title: string; readonly empty: boolean; readonly children: ReactNode }) {
@@ -94,11 +91,11 @@ interface PaymentRow {
 
 /** Колонки сумм по способам оплаты. Сумма в рассрочку с незакрытой рассрочкой выделена. */
 const paymentColumns = <Row extends PaymentRow>() => [
-    { title: 'Наличные', key: 'cash', align: 'right' as const, render: (_value: unknown, row: Row) => <Money value={row.payments.cash} /> },
-    { title: 'Безналичные', key: 'cashless', align: 'right' as const, render: (_value: unknown, row: Row) => <Money value={row.payments.cashless} /> },
+    { title: 'Наличные', key: 'cash', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row: Row) => <Money value={row.payments.cash} /> },
+    { title: 'Безналичные', key: 'cashless', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row: Row) => <Money value={row.payments.cashless} /> },
     {
-        title: 'В рассрочку', key: 'installment', align: 'right' as const,
-        render: (_value: unknown, row: Row) => row.installmentOpen === true ? <OpenInstallment value={row.payments.installment} /> : <Money value={row.payments.installment} />,
+        title: 'В рассрочку', key: 'installment', type: 'money' as const, size: { minimum: 16, weight: 1 },
+        render: (row: Row) => row.installmentOpen === true ? <OpenInstallment value={row.payments.installment} /> : <Money value={row.payments.installment} />,
     },
 ];
 
@@ -111,24 +108,12 @@ function FilledZone({ title, tone, empty, children }: { readonly title: string; 
         <Layer padding={4} {...(tone === undefined ? {} : { tone })}>
             <Flex vertical gap={spacing[3]}>
                 <Text strong>{title}</Text>
-                {empty ? <Text tone="secondary">Строк нет</Text> : <ZoneTable>{children}</ZoneTable>}
+                {empty ? <Text tone="secondary">Строк нет</Text> : children}
             </Flex>
         </Layer>
     );
 }
 
-/**
- * Таблица на фоне поверхности. Ячейки таблицы рисуют свой фон, поэтому фон поверхности передаётся
- * и в токены таблицы, а заголовок и наведение берут более тёмный фон той же поверхности.
- */
-function ZoneTable({ children }: { readonly children: ReactNode }) {
-    const layer = useLayer();
-    return (
-        <ConfigProvider theme={{ components: { Table: { colorBgContainer: layer.background, headerBg: layer.backgroundStrong, footerBg: layer.backgroundStrong, rowHoverBg: layer.backgroundStrong } } }}>
-            {children}
-        </ConfigProvider>
-    );
-}
 
 /**
  * Товары продаж: строка на товар. Суммы оплат — доли оплат продажи, приходящиеся на товар:
@@ -139,34 +124,22 @@ function ZoneTable({ children }: { readonly children: ReactNode }) {
  */
 function GoodsTable({ block }: { readonly block: SummaryGoodsBlock }) {
     return (
-        <Table
-            size="small"
-            pagination={false}
+        <DataTable
+
             rowKey={(row) => `${row.sale}-${block.rows.indexOf(row)}`}
-            dataSource={[...block.rows]}
+            rows={[...block.rows]}
+            layouts={{ sm: [['date', 'sale'], ['code', 'name', 'size'], 'cash', 'cashless', 'installment', 'total'], lg: [] }}
             columns={[
-                { title: 'Дата', key: 'date', render: (_value, row) => <Moment value={row.date} /> },
-                { title: 'Продажа', key: 'sale', render: (_value, row) => <Reference kind="document" name="sale" guid={row.sale} /> },
+                { title: 'Дата', key: 'date', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Moment value={row.date} /> },
+                { title: 'Продажа', key: 'sale', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Reference kind="document" name="sale" guid={row.sale} /> },
                 // Реквизиты товара начинаются с кода и названия, как в формах документов.
-                { title: 'Код', dataIndex: 'code', key: 'code' },
-                { title: 'Товар', dataIndex: 'name', key: 'name' },
-                { title: 'Размер', dataIndex: 'size', key: 'size' },
+                { title: 'Код', key: 'code', type: 'string' as const, value: (row) => row.code },
+                { title: 'Товар', key: 'name', type: 'string' as const, value: (row) => row.name },
+                { title: 'Размер', key: 'size', type: 'string' as const, value: (row) => row.size },
                 ...paymentColumns<SummaryGoodsBlock['rows'][number]>(),
-                { title: 'Итог', key: 'total', align: 'right', render: (_value, row) => <Money value={row.total} /> },
+                { title: 'Итог', key: 'total', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Money value={row.total} /> },
             ]}
-            summary={() => (
-                <Table.Summary.Row>
-                    <SummaryCell index={0}>Итого</SummaryCell>
-                    <SummaryCell index={1} />
-                    <SummaryCell index={2} />
-                    <SummaryCell index={3} />
-                    <SummaryCell index={4} />
-                    <SummaryCell index={5} align="right"><Money value={block.totals.cash} /></SummaryCell>
-                    <SummaryCell index={6} align="right"><Money value={block.totals.cashless} /></SummaryCell>
-                    <SummaryCell index={7} align="right"><InstallmentTotal total={block.totals.installment} paid={block.installmentPaid} /></SummaryCell>
-                    <SummaryCell index={8} align="right"><GrandTotal total={block.total} totals={block.totals} paid={block.installmentPaid} /></SummaryCell>
-                </Table.Summary.Row>
-            )}
+            summary={{ date: 'Итого', cash: <Money value={block.totals.cash} />, cashless: <Money value={block.totals.cashless} />, installment: <InstallmentTotal total={block.totals.installment} paid={block.installmentPaid} />, total: <GrandTotal total={block.total} totals={block.totals} paid={block.installmentPaid} /> }}
         />
     );
 }
@@ -186,17 +159,16 @@ interface AllSalesRow {
 function AllSalesTable({ totals }: { readonly totals: PeriodSummary['allSales'] }) {
     const row: AllSalesRow = { count: totals.count, payments: totals.totals, total: totals.total, installmentPaid: totals.installmentPaid };
     return (
-        <Table<AllSalesRow>
-            size="small"
-            pagination={false}
+        <DataTable<AllSalesRow>
+
             rowKey={() => 'all'}
-            dataSource={[row]}
+            rows={[row]}
             columns={[
-                { title: 'Товаров', key: 'count', render: (_value, line) => line.count },
+                { title: 'Товаров', key: 'count', type: 'number' as const, size: { minimum: 16, weight: 1 }, render: (line) => line.count },
                 ...paymentColumns<AllSalesRow>().map((column) => column.key === 'installment'
-                    ? { ...column, render: (_value: unknown, line: AllSalesRow) => <InstallmentTotal total={line.payments.installment} paid={line.installmentPaid} /> }
+                    ? { ...column, render: (line: AllSalesRow) => <InstallmentTotal total={line.payments.installment} paid={line.installmentPaid} /> }
                     : column),
-                { title: 'Итог', key: 'total', align: 'right', render: (_value, line) => <Typography.Text strong><GrandTotal total={line.total} totals={line.payments} paid={line.installmentPaid} /></Typography.Text> },
+                { title: 'Итог', key: 'total', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (line) => <Typography.Text strong><GrandTotal total={line.total} totals={line.payments} paid={line.installmentPaid} /></Typography.Text> },
             ]}
         />
     );
@@ -209,6 +181,7 @@ function AllSalesTable({ totals }: { readonly totals: PeriodSummary['allSales'] 
  * и должники — одна группа о рассрочках, их таблицы разделены линией.
  */
 function Summary({ summary }: { readonly summary: PeriodSummary }) {
+    const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
     const { payments, weighings, debtors } = summary;
     return (
         <Flex vertical gap="middle">
@@ -228,86 +201,69 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
             <Panel title="Рассрочки">
                 <Typography.Text strong>Взносы</Typography.Text>
                 {payments.rows.length === 0 ? <div><Typography.Text type="secondary">Строк нет</Typography.Text></div> : (
-                    <Table
-                        size="small"
-                        pagination={false}
+                    <DataTable
+
                         rowKey={(row) => `${row.installment}-${row.date}-${row.amount}`}
-                        dataSource={[...payments.rows]}
+                        rows={[...payments.rows]}
                         columns={[
-                            { title: 'Дата', key: 'date', render: (_value, row) => <Moment value={row.date} /> },
-                            { title: 'Рассрочка', key: 'installment', render: (_value, row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
-                            { title: 'Покупатель', key: 'person', render: (_value, row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                            { title: 'Способ', dataIndex: 'method', key: 'method' },
-                            { title: 'Сумма', key: 'amount', align: 'right', render: (_value, row) => <Money value={row.amount} /> },
+                            { title: 'Дата', key: 'date', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Moment value={row.date} /> },
+                            { title: 'Рассрочка', key: 'installment', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
+                            { title: 'Покупатель', key: 'person', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                            { title: 'Способ', key: 'method', type: 'string' as const, value: (row) => row.method },
+                            { title: 'Сумма', key: 'amount', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Money value={row.amount} /> },
                         ]}
-                        summary={() => (
-                            <Table.Summary.Row>
-                                <SummaryCell index={0}>Итого</SummaryCell>
-                                <SummaryCell index={1} />
-                                <SummaryCell index={2} />
-                                <SummaryCell index={3}>Наличные <Money value={payments.totals.cash} />, безналичные <Money value={payments.totals.cashless} /></SummaryCell>
-                                <SummaryCell index={4} align="right"><Money value={payments.totals.cash + payments.totals.cashless} /></SummaryCell>
-                            </Table.Summary.Row>
-                        )}
+                        summary={{ date: 'Итого', method: <>Наличные <Money value={payments.totals.cash} />, безналичные <Money value={payments.totals.cashless} /></>, amount: <Money value={payments.totals.cash + payments.totals.cashless} /> }}
                     />
                 )}
                 <Divider style={{ marginBlock: spacing[5] }} />
                 <Typography.Text strong>Должники</Typography.Text>
                 {debtors.rows.length === 0 ? <div><Typography.Text type="secondary">Строк нет</Typography.Text></div> : (
-                    <Table
-                        size="small"
-                        pagination={false}
-                        rowKey="person"
-                        dataSource={[...debtors.rows]}
-                        expandable={{
-                            expandRowByClick: true,
-                            expandedRowRender: (debtor) => (
-                                <Table
-                                    size="small"
-                                    pagination={false}
-                                    rowKey="installment"
-                                    dataSource={[...debtor.installments]}
+                    <DataTable
+
+                        rowKey={(row) => row.person}
+                        rows={[...debtors.rows]}
+                        expansion={{
+                            isExpandable: () => true,
+                            isExpanded: (row) => expanded.has(row.person),
+                            onToggle: (row, _index, open) => setExpanded((previous) => { const next = new Set(previous); if (open) next.add(row.person); else next.delete(row.person); return next; }),
+                            render: (debtor) => (
+                                <DataTable
+
+                                    rowKey={(row) => row.installment}
+                                    rows={[...debtor.installments]}
                                     columns={[
-                                        { title: 'Дата', key: 'date', render: (_value, row) => <Moment value={row.date} /> },
-                                        { title: 'Продажа', key: 'sale', render: (_value, row) => <Reference kind="document" name="sale" guid={row.sale} /> },
-                                        { title: 'Рассрочка', key: 'installment', render: (_value, row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
-                                        { title: 'Сумма рассрочки', key: 'amount', align: 'right', render: (_value, row) => <Money value={row.amount} /> },
-                                        { title: 'Непогашенная часть долга', key: 'debt', align: 'right', render: (_value, row) => <Debt value={row.debt} /> },
+                                        { title: 'Дата', key: 'date', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Moment value={row.date} /> },
+                                        { title: 'Продажа', key: 'sale', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Reference kind="document" name="sale" guid={row.sale} /> },
+                                        { title: 'Рассрочка', key: 'installment', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
+                                        { title: 'Сумма рассрочки', key: 'amount', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Money value={row.amount} /> },
+                                        { title: 'Непогашенная часть долга', key: 'debt', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Debt value={row.debt} /> },
                                     ]}
                                 />
                             ),
                         }}
                         columns={[
-                            { title: 'Покупатель', key: 'person', render: (_value, row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                            { title: 'Рассрочек', key: 'count', align: 'right', render: (_value, row) => row.installments.length },
-                            { title: 'Непогашенная часть долга', key: 'debt', align: 'right', render: (_value, row) => <Debt value={row.debt} /> },
+                            { title: 'Покупатель', key: 'person', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                            { title: 'Рассрочек', key: 'count', type: 'number' as const, size: { minimum: 16, weight: 1 }, render: (row) => row.installments.length },
+                            { title: 'Непогашенная часть долга', key: 'debt', type: 'money' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Debt value={row.debt} /> },
                         ]}
-                        summary={() => (
-                            <Table.Summary.Row>
-                                {/* Первая ячейка стоит под колонкой кнопок раскрытия. */}
-                                <SummaryCell index={0} />
-                                <SummaryCell index={1}>Итого</SummaryCell>
-                                <SummaryCell index={2} />
-                                <SummaryCell index={3} align="right"><Text tone="debt" strong><Money value={debtors.total} /></Text></SummaryCell>
-                            </Table.Summary.Row>
-                        )}
+                        summary={{ person: 'Итого', debt: <Text tone="debt" strong><Money value={debtors.total} /></Text> }}
                     />
                 )}
             </Panel>
             <Block title="Товары в отвесе" empty={weighings.rows.length === 0}>
-                <Table
-                    size="small"
-                    pagination={false}
+                <DataTable
+
                     rowKey={(row) => `${row.weighing}-${weighings.rows.indexOf(row)}`}
-                    dataSource={[...weighings.rows]}
+                    rows={[...weighings.rows]}
+                    layouts={{ sm: [['date', 'weighing'], 'person', ['code', 'name', 'size']], lg: [] }}
                     columns={[
-                        { title: 'Дата', key: 'date', render: (_value, row) => <Moment value={row.date} /> },
-                        { title: 'Отвес', key: 'weighing', render: (_value, row) => <Reference kind="document" name="weighing" guid={row.weighing} /> },
-                        { title: 'Покупатель', key: 'person', render: (_value, row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                        { title: 'Дата', key: 'date', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Moment value={row.date} /> },
+                        { title: 'Отвес', key: 'weighing', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Reference kind="document" name="weighing" guid={row.weighing} /> },
+                        { title: 'Покупатель', key: 'person', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
                         // У отложенных товаров тот же порядок реквизитов, что у проданных.
-                        { title: 'Код', dataIndex: 'code', key: 'code' },
-                        { title: 'Товар', dataIndex: 'name', key: 'name' },
-                        { title: 'Размер', dataIndex: 'size', key: 'size' },
+                        { title: 'Код', key: 'code', type: 'string' as const, value: (row) => row.code },
+                        { title: 'Товар', key: 'name', type: 'string' as const, value: (row) => row.name },
+                        { title: 'Размер', key: 'size', type: 'string' as const, value: (row) => row.size },
                     ]}
                 />
             </Block>

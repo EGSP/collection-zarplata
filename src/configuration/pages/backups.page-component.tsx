@@ -1,4 +1,5 @@
-import { Alert, Button, Card, Descriptions, Flex, Form, Input, InputNumber, Modal, Popconfirm, Progress, Space, Spin, Table, Tag, Typography } from 'antd';
+import { DataTable } from '../../web/sdk';
+import { Alert, Button, Card, Descriptions, Flex, Form, Input, InputNumber, Modal, Popconfirm, Progress, Space, Spin, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import type { BackupFile, BackupOverview, BackupSource, RunningBackup } from '../../server/backup/descriptions';
 import { FormStack, Page, Stack, Text, useAction, useActionResult } from '../../web/sdk';
@@ -127,11 +128,11 @@ export default function BackupsPage() {
                 </Stack>
             </Card>
             {running.length > 0 && <Card size="small" title={<Space><Spin size="small" />Идёт копирование</Space>}>
-                <Table<RunningBackup> rowKey="id" size="small" pagination={false} dataSource={running} columns={[
-                    { title: 'Начата', render: (_, backup) => formatTime(backup.startedAt) },
-                    { title: 'Источник', render: (_, backup) => sourceTitles[backup.source] },
-                    { title: 'Состояние', render: (_, backup) => backup.cancelling ? 'Прерывается' : 'Пишется' },
-                    { title: '', align: 'right', render: (_, backup) => overview.canWrite && <Popconfirm title="Прервать копирование?" description="Недописанный файл будет удалён." okText="Прервать" cancelText="Продолжить" onConfirm={() => cancel(backup)}>
+                <DataTable<RunningBackup> rowKey={(row) => row.id} layouts={{ sm: [['startedAt', 'source'], 'status', 'cancel'], lg: [] }} rows={running} columns={[
+                    { title: 'Начата', key: 'startedAt', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (backup) => formatTime(backup.startedAt) },
+                    { title: 'Источник', key: 'source', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (backup) => sourceTitles[backup.source] },
+                    { title: 'Состояние', key: 'status', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (backup) => backup.cancelling ? 'Прерывается' : 'Пишется' },
+                    { title: '', key: 'cancel', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (backup) => overview.canWrite && <Popconfirm title="Прервать копирование?" description="Недописанный файл будет удалён." okText="Прервать" cancelText="Продолжить" onConfirm={() => cancel(backup)}>
                         <Button danger size="small" disabled={backup.cancelling}>Прервать</Button>
                     </Popconfirm> },
                 ]} />
@@ -140,11 +141,11 @@ export default function BackupsPage() {
                 type={overview.lastOutcome.kind === 'succeeded' ? 'success' : overview.lastOutcome.kind === 'failed' ? 'error' : 'warning'}
                 title={`${overview.lastOutcome.kind === 'succeeded' ? 'Последняя копия записана' : overview.lastOutcome.kind === 'failed' ? 'Последняя копия не записана' : 'Последняя копия прервана'}: ${formatTime(overview.lastOutcome.finishedAt)}`}
                 description={overview.lastOutcome.message ?? overview.lastOutcome.file ?? undefined} />}
-            <Table<BackupFile> rowKey="name" loading={result.loading && running.length === 0} dataSource={[...overview.files]} locale={{ emptyText: 'Копий пока нет' }} columns={[
-                { title: 'Создана', render: (_, file) => formatTime(file.createdAt) },
-                { title: 'Источник', render: (_, file) => sourceTitles[file.source] },
-                { title: 'Размер', align: 'right', render: (_, file) => formatSize(file.size) },
-                { title: 'Файл', dataIndex: 'name' },
+            <DataTable<BackupFile> pagination={{ pageSize: 10 }} rowKey={(row) => row.name} loading={result.loading && running.length === 0} layouts={{ sm: [['createdAt', 'source'], ['name', 'size']], lg: [] }} rows={[...overview.files]} emptyText={'Копий пока нет'} columns={[
+                { title: 'Создана', key: 'createdAt', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (file) => formatTime(file.createdAt) },
+                { title: 'Источник', key: 'source', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (file) => sourceTitles[file.source] },
+                { title: 'Размер', key: 'size', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (file) => formatSize(file.size) },
+                { title: 'Файл', key: 'name', type: 'string' as const, value: (row) => row.name },
             ]} />
         </Flex>}
     </Page>;

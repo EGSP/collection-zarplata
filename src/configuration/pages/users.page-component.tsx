@@ -1,4 +1,5 @@
-import { Alert, App, Checkbox, Form, Input, Modal, Select, Space, Table, Tag, Typography } from 'antd';
+import { DataTable } from '../../web/sdk';
+import { Alert, App, Checkbox, Form, Input, Modal, Select, Space, Tag, Typography } from 'antd';
 import { useRef, useState } from 'react';
 import type { UserAccount, UserDirectory } from '../../server/users/descriptions';
 import { Button, FormStack, Page, useAction, useActionResult, useUnsavedChanges } from '../../web/sdk';
@@ -67,10 +68,10 @@ export default function UsersPage() {
     return <Page title="Пользователи" actions={canWrite && <Button type="primary" onClick={() => open(null)}>Создать</Button>}>
         <Input.Search aria-label="Поиск пользователей" placeholder="Найти пользователя" allowClear value={search} onChange={(event) => setSearch(event.target.value)} />
         {!result.loading && directory === undefined && <Alert type="error" title="Не удалось получить пользователей. Проверьте право чтения и соединение с сервером." />}
-        <Table<UserAccount> rowKey="guid" loading={result.loading} dataSource={directory?.items.filter((user) => user.name.toLocaleLowerCase('ru').includes(search.trim().toLocaleLowerCase('ru')))} columns={[
-            { title: 'Имя', dataIndex: 'name', render: (_, user) => <Button type="link" onClick={() => open(user)}>{user.name}</Button> },
-            { title: 'Роли', render: (_, user) => <Space wrap>{user.roles.map((role) => <Tag key={role}>{roleTitles.get(role) ?? `${role} (удалена из конфигурации)`}</Tag>)}</Space> },
-            { title: 'Состояние', render: (_, user) => user.disabledAt === null ? 'Активен' : 'Отключён' },
+        <DataTable<UserAccount> rowKey={(row) => row.guid} loading={result.loading} layouts={{ sm: [['name', 'status'], 'roles'], lg: [] }} pagination={{ pageSize: 10 }} rows={directory?.items.filter((user) => user.name.toLocaleLowerCase('ru').includes(search.trim().toLocaleLowerCase('ru'))) ?? []} columns={[
+            { title: 'Имя', key: 'name', type: 'string' as const, value: (row) => row.name, render: (user) => <Button type="link" onClick={() => open(user)}>{user.name}</Button> },
+            { title: 'Роли', key: 'roles', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (user) => <Space wrap>{user.roles.map((role) => <Tag key={role}>{roleTitles.get(role) ?? `${role} (удалена из конфигурации)`}</Tag>)}</Space> },
+            { title: 'Состояние', key: 'status', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (user) => user.disabledAt === null ? 'Активен' : 'Отключён' },
         ]} />
         <Modal open={editing !== undefined} title={editing == null ? 'Новый пользователь' : editing.name} onCancel={cancel} mask={{ closable: false }} keyboard={!saving}
             closable={!saving} footer={<Space><Button disabled={saving} onClick={cancel}>Закрыть</Button>{canWrite && <Button type="primary" loading={saving} onClick={() => form.submit()}>Записать</Button>}</Space>}>
