@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ActionDialog, Button, Icons, useAction, useActionResult, useObjectView, useRecords, type FormValues, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { InstallmentPayments, LinkedInstallmentForm, paidAmount, type LinkedInstallment } from './linked-installment-form';
+import { InstallmentPaymentDialog } from './installment-payment-dialog';
 
 interface InstallmentListPage {
     readonly items: ReadonlyArray<{ readonly guid: string }>;
@@ -81,6 +82,7 @@ export function LinkedInstallmentActions({ installment, view, disabled = false }
             {pay !== undefined && <Button type="primary" size="lg" icon={<Icons.acceptPayment />} disabled={!actionable || balance <= 0} onClick={() => setDialog('pay')}>Взнос</Button>}
             {close !== undefined && <Button size="lg" icon={<Icons.closeInstallment />} disabled={!actionable || balance !== 0} onClick={() => setDialog('close')}>Закрыть</Button>}
         </Flex>
-        {action !== undefined && <ActionDialog action={{ ...action, input: action.input.filter((field) => field.name !== 'installment').map((field) => field.name === 'closedAt' ? { ...field, initial: closingDate(installment) } : field) }} onExecute={run} onClose={() => setDialog(null)} />}
+        {dialog === 'pay' && action !== undefined && <InstallmentPaymentDialog action={action} onExecute={run} onClose={() => setDialog(null)} />}
+        {dialog === 'close' && action !== undefined && <ActionDialog action={{ ...action, input: action.input.filter((field) => field.name !== 'installment').map((field) => field.name === 'closedAt' ? { ...field, initial: closingDate(installment) } : field) }} onExecute={run} onClose={() => setDialog(null)} />}
     </>;
 }

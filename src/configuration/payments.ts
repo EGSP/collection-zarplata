@@ -4,12 +4,8 @@
  */
 import { tablePart, type FieldFactory } from '../server/metadata/index.js';
 import { PaymentReceivers } from './catalogs/payment-receivers.catalog.js';
-
-/** Оплата наличными: способ оплаты новой продажи. */
-export const cash = 'Наличные';
-
-/** Способы, которыми принимаются деньги. Регистр «Поступления денег» собирает суммы по этим же значениям. */
-export const paymentMethods = [cash, 'Безналичные'];
+import { paymentMethods } from './payment-methods.js';
+export { cash, paymentMethods } from './payment-methods.js';
 
 /**
  * Способ строки оплаты продажи, при котором деньги не приняты: на сумму строки оформляется
