@@ -13,7 +13,8 @@
  * Delete                        → значение очищается без входа в редактирование
  * Enter в поле                  → значение остаётся, редактируется следующая ячейка
  * Escape в поле                 → возвращается значение до начала редактирования
- * Tab или щелчок вне ячейки     → значение остаётся, ячейка возвращается к просмотру
+ * Tab / Shift+Tab              → поле следующей / предыдущей ячейки, значение выделено
+ * Щелчок вне ячейки             → значение остаётся, ячейка возвращается к просмотру
  * ```
  *
  * Строку, число и сумму ячейка редактирует собственным полем типа (`CellTextInput`): обычный
@@ -40,7 +41,7 @@
  */
 import { useInputDraft } from '../../widgets/input-draft';
 import { ConfigProvider, Form, Tooltip, theme } from 'antd';
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type ComponentType, type KeyboardEvent, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type ComponentType, type KeyboardEvent, type Ref, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import type { FormField } from '../../../server/ui/descriptions';
 import { FieldDisplay, FieldInput } from '../../widgets/registry';
@@ -68,6 +69,8 @@ export interface TableCellProperties {
     readonly onLeave: () => void;
     /** Имя ячейки в таблице: по атрибуту `data-cell-name` таблица узнаёт, в какой ячейке нажата клавиша. */
     readonly name: string;
+    /** Фокус пришёл по Tab, в том числе из элемента вне таблицы. */
+    readonly tabNavigation: RefObject<boolean>;
     /** Фокус ячейки по команде таблицы: в режиме просмотра фокус получает значение, в редактировании — поле. */
     readonly ref?: Ref<InputHandle> | undefined;
 }
@@ -82,7 +85,7 @@ const popupSelector = '[data-cell-popup], .ant-select-dropdown, .ant-picker-drop
 const borderless = { components: { Input: { paddingInline: 0 }, InputNumber: { paddingInline: 0 }, DatePicker: { paddingInline: 0 } } };
 
 /** Ячейка табличной части. Поведение описано во вводном комментарии модуля. */
-export function TableCell({ name, field, type, input: CustomInput, value, onChange, id, disabled, editing, onEdit, onLeave, ref }: TableCellProperties) {
+export function TableCell({ tabNavigation, name, field, type, input: CustomInput, value, onChange, id, disabled, editing, onEdit, onLeave, ref }: TableCellProperties) {
     const { token } = theme.useToken();
     const { draft, setDraft } = useInputDraft(true);
     const { errors } = Form.Item.useStatus();
@@ -108,6 +111,10 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
     const textInput = CustomInput === undefined && ListInput === null && hasTextInput(type) && field.choices == null && field.suggestions == null;
     const native = ListInput !== null || textInput;
     const invalid = errors.length > 0;
+    const currentDraft = draft !== null && Object.is(draft.value ?? null, value ?? null) ? draft : null;
+    // Набранная неверная дата тоже является видимым текстом, хотя значение формы ещё прежнее.
+    const empty = currentDraft !== null ? currentDraft.text === '' : value == null || value === '';
+    const placeholder = empty && !disabled && !field.readOnly;
 
     useImperativeHandle(ref, () => ({
         focus: () => {
@@ -167,7 +174,7 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
         );
     }
 
-    if (editing) {
+    if (editing && !disabled) {
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== 'Escape' || event.defaultPrevented) return;
             // Открытый список или календарь закрывается своим Escape; его событие помечено обработанным.
@@ -230,7 +237,7 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
             onMouseDown={(event) => {
                 if (event.button !== 0 || event.target instanceof Element && event.target.closest('a') !== null) return;
                 document.addEventListener('mouseup', () => {
-                    selection.current = selectedText(display.current) ?? 'end';
+                    selection.current = placeholder ? 'end' : selectedText(display.current) ?? 'end';
                     start();
                 }, { once: true, capture: true });
             }}
@@ -238,9 +245,18 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
             onClick={(event) => {
                 if (event.detail === 0) start();
             }}
+            onFocus={() => {
+                if (!disabled && tabNavigation.current) {
+                    selection.current = 'all';
+                    onEdit();
+                }
+            }}
             onKeyDown={onKeyDown}
         >
-            {draft !== null && Object.is(draft.value ?? null, value ?? null) ? draft.text : <CellValue field={field} type={type} value={value} />}
+            {placeholder ? (
+                // Подсказка не является значением: не выделяется мышью и не читается повторно экранным диктором.
+                <span aria-hidden style={{ color: token.colorTextPlaceholder, fontWeight: token.fontWeightStrong, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, userSelect: 'none' }}>{field.title}</span>
+            ) : currentDraft !== null ? currentDraft.text : <CellValue field={field} type={type} value={value} />}
             {problem}
         </div>
     );

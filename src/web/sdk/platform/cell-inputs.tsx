@@ -89,12 +89,16 @@ function SuggestionCellInput({ field, value, onChange, id, ref }: CellInputPrope
     });
     const presentations = result['presentations'] as ReferencePresentations | undefined;
     const records = result.data.filter((record) => typeof record[source.field] === 'number');
+    const selected = records.find((record) => Object.is(record[source.field], value));
     return (
         <CellComboInput
             ref={ref}
             {...(id === undefined ? {} : { id })}
             label={field.title}
+            placeholder={field.title}
             text={rules.format(value)}
+            openOnEntry={object !== undefined}
+            selectedKey={selected === undefined ? undefined : String(selected['guid'])}
             accepts={(text) => rules.accepts(text.replace(/\s/gu, ''))}
             inputMode={rules.inputMode}
             loading={query.isFetching}
@@ -131,7 +135,9 @@ function ChoiceCellInput({ field, value, onChange, id, ref }: CellInputPropertie
             ref={ref}
             {...(id === undefined ? {} : { id })}
             label={field.title}
+            placeholder={field.title}
             text={typeof value === 'string' ? value : ''}
+            selectedKey={typeof value === 'string' ? value : undefined}
             autoHighlight
             options={choices.map((choice) => ({ key: choice, label: choice }))}
             onText={(text) => {
@@ -162,11 +168,11 @@ function ReferenceCombo({ field, value, onChange, id, ref, object }: CellInputPr
     const guid = typeof value === 'string' ? value : null;
     const presentation = useReferencePresentation(object, guid);
     const [search, setSearch] = useState('');
-    const [searching, setSearching] = useState(false);
     const [lookingUp, setLookingUp] = useState(false);
     // Выбор в окне подбора меняет значение снаружи поля: новый ключ заново ставит в поле его представление.
     const [version, setVersion] = useState(0);
-    const { groups, loading } = useRecordSuggestions([object], search, searching);
+    // Поле монтируется только на время редактирования: первые записи нужны уже при входе.
+    const { groups, loading } = useRecordSuggestions([object], search, true);
     const suggestions = groups[0]?.suggestions ?? [];
     return (
         <>
@@ -175,13 +181,13 @@ function ReferenceCombo({ field, value, onChange, id, ref, object }: CellInputPr
                 ref={ref}
                 {...(id === undefined ? {} : { id })}
                 label={field.title}
-                placeholder="Начните вводить для поиска"
+                placeholder={field.title}
                 text={presentation.text}
+                selectedKey={guid ?? undefined}
                 autoHighlight
                 loading={loading}
                 options={suggestions.map((suggestion) => ({ key: suggestion.reference.guid, label: suggestion.label }))}
                 onText={(text) => {
-                    setSearching(true);
                     setSearch(text);
                     if (text === '') onChange?.(null);
                 }}
@@ -236,12 +242,11 @@ function CompositeCellInput({ field, value, onChange, id, ref }: CellInputProper
     const current = (value ?? null) as CompositeValue | null;
     const variants = useMemo(() => field.variants ?? [], [field.variants]);
     const [search, setSearch] = useState('');
-    const [searching, setSearching] = useState(false);
     const targets = useMemo(() => variants.flatMap((variant): Array<ObjectView> => {
         const object = variant.kind === 'reference' ? findObjectView(metadata, variant.target) : undefined;
         return object === undefined ? [] : [object];
     }), [variants, metadata]);
-    const records = useRecordSuggestions(targets, search, searching);
+    const records = useRecordSuggestions(targets, search, true);
 
     const reference = compositeReference(current);
     const selected = useObjectReferencePresentation(reference);
@@ -293,15 +298,15 @@ function CompositeCellInput({ field, value, onChange, id, ref }: CellInputProper
             ref={ref}
             {...(id === undefined ? {} : { id })}
             label={field.title}
-            placeholder={variants.map((variant) => compositeTypeTitle(metadata, variant.kind, variant.target)).join(', ')}
+            placeholder={field.title}
             text={text}
+            selectedKey={reference !== null ? `record/${reference.kind}/${reference.name}/${reference.guid}` : current?.type === 'string' ? `choice/${current.value}` : undefined}
             loading={records.loading}
             options={options.map((option) => ({
                 key: option.key,
                 label: labelled ? <>{option.label} <Text.Helper noWrap>· {option.source}</Text.Helper></> : option.label,
             }))}
             onText={(typed) => {
-                setSearching(true);
                 setSearch(typed);
                 if (typed.trim() === '') {
                     onChange?.(null);
@@ -340,7 +345,7 @@ function DateCellInput({ field, value, onChange, id, ref }: CellInputProperties)
             ref={ref}
             {...(id === undefined ? {} : { id })}
             label={field.title}
-            placeholder="дд.мм.гггг"
+            placeholder={field.title}
             text={draft !== null && Object.is(draft.value ?? null, value ?? null) ? draft.text : formatCell('date', current)}
             accepts={(text) => /^[\d.]{0,10}$/u.test(text)}
             inputMode="numeric"
@@ -383,7 +388,7 @@ function DateTimeCellInput({ field, value, onChange, id, ref }: CellInputPropert
             ref={ref}
             {...(id === undefined ? {} : { id })}
             label={field.title}
-            placeholder="дд.мм.гггг чч:мм"
+            placeholder={field.title}
             text={draft !== null && Object.is(draft.value ?? null, value ?? null) ? draft.text : current === null ? '' : current.format('DD.MM.YYYY HH:mm')}
             accepts={(text) => /^[\d.: ]{0,16}$/u.test(text)}
             inputMode="numeric"

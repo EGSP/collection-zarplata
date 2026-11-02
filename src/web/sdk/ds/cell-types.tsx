@@ -241,7 +241,7 @@ export interface CellTextInputProperties extends CellInputOptions {
     readonly value?: unknown;
     readonly onChange?: ((value: unknown) => void) | undefined;
     readonly id?: string | undefined;
-    /** Название поля для чтения с экрана: подписи у поля в ячейке нет, её роль играет заголовок колонки. */
+    /** Название поля для чтения с экрана и подсказки пустого ввода; постоянная подпись остаётся в заголовке колонки. */
     readonly label?: string | undefined;
     readonly ref?: Ref<CellTextInputHandle> | undefined;
 }
@@ -265,7 +265,7 @@ export function CellTextInput({ type, value, onChange, id, label, ref, integer, 
             ref={input}
             className={cellInputClass}
             {...(id === undefined ? {} : { id })}
-            {...(label === undefined ? {} : { 'aria-label': label })}
+            {...(label === undefined ? {} : { 'aria-label': label, placeholder: label })}
             {...(type === 'string' && maximumLength != null ? { maxLength: maximumLength } : {})}
             autoComplete="off"
             inputMode={conversion.inputMode}

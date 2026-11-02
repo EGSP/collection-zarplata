@@ -1,6 +1,6 @@
 import { InputDraftItem } from '../../widgets/input-draft';
 import { Form, Typography } from 'antd';
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentType, type Key, type KeyboardEvent, type ReactNode, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentType, type Key, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import type { FormField, FormTablePart } from '../../../server/ui/descriptions';
 import { hasInput } from '../../widgets/registry';
 import { fieldRules, isMarkedRequired } from '../../widgets/validation';
@@ -202,6 +202,22 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     const [editing, setEditing] = useState<string | null>(null);
     const cells = useFieldFocus();
     const pendingRow = useRef<number | null>(null);
+    // Tab отслеживается на документе: вход в таблицу может начаться в поле за её пределами.
+    // Стрелки, Escape и мышь сбрасывают признак и оставляют обычный фокус просмотра.
+    const tabNavigation = useRef(false);
+    useEffect(() => {
+        const keyboard = (event: globalThis.KeyboardEvent) => { tabNavigation.current = event.key === 'Tab'; };
+        const pointer = () => { tabNavigation.current = false; };
+        const release = () => { tabNavigation.current = false; };
+        document.addEventListener('keydown', keyboard, true);
+        document.addEventListener('keyup', release, true);
+        document.addEventListener('pointerdown', pointer, true);
+        return () => {
+            document.removeEventListener('keydown', keyboard, true);
+            document.removeEventListener('keyup', release, true);
+            document.removeEventListener('pointerdown', pointer, true);
+        };
+    }, []);
     // Порядок обхода следует за порядком на экране: по схеме отображения текущей точки перелома.
     const point = useBreakpoint();
     const screenOrder = columnGroups(part.columns.map((column) => column.name), tableLayoutAt(layouts, point)).flat();
@@ -249,6 +265,26 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
         },
     }));
 
+    /** Следующая ячейка в порядке текущей раскладки, включая добавление строки за последней. */
+    const nextCell = (rowIndex: number, columnIndex: number) => {
+        if (columnIndex < inputColumns.length - 1) focusCell(rowIndex, columnIndex + 1);
+        else if (rowIndex < rows.length - 1) focusCell(rowIndex + 1, 0);
+        else addRow();
+    };
+    // Переход нужен быстрому вводу с клавиатуры. Щелчок мышью или касание меняют
+    // только выбранный тумблер; программная активация клавишей имеет detail=0.
+    const onClick = (event: MouseEvent<HTMLDivElement>) => {
+        if (disabled || event.detail !== 0 || !(event.target instanceof Element)) return;
+        const toggle = event.target.closest('[role="switch"], [role="checkbox"], input[type="checkbox"]');
+        if (toggle === null || toggle.matches(':disabled, [aria-disabled="true"]')) return;
+        const cell = toggle.closest<HTMLElement>('[data-cell-name]');
+        if (cell?.dataset['cellState'] !== 'direct' || cell.closest('[data-table-part]') !== event.currentTarget) return;
+        const [rowKey, columnName] = (cell.dataset['cellName'] ?? '').split('/');
+        const rowIndex = rows.findIndex((row) => String(row.key) === rowKey);
+        const columnIndex = inputColumns.findIndex((column) => column.name === columnName);
+        if (rowIndex >= 0 && columnIndex >= 0) nextCell(rowIndex, columnIndex);
+    };
+
     /**
      * Клавиши обхода. Обработчик стоит над таблицей и узнаёт ячейку по `data-cell-name`. Enter
      * в поле переходит к следующей ячейке, Shift+Enter — к предыдущей; стрелки в режиме просмотра
@@ -264,6 +300,15 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
         const rowIndex = rows.findIndex((row) => String(row.key) === rowKey);
         const columnIndex = inputColumns.findIndex((column) => column.name === columnName);
         if (rowIndex < 0 || columnIndex < 0) return;
+        const toggle = event.target.closest<HTMLElement>('[role="switch"], [role="checkbox"], input[type="checkbox"]');
+        if (cell.dataset['cellState'] === 'direct' && toggle !== null && !event.shiftKey && (event.key === ' ' || event.key === 'Enter')) {
+            // Активируем контрол один раз: Checkbox сам не обрабатывает Enter, а Switch
+            // иначе получил бы и наше действие, и собственный обработчик клавиши.
+            event.preventDefault();
+            event.stopPropagation();
+            if (!event.repeat && !toggle.matches(':disabled, [aria-disabled="true"]')) toggle.click();
+            return;
+        }
         const viewing = cell.hasAttribute('data-cell-target');
         const arrow = arrows[event.key];
         if (viewing && arrow !== undefined && !event.shiftKey) {
@@ -284,9 +329,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
                 setEditing(null);
                 onPrevious?.();
             }
-        } else if (columnIndex < inputColumns.length - 1) focusCell(rowIndex, columnIndex + 1);
-        else if (rowIndex < rows.length - 1) focusCell(rowIndex + 1, 0);
-        else addRow();
+        } else nextCell(rowIndex, columnIndex);
     };
 
     // Схемы конфигурации называют только колонки данных: номер строки всегда первый, удаление — последнее.
@@ -314,6 +357,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
                         {column.readOnly || !hasInput(column)
                             ? <CellValue field={column} type={fieldColumn(column).type} />
                             : <TableCell
+                                tabNavigation={tabNavigation}
                                 name={name}
                                 field={column}
                                 type={fieldColumn(column).type}
@@ -331,7 +375,8 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     ];
     if (removable) columns.push({
         key: 'remove', title: '', type: 'free', size: 'control',
-        render: (row) => <Button type="text" icon={<Icons.removeRow />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
+        // Служебная кнопка не прерывает Tab между ячейками и выход к кнопке добавления.
+        render: (row) => <Button tabIndex={-1} type="text" icon={<Icons.removeRow />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
     });
     // Подпись «Итого» стоит в первой колонке без суммы.
     const labelColumn = part.columns.find((column) => !totals.includes(column.name))?.name;
@@ -360,7 +405,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     return (
         <Stack gap={3} align="stretch">
             {showTitle && <TablePartTitle>{part.title}</TablePartTitle>}
-            <div data-table-part={part.name} onKeyDownCapture={onKeyDownCapture}>
+            <div data-table-part={part.name} onKeyDownCapture={onKeyDownCapture} onClick={onClick}>
                 <DataTable<Row>
                     columns={columns}
                     rows={rows}
