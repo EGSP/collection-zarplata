@@ -2,8 +2,7 @@ import { Effect } from 'effect';
 import type { Database } from '../database/database.effect.js';
 import type { SqlQuery } from '../database/sql.builder.js';
 import { sqlIdentifier } from '../database/sql.builder.js';
-import { configurationVersion } from '../../configuration/version.js';
-import { applicationVersions, databaseVersionProblem, parseVersion, platformVersion } from '../versions/versions.js';
+import { databaseVersionProblem, parseVersion, type ApplicationReleaseVersions } from '../versions/versions.js';
 import { migrations, type SchemaMigration } from './migrations/index.js';
 import { createIndexSql, createTableSql, type ColumnStructure, type SchemaStructure } from './structure.js';
 
@@ -86,10 +85,10 @@ async function readAppliedMigrations(database: Database): Promise<Set<string>> {
  * Отказывает базе, которую записала несовместимая сборка. База без строки версий осталась
  * от сборки, не знавшей версий: её принимают проверки снимка и журнала миграций.
  */
-async function checkDatabaseVersions(database: Database): Promise<void> {
+async function checkDatabaseVersions(database: Database, versions: ApplicationReleaseVersions): Promise<void> {
     const stored = await Effect.runPromise(database.get<{ platform: string; configuration: string }>(query('SELECT platform, configuration FROM platform_versions WHERE id = 1')));
     if (stored === undefined) return;
-    const problem = databaseVersionProblem('платформа', stored.platform, platformVersion) ?? databaseVersionProblem('конфигурация', stored.configuration, configurationVersion);
+    const problem = databaseVersionProblem('платформа', stored.platform, versions.platform) ?? databaseVersionProblem('конфигурация', stored.configuration, versions.configuration);
     if (problem !== undefined) throw new Error(problem);
 }
 
@@ -98,7 +97,7 @@ async function checkDatabaseVersions(database: Database): Promise<void> {
  * Миграции, новые элементы структуры и снимок записываются одной транзакцией;
  * ошибка в ней откатывает эти изменения и останавливает запуск.
  */
-export async function synchronizeSchema(database: Database, desired: SchemaStructure, availableMigrations: readonly SchemaMigration[] = migrations): Promise<void> {
+export async function synchronizeSchema(database: Database, desired: SchemaStructure, versions: ApplicationReleaseVersions, availableMigrations: readonly SchemaMigration[] = migrations): Promise<void> {
     const bootstrap = desired.tables.filter((table) => table.name === 'platform_schema' || table.name === 'platform_migrations');
     const existing = await Effect.runPromise(database.all<{ name: string }>(query("SELECT name FROM sqlite_master WHERE type = 'table'")));
     const existingNames = new Set(existing.map((row) => row.name.toLowerCase()));
@@ -109,7 +108,7 @@ export async function synchronizeSchema(database: Database, desired: SchemaStruc
     })));
 
     // Проверка идёт до сверки структуры: иначе старая сборка сообщила бы о незнакомых миграциях вместо причины.
-    if (existingNames.has('platform_versions')) await checkDatabaseVersions(database);
+    if (existingNames.has('platform_versions')) await checkDatabaseVersions(database, versions);
 
     const stored = await readSnapshot(database);
     if (stored === undefined && existing.some((row) => !row.name.startsWith('sqlite_') && !bootstrap.some((table) => table.name.toLowerCase() === row.name.toLowerCase()))) {
@@ -180,7 +179,7 @@ export async function synchronizeSchema(database: Database, desired: SchemaStruc
         yield* database.run(query('INSERT INTO platform_schema (id, snapshot) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET snapshot = excluded.snapshot', [JSON.stringify(desired)]));
         yield* database.run(query(
             'INSERT INTO platform_versions (id, platform, configuration) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET platform = excluded.platform, configuration = excluded.configuration',
-            [applicationVersions.platform, applicationVersions.configuration],
+            [versions.platform.version, versions.configuration.version],
         ));
     })));
 }

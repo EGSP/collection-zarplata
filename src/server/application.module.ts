@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuthenticationModule } from './authentication/authentication.module.js';
 import { AuthorizationModule } from './authorization/authorization.module.js';
 import { ClientModule } from './client/client.module.js';
@@ -12,9 +13,12 @@ import { ModulesGraphModule } from './modules-graph/modules-graph.module.js';
 import { SchemaModule } from './schema/schema.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { UiModule } from './ui/ui.module.js';
+import { VersionsInterceptor } from './versions/versions.interceptor.js';
 
 /** Корневой модуль связывает API данных и описания интерфейса с общими сервисами базы и метаданных. */
 @Module({
     imports: [SettingsModule, DatabaseModule, MetadataModule, SchemaModule, AuthorizationModule, AuthenticationModule, DataModule, InitialDataModule, UiModule, HealthModule, DocumentationModule, ModulesGraphModule, ClientModule],
+    // Глобальный interceptor получает общие версии через экспорт MetadataModule.
+    providers: [{ provide: APP_INTERCEPTOR, useClass: VersionsInterceptor }],
 })
 export class ApplicationModule {}

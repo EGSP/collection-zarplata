@@ -19,6 +19,12 @@ export interface ApplicationVersions {
     readonly configuration: string;
 }
 
+/** Версии обеих частей с границами совместимости для синхронизации базы. */
+export interface ApplicationReleaseVersions {
+    readonly platform: ReleaseVersion;
+    readonly configuration: ReleaseVersion;
+}
+
 /** Версия платформы: сервера, клиента и SDK. Увеличивается только в коммите релиза. */
 export const platformVersion: ReleaseVersion = { version: '1.0.0', compatibleFrom: '1.0.0' };
 
