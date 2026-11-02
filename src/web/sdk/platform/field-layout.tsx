@@ -15,6 +15,7 @@
  */
 import { Space, theme, Typography } from 'antd';
 import { spacing } from '../ds/layout';
+import { FieldLabel, type FieldLabelProperties } from '../derivations/field-label';
 import type { ComponentType, ReactNode } from 'react';
 import type { InputProperties } from '../../widgets/widget';
 
@@ -27,6 +28,8 @@ export interface FluidInputProperties<Value> extends InputProperties<Value> {
     readonly label: string;
     /** Поле обязательно: рядом с названием стоит звёздочка, как у подписи над полем. */
     readonly required: boolean;
+    /** Пустое доступное поле выделяет название жирным. */
+    readonly empty: boolean;
 }
 
 /** Свойства, с которыми группа выводит собственный элемент поля. */
@@ -65,20 +68,20 @@ export type FieldInputComponent<Value> = ((properties: LaidOutInputProperties<Va
  *
  * export default fieldInput<string>({
  *     stacked: Comment,
- *     fluid: ({ label, required, ...properties }) => <FluidField label={label} required={required}><Comment {...properties} /></FluidField>,
+ *     fluid: ({ label, required, empty, ...properties }) => <FluidField label={label} required={required} empty={empty}><Comment {...properties} /></FluidField>,
  * });
  * ```
  */
 export function fieldInput<Value>(layouts: FieldInputLayouts<Value>): FieldInputComponent<Value> {
     const { stacked: Stacked, fluid: Fluid } = layouts;
-    function LaidOutInput({ layout, label, required, ...properties }: LaidOutInputProperties<Value>) {
-        return layout === 'fluid' ? <Fluid {...properties} label={label} required={required} /> : <Stacked {...properties} />;
+    function LaidOutInput({ layout, label, required, empty, ...properties }: LaidOutInputProperties<Value>) {
+        return layout === 'fluid' ? <Fluid {...properties} label={label} required={required} empty={empty} /> : <Stacked {...properties} />;
     }
     return LaidOutInput as unknown as FieldInputComponent<Value>;
 }
 
 /** Свойства обёртки fluid-поля. */
-export interface FluidFieldProperties {
+export interface FluidFieldProperties extends Pick<FieldLabelProperties, 'empty' | 'disabled' | 'readOnly'> {
     /** Название поля в сегменте перед значением. */
     readonly label: string;
     readonly required?: boolean | undefined;
@@ -101,11 +104,11 @@ export interface FluidFieldProperties {
  * служит разделителем. Значение, которое само не является элементом ввода Ant Design, например
  * переключатель или текст, ставится в `FluidValue`: тогда у него та же рамка, что у сегмента названия.
  */
-export function FluidField({ label, required = false, block = true, free = false, children }: FluidFieldProperties) {
+export function FluidField({ label, required = false, block = true, free = false, empty, disabled, readOnly, children }: FluidFieldProperties) {
     return (
         <Space.Compact block={block} {...(free ? { style: { width: 'max-content', minWidth: '100%', maxWidth: '100%' } } : {})}>
             <Space.Addon style={{ whiteSpace: 'nowrap' }}>
-                <Typography.Text type="secondary">{label}</Typography.Text>
+                <FieldLabel empty={empty} disabled={disabled} readOnly={readOnly}>{label}</FieldLabel>
                 {required && <Typography.Text type="danger"> *</Typography.Text>}
             </Space.Addon>
             {/* Значение занимает остаток ширины и может сжиматься: без этого длинное представление

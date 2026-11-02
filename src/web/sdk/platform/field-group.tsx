@@ -1,3 +1,4 @@
+import { FieldLabel, isEmptyFieldValue } from '../derivations/field-label';
 import { InputDraftItem } from '../../widgets/input-draft';
 import { Card, ConfigProvider, Flex, Form, Space, theme, type ThemeConfig } from 'antd';
 import { useLayoutEffect, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from 'react';
@@ -283,7 +284,7 @@ function FieldItem({ field, record, traversal, layout: groupLayout, free }: Fiel
             );
         }
         return (
-            <Form.Item label={field.title} {...(field.computed ? { name: field.name } : {})}>
+            <Form.Item label={<FieldLabel readOnly>{field.title}</FieldLabel>} {...(field.computed ? { name: field.name } : {})}>
                 <Flex align="center" style={{ minHeight: token.controlHeight }}>
                     {display}
                 </Flex>
@@ -294,9 +295,9 @@ function FieldItem({ field, record, traversal, layout: groupLayout, free }: Fiel
         <div {...{ [fieldAttribute]: field.name }}>
             {/* Недоступность полю ввода и кнопкам собственного элемента передаёт контекст Ant Design, как на форме только для просмотра. */}
             <ConfigProvider {...(restricted ? { componentDisabled: true } : {})}>
-                <InputDraftItem name={field.name} {...(fluid ? {} : { label: field.title })} required={required} rules={fieldRules(field)}>
+                <InputDraftItem name={field.name} {...(fluid ? {} : { label: <FieldLabel empty={isEmptyFieldValue(watched)}>{field.title}</FieldLabel> })} required={required} rules={fieldRules(field)}>
                     {/* Обход останавливается на имени, у которого есть ссылка, поэтому недоступное поле её не получает. */}
-                    <LaidOutInput field={field} override={Override} layout={layout} label={field.title} required={required} free={free} ref={restricted ? undefined : traversal?.register(field.name)} />
+                    <LaidOutInput field={field} override={Override} layout={layout} label={field.title} required={required} empty={isEmptyFieldValue(watched)} free={free} ref={restricted ? undefined : traversal?.register(field.name)} />
                 </InputDraftItem>
             </ConfigProvider>
         </div>
@@ -308,6 +309,7 @@ interface LaidOutInputProperties extends InputProperties<unknown> {
     readonly layout: FieldLayout;
     readonly label: string;
     readonly required: boolean;
+    readonly empty: boolean;
     readonly free: boolean;
 }
 
@@ -315,11 +317,11 @@ interface LaidOutInputProperties extends InputProperties<unknown> {
  * Поле ввода в выбранной компоновке. Значение и обработчик изменения передаёт элемент формы
  * Ant Design, поэтому компонент пропускает их к полю без изменений.
  */
-function LaidOutInput({ override: Override, layout, label, required, free, ...properties }: LaidOutInputProperties) {
-    if (Override !== undefined) return <Override {...properties} layout={layout} label={label} required={required} />;
+function LaidOutInput({ override: Override, layout, label, required, empty, free, ...properties }: LaidOutInputProperties) {
+    if (Override !== undefined) return <Override {...properties} layout={layout} label={label} required={required} empty={empty} />;
     if (layout === 'stacked') return free ? <div style={freeInputStyle}><FieldInput {...properties} /></div> : <FieldInput {...properties} />;
     return (
-        <FluidField label={label} required={required} free={free}>
+        <FluidField label={label} required={required} empty={empty} free={free}>
             <FieldInput {...properties} />
         </FluidField>
     );

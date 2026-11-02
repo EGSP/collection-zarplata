@@ -227,6 +227,11 @@ function SampleNewPage(properties: NewFormProperties) {
 
 ## Компоновка полей
 
+`FieldLabel` выводит название основным цветом текста и выделяет пустое доступное поле жирным. Свойства: `empty` (по умолчанию `false`), `disabled` (по умолчанию из контекста Ant Design), `readOnly` (по умолчанию `false`) и `children` с названием. Ширина всегда учитывает жирное начертание. `FieldGroup` и `ActionDialog` отслеживают значение сами; таблицы сохраняют прежние заголовки.
+
+`FluidField` принимает `empty`, `disabled` и `readOnly` с тем же смыслом. На собственном экране `empty` вычисляет вызывающий код, например `empty={isEmptyFieldValue(person)}`. Собственный элемент поля получает обязательный `empty` вместе с `label` и `required` в `FluidInputProperties` и передаёт его своему `FluidField`.
+
+
 Компоновку полей группы выбирает свойство `layout` у `FieldGroup`:
 
 | Значение | Вид |
@@ -240,15 +245,15 @@ function SampleNewPage(properties: NewFormProperties) {
 
 У группы нет внешних отступов: расстояние до соседей задаёт родитель, например `Stack gap={6}` между группой и кнопкой.
 
-Собственное поле ввода должно поддержать обе компоновки, потому что компоновку выбирает группа. Его собирает `fieldInput` из двух компонентов: `stacked` выводит только значение, `fluid` получает ещё `label` и `required` и выводит подпись обёрткой `FluidField`:
+Собственное поле ввода должно поддержать обе компоновки, потому что компоновку выбирает группа. Его собирает `fieldInput` из двух компонентов: `stacked` выводит только значение, `fluid` получает ещё `label`, `required` и `empty` и выводит подпись обёрткой `FluidField`:
 
 ```tsx
 function Comment(properties: InputProperties<string>) { return <Input … />; }
 
 export default fieldInput<string>({
     stacked: Comment,
-    fluid: ({ label, required, ...properties }) => (
-        <FluidField label={label} required={required}><Comment {...properties} /></FluidField>
+    fluid: ({ label, required, empty, ...properties }) => (
+        <FluidField label={label} required={required} empty={empty}><Comment {...properties} /></FluidField>
     ),
 });
 ```

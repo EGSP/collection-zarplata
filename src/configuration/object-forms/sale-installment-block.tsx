@@ -1,6 +1,6 @@
 import { Button, Flex, Radio, Typography } from 'antd';
 import type { ComponentType } from 'react';
-import { FieldInput, FluidField, Icons, TablePartTitle, useObjectView, useRecord, useReferencePresentation, type FormField, type ObjectView } from '../../web/sdk';
+import { FieldInput, FieldLabel, FluidField, isEmptyFieldValue, Icons, TablePartTitle, useObjectView, useRecord, useReferencePresentation, type FormField, type ObjectView } from '../../web/sdk';
 import { PaymentMethodInput } from '../form-elements/payment-method-input';
 import { PaymentReceiverDefault } from '../form-elements/payment-receiver-default';
 import { Objects } from '../objects.generated';
@@ -131,29 +131,29 @@ export function SaleInstallmentBlock({ terms, onChange, shift, disabled, problem
                 }))}
             />
             {terms.type !== null && terms.type !== ownInstallment && (
-                <FluidField label="Ставка рассрочки" required>
+                <FluidField label="Ставка рассрочки" required empty={isEmptyFieldValue(terms.rate)} disabled={disabled}>
                     <FieldInput field={rateField} value={terms.rate} disabled={disabled} onChange={(rate) => onChange({ ...terms, rate: typeof rate === 'string' ? rate : null })} />
                 </FluidField>
             )}
             {/* Ширина free, как у поля «Покупатель» в описаниях документов: ФИО не обрезается. */}
-            <FluidField label="Покупатель" required free>
+            <FluidField label="Покупатель" required free empty={isEmptyFieldValue(terms.person)} disabled={disabled}>
                 <FieldInput field={personField} value={terms.person} disabled={disabled} onChange={(person) => onChange({ ...terms, person: typeof person === 'string' ? person : null })} />
             </FluidField>
             <Flex vertical gap="small">
-                <Typography.Text type="secondary">Ответственный сотрудник</Typography.Text>
+                <FieldLabel empty={isEmptyFieldValue(terms.responsibleEmployee)} disabled={disabled}>Ответственный сотрудник</FieldLabel>
                 <ResponsibleEmployees shift={shift} selected={terms.responsibleEmployee} disabled={disabled}
                     onSelect={(employee) => onChange({ ...terms, responsibleEmployee: employee })} />
             </Flex>
             {terms.type === ownInstallment && method !== undefined && amount !== undefined && receiver !== undefined && (
                 <Flex vertical gap="small">
-                    <Typography.Text type="secondary">Первоначальный взнос</Typography.Text>
+                    <FieldLabel empty={isEmptyFieldValue(terms.initialMethod)} disabled={disabled}>Первоначальный взнос</FieldLabel>
                     <PaymentMethodInput field={method} value={terms.initialMethod} disabled={disabled}
                         onChange={(entered) => onChange({ ...terms, initialMethod: typeof entered === 'string' ? entered : null })} />
-                    <FluidField label="Сумма">
+                    <FluidField label="Сумма" empty={isEmptyFieldValue(terms.initialAmount)} disabled={disabled}>
                         <FieldInput field={amount} value={terms.initialAmount} disabled={disabled}
                             onChange={(entered) => onChange({ ...terms, initialAmount: typeof entered === 'number' ? entered : null })} />
                     </FluidField>
-                    <FluidField label={receiver.title} free>
+                    <FluidField label={receiver.title} free empty={isEmptyFieldValue(terms.initialReceiver)} disabled={disabled}>
                         <FieldInput field={receiver} value={terms.initialReceiver} disabled={disabled}
                             onChange={(entered) => onChange({ ...terms, initialReceiver: entered ?? null })} />
                     </FluidField>

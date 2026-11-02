@@ -2,7 +2,7 @@ import { DataTable } from '../../web/sdk';
 import { Alert, Button, Divider, Flex, Typography } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { Column, FieldDisplay, FieldInput, FluidField, Grid, Layer, Page, Panel, RecordLink, spacing, Stack, Text, useActionResult, useRecordList, type AccountingTone } from '../../web/sdk';
+import { Column, FieldDisplay, FieldInput, FluidField, isEmptyFieldValue, Grid, Layer, Page, Panel, RecordLink, spacing, Stack, Text, useActionResult, useRecordList, type AccountingTone } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PaymentTotals, PeriodSummary, SummaryGoodsBlock } from '../period-summary';
 
@@ -303,13 +303,13 @@ export default function PeriodSummaryPage() {
                     {/* Поля периода стоят в колонках сетки, как поля форм, кнопки выбора — в оставшихся колонках строки. */}
                     <Grid gutter="narrow">
                         <Column span={{ md: 4 }}>
-                            <FluidField label="С" required>
+                            <FluidField label="С" required empty={isEmptyFieldValue(from)}>
                                 {/* Пустое значение не принимается: отчёт всегда строится за какие-то дни. */}
                                 <FieldInput field={dayField} value={from} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setFrom(value); } }} />
                             </FluidField>
                         </Column>
                         <Column span={{ md: 4 }}>
-                            <FluidField label="По" required>
+                            <FluidField label="По" required empty={isEmptyFieldValue(to)}>
                                 <FieldInput field={dayField} value={to} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setTo(value); } }} />
                             </FluidField>
                         </Column>

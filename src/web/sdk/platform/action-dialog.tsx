@@ -1,3 +1,4 @@
+import { FieldLabel, isEmptyFieldValue } from '../derivations/field-label';
 import { InputDraftItem } from '../../widgets/input-draft';
 import { ComputedValues } from './computed-values';
 import { TablePart } from './table-part';
@@ -5,7 +6,7 @@ import { useFieldTraversal, fieldAttribute } from './field-traversal';
 import { Form, Modal } from 'antd';
 import { BreakpointContainer } from '../ds/breakpoints';
 import { useState, type ComponentType } from 'react';
-import type { FormAction } from '../../../server/ui/descriptions';
+import type { FormAction, FormField } from '../../../server/ui/descriptions';
 import { ApiError } from '../../common/api';
 import { FieldDisplay, FieldInput } from '../../widgets/registry';
 import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../../widgets/validation';
@@ -80,7 +81,7 @@ export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClo
                     const limits = field.kind === 'date' ? dateLimits?.[field.name] : undefined;
                     const Input = fieldInputs?.[field.name] ?? FieldInput;
                     return (
-                        <InputDraftItem {...{ [fieldAttribute]: field.name }} key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={[
+                        <InputDraftItem {...{ [fieldAttribute]: field.name }} key={field.name} name={field.name} label={<ActionFieldLabel field={field} />} required={isMarkedRequired(field)} rules={[
                             ...fieldRules(field),
                             // Проверка формы нужна и для прежнего значения: пока окно открыто,
                             // другое действие могло закрыть период и сдвинуть доступную границу.
@@ -100,4 +101,10 @@ export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClo
             </BreakpointContainer>
         </Modal>
     );
+}
+
+/** Название входного поля действия следит за его значением, как название в FieldGroup. */
+function ActionFieldLabel({ field }: { readonly field: FormField }) {
+    const value: unknown = Form.useWatch(field.name, { preserve: true });
+    return <FieldLabel empty={isEmptyFieldValue(value)} readOnly={field.readOnly}>{field.title}</FieldLabel>;
 }

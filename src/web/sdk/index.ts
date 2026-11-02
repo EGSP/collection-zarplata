@@ -130,6 +130,7 @@ export { Tile, type TileProperties } from './ds/tile';
 
 // Кнопки с размерами Carbon и кнопка главного действия формы.
 export { Button, type ButtonProperties, type ButtonSize } from './ds/button';
+export { FieldLabel, isEmptyFieldValue, type FieldLabelProperties } from './derivations/field-label';
 export { MainActionButton, type MainActionButtonProperties } from './derivations/main-action-button';
 
 // Поверхности по уровням вложенности, роли текста и смысловые цвета учёта.

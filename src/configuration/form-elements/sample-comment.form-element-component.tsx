@@ -37,8 +37,8 @@ function SampleComment({ value, onChange, id, ref }: InputProperties<string>) {
 
 export default fieldInput<string>({
     stacked: SampleComment,
-    fluid: ({ label, required, ...properties }) => (
-        <FluidField label={label} required={required}>
+    fluid: ({ label, required, empty, ...properties }) => (
+        <FluidField label={label} required={required} empty={empty}>
             <SampleComment {...properties} />
         </FluidField>
     ),
