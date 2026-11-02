@@ -22,7 +22,7 @@ import { PaymentMethodInput } from './payment-method-input';
  *
  * В fluid-компоновке название поля стоит в сегменте перед кнопками.
  */
-function SalePaymentMode({ field, value, onChange, disabled, id, ref, fluid }: InputProperties<string> & { readonly fluid?: { readonly label: string; readonly required: boolean } }) {
+function SalePaymentMode({ field, value, onChange, disabled, id, ref, fluid }: InputProperties<string> & { readonly fluid?: { readonly label: string; readonly required: boolean; readonly empty: boolean } }) {
     const sales = Objects.document.sale;
     const form = useFormData(sales);
     const amount = useFormValue(sales, 'amount') ?? 0;
@@ -65,7 +65,7 @@ function SalePaymentMode({ field, value, onChange, disabled, id, ref, fluid }: I
     const input = <PaymentMethodInput field={field} value={value} disabled={disabled} id={id} ref={ref} onChange={(entered) => change(typeof entered === 'string' ? entered : null)} />;
     if (fluid === undefined) return input;
     return (
-        <FluidField label={fluid.label} required={fluid.required} block={false}>
+        <FluidField label={fluid.label} required={fluid.required} empty={fluid.empty} disabled={disabled} block={false}>
             {/* Переключатель не элемент ввода Ant Design: рамку, общую с сегментом названия, ему даёт сегмент. */}
             <FluidValue content="control">{input}</FluidValue>
         </FluidField>
@@ -74,7 +74,7 @@ function SalePaymentMode({ field, value, onChange, disabled, id, ref, fluid }: I
 
 export default fieldInput<string>({
     stacked: (properties) => <SalePaymentMode {...properties} />,
-    fluid: ({ label, required, ...properties }) => <SalePaymentMode {...properties} fluid={{ label, required }} />,
+    fluid: ({ label, required, empty, ...properties }) => <SalePaymentMode {...properties} fluid={{ label, required, empty }} />,
 });
 
 /**

@@ -2,7 +2,7 @@ import { DataTable } from '../../web/sdk';
 import { Alert, Button, Flex, Modal, Tabs, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { ActionDialog, Column, FieldDisplay, FieldInput, FluidField, FluidValue, Grid, Layer, Page, pagePath, Panel, RecordLink, Stack, Text, useAction, useActionResult, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
+import { ActionDialog, Column, FieldDisplay, FieldInput, FluidField, isEmptyFieldValue, FluidValue, Grid, Layer, Page, pagePath, Panel, RecordLink, Stack, Text, useAction, useActionResult, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PayrollLine, PayrollResult, PayrollRuleDescription } from '../payroll';
 
@@ -231,7 +231,7 @@ export default function PayrollPage() {
                             {/* Поля стоят в колонках сетки, как поля форм: по четыре колонки на поле. */}
                             <Grid gutter="narrow">
                                 <Column span={{ md: 4 }}>
-                                    <FluidField label="Начало периода">
+                                    <FluidField label="Начало периода" readOnly>
                                         {/* Начало приходит вместе с расчётом: после закрытия обновляется тем же запросом.
                                             Отображение без поля ввода не позволяет выбрать произвольное начало периода. */}
                                         <FluidValue content="text">
@@ -242,7 +242,7 @@ export default function PayrollPage() {
                                     </FluidField>
                                 </Column>
                                 <Column span={{ md: 4 }}>
-                                    <FluidField label="Рассчитать по" required>
+                                    <FluidField label="Рассчитать по" required empty={isEmptyFieldValue(through)} disabled={result === undefined}>
                                         {/* Пустое значение не принимается: расчёт всегда идёт по какой-то день. */}
                                         <FieldInput field={dayField} value={through} disabled={result === undefined} dateLimits={{ minimum: minimumDay }} onChange={(value) => { if (typeof value === 'string') setThrough(value); }} />
                                     </FluidField>

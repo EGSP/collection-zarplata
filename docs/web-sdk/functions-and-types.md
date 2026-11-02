@@ -24,6 +24,7 @@ covers:
 | `randomUuid` | Случайный UUID v4 без `crypto.randomUUID`: [замена API защищённой страницы](#api-защищённой-страницы) |
 | `ApiError` | Отказ API: статус, сообщение, поля и право |
 | `fieldInput`, `FluidField`, `FluidValue` | Сборка собственного поля ввода для обеих [компоновок](components.md#компоновка-полей), обёртка поля с подписью в сегменте и сегмент значения не из Ant Design |
+| `isEmptyFieldValue` | Пустота поля для [названия](components.md#компоновка-полей): `null`, `undefined`, пустая строка или пустой список; `0` и `false` заполнены |
 | `FormStack` | [Стек элементов формы](components.md#форма-из-formitem) из `Form.Item` без нижнего отступа |
 | `useActionConfirmation` | [Запрос подтверждения действия](hooks.md#выполнение-действий): `confirm(action)` и окно `dialog` |
 | `spacing`, `breakpoints`, `breakpointWidths`, `gridColumns` | Значения раскладки: [шкала отступов, точки перелома](../components.md#шкала-отступов-и-стек), их ширины и число колонок |

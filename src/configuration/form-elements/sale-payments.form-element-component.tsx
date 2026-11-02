@@ -1,7 +1,7 @@
 import { Form } from 'antd';
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { RecordOf } from '../../server/metadata/index';
-import { Column, FieldInput, Grid, newRowValues, Stack, TablePart, Text, useFormData, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
+import { Column, FieldInput, FieldLabel, isEmptyFieldValue, Grid, newRowValues, Stack, TablePart, useFormData, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
 import { PaymentReceiverDefaults } from './payment-receiver-default';
 import type { Sale } from '../documents/sale.document';
 import { Objects } from '../objects.generated';
@@ -35,11 +35,11 @@ const columnSizes = { method: { minimum: 18 } };
  * Поле с подписью над ним. Подпись и ошибки самой части показывает форма. Ширину поле получает
  * от колонки сетки; обёртка нужна только для `onBlur`, который `Stack` не принимает.
  */
-function Labelled({ title, onBlur, children }: { readonly title: string; readonly onBlur?: () => void; readonly children: ReactNode }) {
+function Labelled({ title, empty, disabled, onBlur, children }: { readonly title: string; readonly empty: boolean; readonly disabled: boolean | undefined; readonly onBlur?: () => void; readonly children: ReactNode }) {
     return (
         <div {...(onBlur === undefined ? {} : { onBlur })}>
             <Stack gap={2}>
-                <Text tone="secondary">{title}</Text>
+                <FieldLabel empty={empty} disabled={disabled}>{title}</FieldLabel>
                 {children}
             </Stack>
         </div>
@@ -148,7 +148,7 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
             </UnavailablePaymentMethods>
         ) : <Grid gutter="narrow">
             <Column span={simpleColumns.amount}>
-                <Labelled title={amount.title} onBlur={fillEmptyAmount}>
+                <Labelled title={amount.title} empty={isEmptyFieldValue(row?.amount)} disabled={disabled} onBlur={fillEmptyAmount}>
                     {/* `Form.Item` без имени только задаёт статус поля: пустой статус снимает отметку части. */}
                     <Form.Item noStyle {...fieldStatus(amountMissing)}>
                         <FieldInput field={amount} value={row?.amount ?? null} disabled={disabled} ref={ref} id={id}
@@ -159,7 +159,7 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
             {/* По оплате способом «Рассрочка» деньги не приняты, и «Куда оплачено» у неё не заполняется. */}
             {mode !== installmentMethod && (
                 <Column span={simpleColumns.receiver}>
-                    <Labelled title={receiver.title}>
+                    <Labelled title={receiver.title} empty={isEmptyFieldValue(row?.receiver)} disabled={disabled}>
                         <Form.Item noStyle {...fieldStatus(receiverMissing)}>
                             <FieldInput field={receiver} value={row?.receiver ?? null} disabled={disabled}
                                 onChange={(entered) => onChange?.(single({ receiver: (entered ?? null) as PaymentLine['receiver'] }))} />

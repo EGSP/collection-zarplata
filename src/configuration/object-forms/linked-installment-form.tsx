@@ -1,7 +1,7 @@
 /** Общие части рассрочки в просмотре продажи и на экране совместного изменения. */
 import { Button, Divider, Flex, Form, Tag, theme, Typography, type FormInstance } from 'antd';
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Column, FieldDisplay, FieldInput, Grid, Icons, Stack, TablePart, Text, useOpenRecord, type FormField, type FormTablePart, type FormValues } from '../../web/sdk';
+import { Column, FieldDisplay, FieldInput, FieldLabel, isEmptyFieldValue, Grid, Icons, Stack, TablePart, Text, useOpenRecord, type FormField, type FormTablePart, type FormValues } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { PaymentReceiverDefaults } from '../form-elements/payment-receiver-default';
 
@@ -36,8 +36,8 @@ export const paidAmount = (payments: ReadonlyArray<InstallmentPayment>) => payme
 export const installmentTitle = (installment: LinkedInstallment) => `Рассрочка № ${installment.number} от ${new Date(installment.date).toLocaleDateString('ru-RU')}`;
 
 /** Поле с подписью над значением, одинаковое в просмотре и изменении. Ширину задаёт колонка сетки. */
-export function Labelled({ title, children }: { readonly title: string; readonly children: ReactNode }) {
-    return <Stack gap={2}><Text tone="secondary">{title}</Text>{children}</Stack>;
+export function Labelled({ title, empty = false, disabled, children }: { readonly title: string; readonly empty?: boolean; readonly disabled?: boolean; readonly children: ReactNode }) {
+    return <Stack gap={2}><FieldLabel empty={empty} disabled={disabled}>{title}</FieldLabel>{children}</Stack>;
 }
 
 /**
@@ -84,7 +84,7 @@ export function LinkedInstallmentForm({ installment, fields, editing = false, di
     const reference = (name: string, value: unknown, onChange: ((value: unknown) => void) | undefined) => {
         const field = fields.find((candidate) => candidate.name === name);
         if (field === undefined) return null;
-        return <Column span={installmentColumns.reference}><Labelled title={field.title}>
+        return <Column span={installmentColumns.reference}><Labelled title={field.title} empty={editing && onChange !== undefined && isEmptyFieldValue(value)} disabled={disabled}>
             {editing && onChange !== undefined ? <FieldInput field={field} disabled={disabled} value={value} onChange={onChange} /> : <FieldDisplay field={field} value={value} />}
         </Labelled></Column>;
     };
@@ -108,7 +108,7 @@ export function LinkedInstallmentForm({ installment, fields, editing = false, di
             </Grid>
             <Grid gutter="narrow">
                 <Column span={installmentColumns.amount}><Labelled title={editing ? 'Сумма до изменения' : 'Сумма'}><FieldDisplay field={money} value={installment.amount} /></Labelled></Column>
-                {editing && <Column span={installmentColumns.amount}><Labelled title="Новая сумма">{amountInput ?? <FieldDisplay field={money} value={amount} />}</Labelled></Column>}
+                {editing && <Column span={installmentColumns.amount}><Labelled title="Новая сумма" empty={amountInput !== undefined && isEmptyFieldValue(amount)} disabled={disabled}>{amountInput ?? <FieldDisplay field={money} value={amount} />}</Labelled></Column>}
                 {editing && <Column span={installmentColumns.amount}><Labelled title="Изменение">{difference}</Labelled></Column>}
                 <Column span={installmentColumns.amount}><Labelled title="Внесено"><FieldDisplay field={money} value={paid} /></Labelled></Column>
                 <Column span={installmentColumns.amount}><Labelled title="Остаток"><FieldDisplay field={money} value={amount - paid} /></Labelled></Column>
