@@ -5,6 +5,8 @@ import type { FactoryProvider } from '@nestjs/common';
  * чтобы настройки и порт сервера получали готовые значения и не читали `process.argv` сами.
  */
 export interface LaunchArguments {
+    /** Тестовая среда по умолчанию; --test-environment=false явно включает продакшн. */
+    readonly testEnvironment: boolean;
     /**
      * `file` — рабочая база по файлу настроек. `memory` открывает пустую базу в памяти без файла
      * настроек. `test` работает как `memory`, но хранит базу в файле `testDatabasePath`:
@@ -61,6 +63,7 @@ export function portValue(value: unknown): value is number {
  * проверки; параметр командной строки важнее переменной.
  */
 function readArguments(values: readonly string[], autoLoginVariable: string | undefined): LaunchArguments {
+    let testEnvironment = true;
     let database: LaunchArguments['database'] = 'file';
     let testDatabasePath: string | undefined;
     let port: number | undefined;
@@ -79,6 +82,8 @@ function readArguments(values: readonly string[], autoLoginVariable: string | un
         } else if (name === 'test-database' && value.trim() !== '') {
             database = 'test';
             testDatabasePath = value;
+        } else if (name === 'test-environment' && (value === 'true' || value === 'false')) {
+            testEnvironment = value === 'true';
         } else if (name === 'port' && /^[0-9]+$/.test(value) && portValue(Number(value))) {
             port = Number(value);
         } else if (name === 'test-pin' && testUserPattern.test(value)) {
@@ -91,10 +96,12 @@ function readArguments(values: readonly string[], autoLoginVariable: string | un
         } else if (name === 'test-backup-schedule' && value.trim() !== '') {
             // Строку cron проверяют настройки вместе со строками из файла: правило разбора одно.
             testBackupSchedule.push(value.trim());
+        } else if (name === 'test-environment') {
+            throw new Error('Параметр --test-environment принимает только true или false');
         } else if (name === 'database' || name === 'test-database' || name === 'port' || name === 'test-pin' || name === 'auto-login-pin' || name === 'test-backup-schedule') {
             throw new Error(`Неверное значение параметра запуска ${argument}: ожидается --database=file|memory, --test-database=<файл>, --port=1…65535, --test-pin из 4–12 цифр с необязательными ролями (--test-pin=111111:reader), --auto-login-pin из 4–12 цифр или --test-backup-schedule=<строка cron>`);
         } else {
-            throw new Error(`Неизвестный параметр запуска ${argument}. Допустимы --database, --test-database, --port, --test-pin, --auto-login-pin и --test-backup-schedule`);
+            throw new Error(`Неизвестный параметр запуска ${argument}. Допустимы --database, --test-database, --port, --test-pin, --auto-login-pin, --test-environment и --test-backup-schedule`);
         }
     }
     // Режим определяет последний из параметров выбора базы, поэтому после --database=file
@@ -115,7 +122,7 @@ function readArguments(values: readonly string[], autoLoginVariable: string | un
         // Копировать базу в памяти нечем, а рабочей базе расписание задаёт файл настроек.
         throw new Error('Параметр --test-backup-schedule допустим только вместе с --test-database');
     }
-    return { database, testDatabasePath, port, testUsers, autoLoginPin, testBackupSchedule };
+    return { testEnvironment, database, testDatabasePath, port, testUsers, autoLoginPin, testBackupSchedule };
 }
 
 /** Разбирает параметры процесса один раз при сборке приложения; ошибка останавливает запуск. */
