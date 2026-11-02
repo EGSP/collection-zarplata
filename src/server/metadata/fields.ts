@@ -17,6 +17,23 @@ import type { CompositeReferenceValue, CompositeType, FieldKind, FieldWidth, Obj
  */
 export type ReferenceTarget = ObjectTarget | (() => ObjectTarget);
 
+/** Регистр оборотов, из которого поле берёт итог. */
+export interface RegisterTarget {
+    readonly kind: 'register';
+    readonly name: string;
+}
+
+/**
+ * Источник поля-итога: ресурс регистра оборотов, просуммированный по движениям, у которых
+ * измерение ссылается на эту запись. Регистр задают так же, как цель ссылки: объектом или
+ * функцией, если файлы импортируют друг друга по кругу.
+ */
+export interface RegisterTotalSource {
+    readonly register: RegisterTarget | (() => RegisterTarget);
+    readonly resource: string;
+    readonly dimension: string;
+}
+
 /** Всё, что накопила цепочка вызовов билдера поля. Свойства, не относящиеся к виду поля, остаются `null`. */
 export interface FieldState {
     readonly kind: FieldKind;
@@ -33,6 +50,8 @@ export interface FieldState {
     /** Значение строки в новой записи или новой строке формы; null оставляет поле пустым. */
     readonly initial: string | null;
     readonly computed: Formula | null;
+    /** Итог регистра по этой записи; `null` у обычного поля. */
+    readonly total: RegisterTotalSource | null;
     readonly suggestions: { readonly target: ReferenceTarget; readonly field: string } | null;
     readonly expandedTablePart: string | null;
     /** Варианты составного поля в порядке объявления; у остальных видов `null`. */
@@ -117,6 +136,8 @@ export class NumberFieldBuilder extends FieldBuilder<number> {
     declare readonly '~kind': 'number';
     /** Значение вычисляет платформа; клиентское значение при записи игнорируется. */
     computed(expression: Formula): this { return this.with({ computed: expression }); }
+    /** Значение — итог ресурса регистра по этой записи (`MoneyFieldBuilder.total`). */
+    total(register: RegisterTotalSource['register'], resource: string, dimension: string): this { return this.with({ total: { register, resource, dimension } }); }
     /** Выбор подставляет число, которое пользователь может затем изменить. */
     suggestions(target: ReferenceTarget, field: string): this { return this.with({ suggestions: { target, field } }); }
     minimum(minimum: number): this {
@@ -138,6 +159,13 @@ export class MoneyFieldBuilder extends FieldBuilder<number> {
     declare readonly '~kind': 'money';
     /** Формула возвращает целое число копеек, например через formula.round(). */
     computed(expression: Formula): this { return this.with({ computed: expression }); }
+    /**
+     * Значение — итог ресурса `resource` регистра `register` по движениям, у которых измерение
+     * `dimension` ссылается на эту запись. Например, остаток рассрочки — итог «Долгов по рассрочкам»
+     * по основанию-рассрочке. Поле не хранится в таблице объекта и не вводится: его считает чтение,
+     * поэтому значение всегда совпадает с регистром, а отбор и сортировка по нему работают в SQL.
+     */
+    total(register: RegisterTotalSource['register'], resource: string, dimension: string): this { return this.with({ total: { register, resource, dimension } }); }
     /** Источник подсказок сумм в копейках. */
     suggestions(target: ReferenceTarget, field: string): this { return this.with({ suggestions: { target, field } }); }
     minimum(minimum: number): this {
@@ -238,6 +266,7 @@ function initialState(kind: FieldKind): FieldState {
         choices: null,
         initial: null,
         computed: null,
+        total: null,
         suggestions: null,
         expandedTablePart: null,
         variants: null,

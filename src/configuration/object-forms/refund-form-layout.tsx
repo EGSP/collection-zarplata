@@ -1,6 +1,7 @@
 import { Card } from 'antd';
 import { goodsColumnSizes } from './goods-columns';
 import { RefundSaleGoods } from './refund-sale-goods';
+import { RefundSaleSettlement, RefundSettlementDefaults, settlementsOptions } from './refund-settlements';
 import { FieldGroup, Icons, MainActionButton, recordFormElements, RecordFormPage, Stack, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
@@ -16,12 +17,18 @@ const refundButtons: RecordFormButtons = { actions: [], postAndClose: false };
 /**
  * Основания возврата. Строку добавляет связь с продажей, а не пустая строка: значок цепи показывает,
  * что строка ссылается на продажу, из которой возвращают товары. Под строкой, изначально раскрытой,
- * стоят товары этой продажи с флажками: отмеченные попадают в «Товары на возврат».
+ * стоят товары этой продажи с флажками: отмеченные попадают в «Товары на возврат». Под товарами
+ * стоит сводка расчёта по продаже: ожидаемая выдача, расхождение и остаток рассрочки.
  */
 const basesOptions: TablePartOptions = {
     addTitle: 'Связать с продажей',
     addIcon: <Icons.link />,
-    expandedRow: (row) => typeof row.sale === 'string' ? <RefundSaleGoods sale={row.sale} /> : null,
+    expandedRow: (row) => typeof row.sale === 'string' ? (
+        <Stack gap={4}>
+            <RefundSaleGoods sale={row.sale} />
+            <RefundSaleSettlement sale={row.sale} />
+        </Stack>
+    ) : null,
 };
 
 /**
@@ -44,7 +51,7 @@ const goodsOptions: TablePartOptions = {
 };
 
 /**
- * Форма возврата: шапка, основания и товары в одной группе без заголовка. Шапка в fluid-компоновке,
+ * Форма возврата: шапка, основания, товары и расчёты в одной группе без заголовка. Шапка в fluid-компоновке,
  * как у отвеса и продажи. Элементы конфигурации берутся из описания групп формы,
  * поэтому новый элемент появится на форме без правки раскладки.
  *
@@ -66,8 +73,9 @@ function RefundFormLayout({ state }: { readonly state: RecordFormState }) {
                         record={state.record}
                         disabled={!state.editable}
                         traversal={state.traversal}
-                        tablePartOptions={{ bases: basesOptions, goods: goodsOptions }}
+                        tablePartOptions={{ bases: basesOptions, goods: goodsOptions, settlements: settlementsOptions }}
                     />
+                    <RefundSettlementDefaults />
                     {/* Обёртка не даёт стеку растянуть кнопку на всю ширину. */}
                     <div>
                         {post !== undefined && (

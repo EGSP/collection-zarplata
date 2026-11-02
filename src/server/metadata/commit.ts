@@ -10,7 +10,7 @@ import { compositeInputMode, fieldInputModes } from './composite.js';
 import { applyFormComponents, checkFormComponentTargets } from './form-component-attachments.js';
 import type { FormComponentDefinition } from './form-elements.js';
 import type { Formula } from '../../common/formulas.js';
-import type { ReferenceTarget } from './fields.js';
+import type { ReferenceTarget, RegisterTarget } from './fields.js';
 import { formulaDependencies } from '../../common/formulas.js';
 import { Effect } from 'effect';
 import type { FieldEntry, ObjectBuilder, ObjectState } from './builders.js';
@@ -25,6 +25,7 @@ import type {
     ObjectKind,
     ObjectTarget,
     RegisterConstraintDescription,
+    RegisterTotal,
     TablePartDescription,
 } from './descriptions.js';
 import { MetadataError, type MetadataProblem } from './metadata.errors.js';
@@ -121,6 +122,48 @@ function resolveTarget(entry: FieldEntry, location: string, problems: Problems, 
     return { kind, name };
 }
 
+/**
+ * Проверяет и описывает источник поля-итога (`MoneyFieldBuilder.total`). Итог допустим только
+ * у реквизита справочника или документа (`allowTotal`): его считают по GUID записи, а у строки
+ * табличной части, входных данных действия и регистра такой записи нет. Источник — регистр
+ * оборотов из конфигурации, ресурс — его числовой ресурс, измерение — ссылка, полная или обычная.
+ */
+function describeTotal(entry: FieldEntry, location: string, problems: Problems, configuration: ReadonlyArray<ObjectBuilder>, allowTotal: boolean): RegisterTotal | null {
+    const state = entry.builder['~state'];
+    const source = state.total;
+    if (source === null) return null;
+    if (!allowTotal) {
+        problems.add(location, 'итог регистра допустим только у реквизита справочника или документа');
+        return null;
+    }
+    if (state.kind !== 'number' && state.kind !== 'money') problems.add(location, 'итог регистра бывает только у числа или суммы');
+    if (state.computed !== null) problems.add(location, 'поле не может быть одновременно итогом регистра и формулой');
+    let resolved: RegisterTarget | undefined;
+    try {
+        // Функция обращается к экспорту другого файла; при циклическом импорте он может быть ещё не инициализирован.
+        resolved = typeof source.register === 'function' ? source.register() : source.register;
+    } catch (cause) {
+        problems.add(location, `не удалось получить регистр итога: ${String(cause)}`);
+        return null;
+    }
+    const register = resolved === undefined || resolved === null ? undefined
+        : configuration.find((object) => object.kind === 'register' && object.name === resolved.name);
+    if (register === undefined || resolved?.kind !== 'register') {
+        problems.add(location, 'итог берётся только из регистра оборотов, который есть в конфигурации');
+        return null;
+    }
+    const fields = register['~state'].fields;
+    const resource = fields.find((field) => field.name === source.resource && field.role === 'resource');
+    if (resource === undefined) problems.add(location, `в регистре «${register.name}» нет ресурса «${source.resource}»`);
+    const dimension = fields.find((field) => field.name === source.dimension && field.role === 'dimension');
+    const match = dimension?.builder['~state'].kind;
+    if (match !== 'objectReference' && match !== 'reference') {
+        problems.add(location, `измерение «${source.dimension}» регистра «${register.name}» должно быть ссылкой`);
+        return null;
+    }
+    return { register: register.name, resource: source.resource, dimension: source.dimension, match };
+}
+
 /** Перечень значений допустим только у строки и состоит из непустых неповторяющихся значений. */
 function checkChoices(field: FieldDescription, location: string, problems: Problems): void {
     if (field.choices !== null && (
@@ -197,6 +240,7 @@ function describeFields(
     prefix: string,
     problems: Problems,
     configuration: ReadonlyArray<ObjectBuilder>,
+    allowTotal = false,
 ): ReadonlyArray<FieldDescription> {
     const seen = new Map<string, FieldEntry>();
     return entries.map((entry) => {
@@ -218,14 +262,17 @@ function describeFields(
         if (state.inputMode !== null && (state.kind !== 'composite' || state.inputMode !== 'solid')) {
             problems.add(location, 'способ ввода задаётся только составному полю и только как solid');
         }
+        const total = describeTotal(entry, location, problems, configuration, allowTotal);
         const description: FieldDescription = {
             name: entry.name,
             kind: state.kind,
             role: entry.role,
             title: state.title ?? entry.name,
             required: state.required,
-            managed: entry.managed,
+            // Итог регистра заполняет платформа: во входных данных его нет, а на форме он только для чтения.
+            managed: entry.managed || state.total !== null,
             computed: state.computed,
+            total,
             expandedTablePart: state.expandedTablePart,
             suggestions: state.suggestions === null ? null : { target: resolveTarget(entry, location, problems, configuration, state.suggestions.target)!, field: state.suggestions.field },
             minimumLength: state.minimumLength,
@@ -428,7 +475,7 @@ function validateObject(
         problems.add(null, 'стандартные поля не добавлены: вызовите withStandardFields() перед commit()');
     }
 
-    const fields = describeFields(state.fields, '', problems, configuration);
+    const fields = describeFields(state.fields, '', problems, configuration, state.kind === 'catalog' || state.kind === 'document');
     if ((state.kind === 'register' || state.kind === 'informationRegister') && !fields.some((field) => field.role === 'resource')) {
         problems.add(null, 'у регистра нет ни одного ресурса');
     }

@@ -3,7 +3,7 @@ import { Alert, Flex, Typography } from 'antd';
 import { useState } from 'react';
 import { ActionDialog, Button, Icons, useAction, useActionResult, useObjectView, useRecords, type FormValues, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
-import { InstallmentPayments, LinkedInstallmentForm, paidAmount, type LinkedInstallment } from './linked-installment-form';
+import { InstallmentPayments, LinkedInstallmentForm, paidAmount, refundedAmount, type LinkedInstallment } from './linked-installment-form';
 import { InstallmentPaymentDialog } from './installment-payment-dialog';
 
 interface InstallmentListPage {
@@ -67,7 +67,8 @@ export function LinkedInstallmentActions({ installment, view, disabled = false }
     const form = view.form;
     if (form === null || installment.type !== 'Собственная') return null;
     const paid = paidAmount(installment.payments);
-    const balance = installment.amount - paid;
+    // Возврат в счёт долга гасит его наравне со взносами.
+    const balance = installment.amount - paid - refundedAmount(installment);
     const actionable = !disabled && installment.posted && installment.closedAt === null && (installment.deletedAt ?? null) === null;
     const pay = form.actions.find((action) => action.name === 'pay');
     const close = form.actions.find((action) => action.name === 'close');
