@@ -28,7 +28,7 @@ import {
     type FormValues,
     type RecordFormState,
 } from '../../web/sdk';
-import { InstallmentDivider, InstallmentPayments, Labelled, LinkedInstallmentForm, installmentTitle, paidAmount, type InstallmentPayment, type LinkedInstallment } from './linked-installment-form';
+import { InstallmentDivider, InstallmentPayments, Labelled, LinkedInstallmentForm, installmentTitle, paidAmount, refundedAmount, type InstallmentPayment, type LinkedInstallment } from './linked-installment-form';
 import { LinkedInstallmentActions } from './linked-sale-installments';
 import { Objects } from '../objects.generated';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
@@ -77,7 +77,7 @@ const distributable = (installment: LinkedInstallment) => installment.posted;
  * Распределяет изменение суммы рассрочек по проведённым рассрочкам, начиная с последней.
  * Увеличение целиком достаётся последней рассрочке: её покупатель оформил позже остальных.
  * Уменьшение снимается с последних рассрочек, пока сумма каждой не дойдёт до её взносов
- * (`paymentsOf`, с правками экрана) и не меньше 1 ₽. Возвращает новые суммы; нераспределённый
+ * (`paymentsOf`, с правками экрана) вместе с погашениями возвратами и не меньше 1 ₽. Возвращает новые суммы; нераспределённый
  * остаток покажет проверка.
  */
 function distribute(installments: ReadonlyArray<LinkedInstallment>, change: number, paymentsOf: (installment: LinkedInstallment) => ReadonlyArray<InstallmentPayment>): Map<string, number> {
@@ -88,7 +88,7 @@ function distribute(installments: ReadonlyArray<LinkedInstallment>, change: numb
     let left = -change;
     for (const installment of [...open].reverse()) {
         if (left <= 0) break;
-        const reducible = Math.max(0, installment.amount - Math.max(paidAmount(paymentsOf(installment)), 1));
+        const reducible = Math.max(0, installment.amount - Math.max(paidAmount(paymentsOf(installment)) + refundedAmount(installment), 1));
         const taken = Math.min(reducible, left);
         amounts.set(installment.guid, installment.amount - taken);
         left -= taken;
@@ -221,7 +221,12 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     }
     for (const installment of installments) {
         const paid = paidAmount(paymentsOf(installment));
-        if (amountOf(installment) < paid) problems.push(`${installmentTitle(installment)}: сумма ${rubles(amountOf(installment))} меньше взносов ${rubles(paid)}.`);
+        const refunded = refundedAmount(installment);
+        if (amountOf(installment) < paid + refunded) {
+            problems.push(refunded === 0
+                ? `${installmentTitle(installment)}: сумма ${rubles(amountOf(installment))} меньше взносов ${rubles(paid)}.`
+                : `${installmentTitle(installment)}: сумма ${rubles(amountOf(installment))} меньше взносов и погашений возвратами ${rubles(paid + refunded)}.`);
+        }
     }
 
     const divider = <InstallmentDivider />;

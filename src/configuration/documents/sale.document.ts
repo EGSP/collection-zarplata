@@ -82,16 +82,23 @@ const installmentAmount = (record: SaleRecord) => record.payments.filter(byInsta
  * появления оплат, это поле пусто. Простой способ допускает не больше одной оплаты, а не ровно
  * одну: у продажи с нулевой суммой оплат нет, потому что сумма оплаты больше нуля.
  *
+ * У продажи не больше одной строки каждого способа: две строки наличными при сложной оплате
+ * ничего не добавляют к учёту, а возврат и отчёты читают оплату по способам.
+ *
  * Способ «Рассрочка» допустим у строки сложной оплаты и у единственной оплаты продажи со способом
- * «Рассрочка». Таких строк у продажи не больше одной. У такой строки «Куда оплачено» пусто: деньги по ней не приняты и придут взносами
+ * «Рассрочка». У такой строки «Куда оплачено» пусто: деньги по ней не приняты и придут взносами
  * рассрочки. У остальных новых и изменённых строк «Куда оплачено» обязательно; строки прежней
  * записи `existing` не проверяются (`paymentsWithoutReceiver`). Отказ называет поле строки,
  * и форма отмечает незаполненную ячейку.
  */
 const checkPayments = (record: SaleRecord, existing: SaleRecord | null) => {
     const mode = record.paymentMode;
-    // Рассрочка по продаже оформляется на одну сумму, поэтому оплата рассрочкой у продажи одна.
-    if (record.payments.filter(byInstallment).length > 1) return rejected(`У продажи не больше одной оплаты способом «${installmentMethod}»`);
+    // Рассрочка по продаже оформляется на одну сумму, поэтому и оплата рассрочкой у продажи одна.
+    const methods = new Set<string>();
+    for (const [index, payment] of record.payments.entries()) {
+        if (methods.has(payment.method)) return rejected(`Строка оплаты ${index + 1}: способ «${payment.method}» уже указан. У продажи не больше одной оплаты каждого способа`);
+        methods.add(payment.method);
+    }
     for (const [index, payment] of record.payments.entries()) {
         if (!byInstallment(payment)) continue;
         const place = `Строка оплаты ${index + 1}`;
@@ -300,6 +307,8 @@ interface LinkedInstallment {
     readonly closedAt: string | null;
     readonly posted: boolean;
     readonly payments: ReadonlyArray<InstallmentPayment>;
+    /** Остаток — итог регистра «Долги по рассрочкам»: сумма за вычетом взносов и погашений возвратами. */
+    readonly balance: number;
 }
 
 /** Взнос рассрочки: строка её табличной части «Взносы». */
@@ -339,7 +348,7 @@ function textHash(text: string): string {
     return (4294967296 * (2097151 & second) + (first >>> 0)).toString(16);
 }
 
-/** Сумма взносов: сумму рассрочки нельзя сделать меньше неё. */
+/** Сумма строк взносов или погашений возвратами: сумму рассрочки нельзя сделать меньше их вместе. */
 const paidAmount = (payments: ReadonlyArray<{ readonly amount: number }>) => payments.reduce((total, payment) => total + payment.amount, 0);
 
 /** Взнос для сравнения: колонки по порядку, пустые как `null`. */
@@ -429,7 +438,7 @@ const proposedPayments = (existing: LinkedInstallment, rows: ReadonlyArray<Payme
  * Проверяет изменения рассрочек (раздел «Правила редактирования продаж») и возвращает рассрочки,
  * которые нужно записать. Входные данные перечисляют каждую рассрочку продажи ровно один раз:
  * рассрочку нельзя убрать из продажи или добавить чужую. Тип не меняется, сумма не меньше
- * взносов. Закрытая рассрочка меняется так же, как открытая, но любое изменение снимает с неё
+ * взносов и погашений возвратами. Закрытая рассрочка меняется так же, как открытая, но любое изменение снимает с неё
  * закрытие: после правки суммы или взносов прежнее закрытие уже не подтверждает погашение,
  * и рассрочку закрывают заново.
  *
@@ -456,7 +465,14 @@ const checkInstallmentChanges = (state: SaleChangesState, changes: ReadonlyArray
         const paymentsChanged = JSON.stringify(payments.map(paymentKey)) !== JSON.stringify(existing.payments.map(paymentKey));
         if (paymentsChanged && !existing.posted) return yield* rejected(`${installmentTitle(existing)} не проведена: её взносы изменить нельзя`);
         const paid = paidAmount(payments);
-        if (change.amount < paid) return yield* rejected(`${installmentTitle(existing)}: сумма ${rubles(change.amount)} меньше взносов ${rubles(paid)}`);
+        // Погашение возвратом уменьшило долг так же, как взнос: сумму нельзя сделать меньше их вместе.
+        // Погашения не хранятся в рассрочке: это часть долга, которую закрыли не взносы.
+        const refunded = existing.amount - paidAmount(existing.payments) - existing.balance;
+        if (change.amount < paid + refunded) {
+            return yield* rejected(refunded === 0
+                ? `${installmentTitle(existing)}: сумма ${rubles(change.amount)} меньше взносов ${rubles(paid)}`
+                : `${installmentTitle(existing)}: сумма ${rubles(change.amount)} меньше взносов и погашений возвратами ${rubles(paid + refunded)}`);
+        }
         const person = change.person ?? null;
         const responsibleEmployee = change.responsibleEmployee ?? null;
         const changed = paymentsChanged || change.amount !== existing.amount || person !== (existing.person ?? null) || responsibleEmployee !== (existing.responsibleEmployee ?? null);

@@ -13,8 +13,11 @@ const saleGoodsLayouts: TableLayouts = {
 /** Поля товара, по которым строка возврата признаётся копией строки продажи. */
 const lineKey = (line: RecordData) => JSON.stringify([line.name, line.code, line.size ?? null, line.comment, line.cost, line.discount]);
 
-/** Строка возврата из строки продажи: копия без отметки «Проведено в 1С». */
-const copyOf = (row: RecordData, sale: string) => ({ name: row.name as string, code: row.code as string | null, size: (row.size ?? null) as string | null, comment: row.comment as string | null, postedIn1C: false, cost: row.cost as number, discount: row.discount as number | null, total: row.total as number, sale });
+/**
+ * Строка возврата из строки продажи: полная копия, вместе с отметкой «Проведено в 1С». Форма
+ * возврата отметку не выводит, но хранимое значение совпадает с продажей, а не противоречит ей.
+ */
+const copyOf = (row: RecordData, sale: string) => ({ name: row.name as string, code: row.code as string | null, size: (row.size ?? null) as string | null, comment: row.comment as string | null, postedIn1C: row.postedIn1C === true, cost: row.cost as number, discount: row.discount as number | null, total: row.total as number, sale });
 
 /**
  * Товары продажи под строкой основания возврата. Флажок у товара добавляет его копию в «Товары
@@ -31,8 +34,8 @@ const copyOf = (row: RecordData, sale: string) => ({ name: row.name as string, c
  * две копии, то первая строка серая, вторая и третья отмечены. Снятие флажка убирает последнюю
  * копию, а не ту, что стоит рядом с флажком; для одинаковых товаров это неразличимо.
  *
- * Копия переносит код, размер, комментарий, стоимость и скидку, итог форма пересчитывает сама. Отметка
- * «Проведено в 1С» снята: возврат является новым документом.
+ * Копия переносит код, размер, комментарий, «Проведено в 1С», стоимость и скидку, итог форма
+ * пересчитывает сама.
  */
 export function RefundSaleGoods({ sale }: { readonly sale: string }) {
     const refunds = Objects.document.refund;

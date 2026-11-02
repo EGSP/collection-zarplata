@@ -1,5 +1,5 @@
 import { Form } from 'antd';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import type { RecordOf } from '../../server/metadata/index';
 import { Column, FieldInput, FieldLabel, isEmptyFieldValue, Grid, newRowValues, Stack, TablePart, useFormData, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
 import { PaymentReceiverDefaults } from './payment-receiver-default';
@@ -15,9 +15,6 @@ type PaymentLine = EnteredValue<RecordOf<typeof Sale>['payments']>[number];
  * константа оттуда не импортируется, потому что это серверный модуль, а компонент собирается в клиент.
  */
 const installmentMethod = 'Рассрочка';
-/** Недоступные способы строк оплат: постоянные массивы, чтобы контекст не менялся при каждой отрисовке. */
-const installmentOnly = [installmentMethod];
-const noMethods: ReadonlyArray<string> = [];
 
 /**
  * Колонки простой оплаты в сетке оплат. Ширину всех оплат задаёт колонка формы продажи, поэтому
@@ -68,7 +65,7 @@ function Labelled({ title, empty, disabled, onBlur, children }: { readonly title
  * записанная до появления оплат, показывает таблицу.
  *
  * В таблице способ строки выбирается кнопками из одних значков, название способа в подсказке.
- * Способ «Рассрочка» выбирается не больше чем в одной строке: в остальных он недоступен. Первая строка сложной оплаты пустая,
+ * Каждый способ выбирается не больше чем в одной строке: занятый способ в остальных строках недоступен. Первая строка сложной оплаты пустая,
  * а каждая следующая получает сумму, которую осталось оплатить: продавцу не нужно считать
  * остаток самому.
  */
@@ -133,8 +130,10 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
             values.setFieldValue('payments', current.map((payment, position) => position === index ? { ...payment, receiver: receiver as PaymentLine['receiver'] } : payment));
         }} />;
 
-    // У продажи не больше одной оплаты рассрочкой: когда она есть, в остальных строках способ недоступен.
-    const installmentTaken = rows.some((payment) => payment.method === installmentMethod);
+    // У продажи не больше одной оплаты каждого способа: занятый способ недоступен в остальных строках.
+    // Перечень пересоздаётся только при смене занятых способов, чтобы контекст не менялся при каждой отрисовке.
+    const takenKey = JSON.stringify([...new Set(rows.flatMap((payment) => payment.method ?? []))]);
+    const taken = useMemo(() => JSON.parse(takenKey) as ReadonlyArray<string>, [takenKey]);
     const options: TablePartOptions = {
         columnSizes,
         columnInputs: { method: PaymentMethodIcons },
@@ -143,7 +142,7 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
     };
     return (
         <>{defaults}{!simple ? (
-            <UnavailablePaymentMethods value={installmentTaken ? installmentOnly : noMethods}>
+            <UnavailablePaymentMethods value={taken}>
                 <TablePart showTitle={false} part={part} disabled={disabled} ref={ref} onPrevious={onPrevious} {...options} />
             </UnavailablePaymentMethods>
         ) : <Grid gutter="narrow">

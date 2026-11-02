@@ -1,12 +1,13 @@
-import { Card, Divider, Form } from 'antd';
+import { Card, Divider, Flex, Form } from 'antd';
 import { useEffect, useState } from 'react';
 import { goodsColumnSizes } from './goods-columns';
 import { PostedIn1CSwitch } from './posted-in-1c-switch';
 import { SaleChanges } from './sale-changes';
 import { LinkedSaleInstallments } from './linked-sale-installments';
+import { LinkedSaleRefunds } from './linked-sale-refunds';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
 import { Objects } from '../objects.generated';
-import { Column, FieldGroup, Grid, Icons, MainActionButton, recordFormElements, RecordFormPage, useFormRestrictions, useRecord, useRecordForm, spacing, Stack, type ColumnCount, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { Column, FieldGroup, Grid, Icons, MainActionButton, recordFormElements, RecordFormPage, useFormRestrictions, useObjectView, useOpenRecord, useRecord, useRecordForm, spacing, Stack, type ColumnCount, type FormElementReference, type FormPresentation, type NewFormProperties, type FormValues, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
 
 /**
  * Вид таблицы товаров: сначала код, затем название во всех режимах продажи. Размеры колонок
@@ -167,6 +168,11 @@ const isEntered = (line: GoodsLine) => typeof line.name === 'string' && line.nam
  * доступны, а под продажей через штриховые разделители выводятся её рассрочки (`SaleChanges`).
  * Продажу и рассрочки записывает одним запросом действие `saveChanges`. Кнопки нет без права
  * на действие и у продажи, помеченной на удаление.
+ *
+ * Рядом стоит кнопка «Оформить возврат», как «Продать» в отвесе: она открывает во вкладке новый
+ * возврат с этой продажей в основаниях. Товары продавец отмечает уже в возврате, а смену подставляет
+ * элемент `OpenShift`: возврат оформляет открытая смена, в расчётах его смена не участвует.
+ * Кнопки нет без права проводить возвраты и у непроведённой продажи.
  */
 function SaleFormLayout({ state, presentation }: { readonly state: RecordFormState; readonly presentation: FormPresentation }) {
     const items = (title: string) => state.view.groups.find((group) => group.title === title)?.elements ?? [];
@@ -205,6 +211,11 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
     // Сумма рассрочки — сумма оплаты способом «Рассрочка»: первоначальный взнос должен быть меньше неё.
     const installmentAmount = Array.isArray(payments) ? payments.filter((line: PaymentLine) => isInstallment(line)).reduce((total: number, line: PaymentLine) => total + (line.amount as number), 0) : 0;
     const problems = withInstallment && termsChecked ? installmentTermsProblems(terms, installmentAmount) : [];
+    const openRecord = useOpenRecord();
+    const refundView = useObjectView(Objects.document.refund);
+    const refundable = posted && refundView?.form?.actions.some((action) => action.name === 'post') === true;
+    // Об ошибке открытия вкладки сообщать нечего: переход по адресу не завершается отказом сервера.
+    const refund = () => void openRecord(Objects.document.refund, null, 'tab', { initial: { bases: [{ sale: state.record!['guid'] }] } }).catch(() => undefined);
     const runSell = () => {
         if (withInstallment) {
             setTermsChecked(true);
@@ -240,7 +251,8 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
                                 </Column>
                             )}
                         </Grid>
-                        <div>
+                        {/* Обёртка не даёт стеку растянуть кнопки на всю ширину и разносит их, как в отвесе. */}
+                        <Flex gap="middle" wrap>
                             {sell !== undefined && (
                                 <MainActionButton
                                     type="primary"
@@ -258,11 +270,18 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
                                     Внести изменения
                                 </MainActionButton>
                             )}
-                        </div>
+                            {refundable && !editing && (
+                                <MainActionButton icon={<Icons.refund />} disabled={state.running !== null} onClick={refund}>
+                                    Оформить возврат
+                                </MainActionButton>
+                            )}
+                        </Flex>
                     </Stack>
                 </div>
                 {changesAvailable && editing && <SaleChanges state={state} prepare={beforeSave} onClose={() => setEditing(false)} />}
                 {presentation === 'page' && !editing && typeof state.record?.['guid'] === 'string' && <LinkedSaleInstallments sale={state.record['guid']} />}
+                {/* Возвраты идут после рассрочек: сначала продажа, затем её рассрочки, затем возвраты по ней. */}
+                {presentation === 'page' && !editing && typeof state.record?.['guid'] === 'string' && <LinkedSaleRefunds sale={state.record['guid']} />}
             </Card>
         </RecordFormPage>
     );
