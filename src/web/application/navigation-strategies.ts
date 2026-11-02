@@ -19,7 +19,7 @@ export const navigationWidths = { expanded: 256, rail: 48 } as const;
 /** Как выглядит панель при данном состоянии. */
 export interface NavigationPresentation {
     /** Закреплённая панель слева от страницы: развёрнута или свёрнута в полосу иконок. */
-    readonly docked: 'expanded' | 'rail';
+    readonly docked: 'expanded' | 'rail' | 'bottom';
     /** Развёрнутая панель выдвинута поверх страницы. */
     readonly overlay: boolean;
 }
@@ -42,13 +42,23 @@ export interface NavigationStrategy {
     readonly switcherTitle: (expanded: boolean) => string;
 }
 
+/** На телефоне все разделы доступны одним нажатием в нижней прокручиваемой панели. */
+const bottomStrategy: NavigationStrategy = {
+    name: 'bottom',
+    from: 'sm',
+    expandedByDefault: false,
+    collapsesOnNavigation: true,
+    present: (expanded) => ({ docked: 'bottom', overlay: expanded }),
+    switcherTitle: (expanded) => expanded ? 'Закрыть меню' : 'Открыть меню',
+};
+
 /**
  * Узкое окно: панель всегда остаётся полосой иконок, а Switcher выдвигает развёрнутую панель
  * поверх страницы (overlay). Страница при этом не сжимается, и её сетка не перестраивается.
  */
 const overlayStrategy: NavigationStrategy = {
     name: 'overlay',
-    from: 'sm',
+    from: 'md',
     expandedByDefault: false,
     collapsesOnNavigation: true,
     present: (expanded) => ({ docked: 'rail', overlay: expanded }),
@@ -74,7 +84,7 @@ const pushStrategy: NavigationStrategy = {
 };
 
 /** Стратегии от узкого окна к широкому. Действует последняя, до точки которой окно доросло. */
-const navigationStrategies: ReadonlyArray<NavigationStrategy> = [overlayStrategy, pushStrategy];
+const navigationStrategies: ReadonlyArray<NavigationStrategy> = [bottomStrategy, overlayStrategy, pushStrategy];
 
 /**
  * Стратегия боковой панели для текущей точки окна; меняется вместе с ней. Хук берёт точку
@@ -83,5 +93,5 @@ const navigationStrategies: ReadonlyArray<NavigationStrategy> = [overlayStrategy
  */
 export function useNavigationStrategy(): NavigationStrategy {
     const point = useBreakpoint();
-    return navigationStrategies.findLast((strategy) => breakpointAtLeast(point, strategy.from)) ?? overlayStrategy;
+    return navigationStrategies.findLast((strategy) => breakpointAtLeast(point, strategy.from)) ?? bottomStrategy;
 }

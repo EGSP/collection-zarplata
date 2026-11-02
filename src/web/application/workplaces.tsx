@@ -16,7 +16,7 @@ import { Icons } from '../sdk/ds/icons';
  *
  * Возвращает `null`, если рабочих мест нет: тогда оболочка не ставит и разделитель под меню.
  */
-export function WorkplaceMenu({ onNavigate }: { readonly onNavigate: () => void }) {
+export function useWorkplaceItems(onNavigate: () => void) {
     const metadata = useMetadata().data;
     const navigate = useNavigate();
     const { pathname } = useLocation();
@@ -27,6 +27,12 @@ export function WorkplaceMenu({ onNavigate }: { readonly onNavigate: () => void 
         const PageIcon = Icons[page.icon ?? 'page'];
         return [{ key: pagePath(page.name), icon: <PageIcon />, label: page.title }];
     });
+    return { items, pathname, onSelect: (key: string) => { void navigate(key); onNavigate(); } };
+}
+
+/** Боковое меню использует те же пункты и переходы, что и нижняя панель. */
+export function WorkplaceMenu({ onNavigate }: { readonly onNavigate: () => void }) {
+    const { items, pathname, onSelect } = useWorkplaceItems(onNavigate);
     if (items.length === 0) return null;
     return (
         <Menu
@@ -35,8 +41,7 @@ export function WorkplaceMenu({ onNavigate }: { readonly onNavigate: () => void 
             selectedKeys={[pathname]}
             items={items}
             onClick={({ key }) => {
-                void navigate(key);
-                onNavigate();
+                onSelect(key);
             }}
         />
     );

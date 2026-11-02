@@ -26,6 +26,14 @@ function shellLink(metadata: MetadataResponse | undefined, item: ShellItem): { r
     return object === undefined ? undefined : { title: object.title, path: objectPath(object) };
 }
 
+/** Общие пункты подсистем: порядок и обработчик одинаковы в боковой и нижней навигации. */
+export function useSubsystemItems(onOpen: (subsystem: ShellSubsystem) => void) {
+    return (useMetadata().data?.shell.subsystems ?? []).map((subsystem) => {
+        const SubsystemIcon = Icons[subsystem.icon ?? 'subsystem'];
+        return { key: subsystem.name, icon: <SubsystemIcon />, label: subsystem.title, onClick: () => onOpen(subsystem) };
+    });
+}
+
 /**
  * Подсистемы, доступные пользователю. Нажатие на подсистему передаёт её в `onOpen`: окно с группами
  * выводит оболочка. Окно не лежит внутри меню, потому что меню выдвижной панели закрывается вместе
@@ -36,20 +44,13 @@ function shellLink(metadata: MetadataResponse | undefined, item: ShellItem): { r
  * иконка: собственная иконка подсистемы или общий значок раздела.
  */
 export function SubsystemMenu({ onOpen }: { readonly onOpen: (subsystem: ShellSubsystem) => void }) {
-    const subsystems = useMetadata().data?.shell.subsystems ?? [];
+    const items = useSubsystemItems(onOpen);
     return (
         <Menu
             mode="inline"
             selectable={false}
             style={{ borderInlineEnd: 'none' }}
-            items={subsystems.map((subsystem) => {
-                const SubsystemIcon = Icons[subsystem.icon ?? 'subsystem'];
-                return { key: subsystem.name, icon: <SubsystemIcon />, label: subsystem.title };
-            })}
-            onClick={({ key }) => {
-                const subsystem = subsystems.find((candidate) => candidate.name === key);
-                if (subsystem !== undefined) onOpen(subsystem);
-            }}
+            items={items}
         />
     );
 }
