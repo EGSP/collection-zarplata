@@ -96,7 +96,7 @@ function beforeSave(values: FormValues): FormValues | undefined {
 }
 
 /** Поведение формы продажи: стандартное, с подготовкой оплаты перед записью. */
-const saleFormOptions: RecordFormOptions = { beforeSave };
+const saleFormOptions: RecordFormOptions = { beforeSave, initialFocus: 'goods' };
 
 /**
  * Действия, которые форма не предлагает в режиме изменения: запись и проведение заменяет

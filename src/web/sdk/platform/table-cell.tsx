@@ -182,7 +182,8 @@ export function TableCell({ tabNavigation, name, field, type, input: CustomInput
             event.preventDefault();
             event.stopPropagation();
             setDraft(null);
-            onChange?.(initial.current ?? null);
+            // Выход из автоматически открытой ячейки без ввода не меняет форму.
+            if (!Object.is(value ?? null, initial.current ?? null)) onChange?.(initial.current ?? null);
             returnFocus.current = true;
             onLeave();
         };

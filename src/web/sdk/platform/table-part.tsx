@@ -233,8 +233,11 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
         const column = inputColumns[columnIndex];
         if (row === undefined || column === undefined) return;
         const name = cellName(row, column.name);
-        if (edit && !direct(column)) setEditing(name);
-        else {
+        if (edit && !direct(column)) {
+            // Повторный focus() уже открытой ячейки тоже возвращает фокус в её поле.
+            if (editing === name) cells.focus(name);
+            else setEditing(name);
+        } else {
             setEditing(null);
             cells.focus(name);
         }
@@ -260,7 +263,10 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     useImperativeHandle(ref, () => ({
         focus: () => {
             if (disabled) return;
-            if (rows.length === 0) addRow();
+            // Начальная строка уже может быть в хранилище формы, но ещё не в отрисованном
+            // списке. Ждём её регистрации, не добавляя вторую строку и не меняя признак ввода.
+            if (rows.length === 0 && initialRow && (!initialRowPlaced.current || (form.getFieldValue(part.name) as unknown[] | undefined)?.length)) pendingRow.current = 0;
+            else if (rows.length === 0) addRow();
             else focusCell(0, 0);
         },
     }));

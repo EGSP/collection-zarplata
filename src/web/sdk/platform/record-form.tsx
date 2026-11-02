@@ -51,6 +51,8 @@ export interface RecordFormState {
     readonly restrictions: FormRestrictionRegistry;
     /** Обход полей с клавиатуры в порядке описания формы. */
     readonly traversal: FieldTraversal;
+    /** Передаёт фокус контролу по имени. В скрытой или недоступной форме возвращает false. */
+    readonly focus: (name: string) => boolean;
     /** Видимые действия в порядке кнопок: «Провести», «Записать», затем остальные. */
     readonly actions: ReadonlyArray<FormAction>;
     /** Видимое стандартное проведение; по нему выводится кнопка «Провести и закрыть». */
@@ -75,6 +77,8 @@ export interface RecordFormState {
 
 /** Настройки поведения формы записи. */
 export interface RecordFormOptions {
+    /** Контрол для начального ввода новой записи; без указания используется порядок обхода. */
+    readonly initialFocus?: string | undefined;
     /**
      * Готовит значения перед записью: получает все значения формы и возвращает исправленные либо
      * `undefined`, если менять нечего. Исправленные значения форма показывает и записывает, поэтому
@@ -194,15 +198,19 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
     });
     const saved = controller.record;
 
+    // Обращение по имени всегда идёт через общий реестр, в том числе для табличной части.
+    const focus = (name: string): boolean => scope.active && editable && !restrictions.pending && traversal.focus(name);
     const focused = useRef(false);
     useEffect(() => {
-        // Пока ограничения не собраны, поля недоступны и фокус принять не могут.
-        if (initial !== null || focused.current || restrictions.pending) return;
-        // Фокус ставится один раз при открытии формы.
-        focused.current = true;
-        // В новой записи пользователь сразу начинает ввод с первого поля порядка обхода.
-        traversal.focusFirst();
-    }, [restrictions.pending]);
+        if (initial !== null || focused.current || restrictions.pending || !editable || !scope.active) return;
+        // Дочерние контролы сначала применяют начальные значения. Кадр отменяется при скрытии
+        // или закрытии формы, поэтому отложенный фокус не попадёт на скрытую вкладку.
+        const frame = requestAnimationFrame(() => {
+            focused.current = true;
+            if (options.initialFocus === undefined || !focus(options.initialFocus)) traversal.focusFirst();
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [initial, restrictions.pending, editable, scope.active, options.initialFocus]);
 
     /**
      * Доступно ли действие на форме, где бы оно ни выводилось. Применимость к состоянию записи
@@ -281,6 +289,7 @@ export function useRecordForm(properties: RecordFormProperties | NewFormProperti
         editable,
         restrictions,
         traversal,
+        focus,
         actions,
         postAction,
         menuActions,
