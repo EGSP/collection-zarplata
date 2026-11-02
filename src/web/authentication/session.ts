@@ -17,6 +17,7 @@
 import { createStore } from '@tanstack/react-store';
 import axios, { type AxiosError } from 'axios';
 import { api, apiError, apiPath } from '../common/api';
+import { observeApplicationVersions } from '../common/application-versions';
 
 declare module 'axios' {
     interface AxiosRequestConfig {
@@ -42,10 +43,11 @@ function setStatus(status: SessionStatus): void {
 }
 
 /**
- * Клиент для запросов самой сессии и для повторов. Он работает без перехватчиков: иначе отказ
+ * Клиент для запросов самой сессии и для повторов. Он работает без перехватчика сессии: иначе отказ
  * в обновлении токенов или в повторном запросе запускал бы обновление заново.
  */
 const direct = axios.create({ baseURL: apiPath });
+observeApplicationVersions(direct);
 
 /**
  * Номер текущей пары токенов: растёт при каждом входе и обновлении. Запрос запоминает номер

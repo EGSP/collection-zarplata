@@ -1,12 +1,13 @@
 /**
  * Клиент API сервера и единый вид ошибок запросов.
  *
- * Все запросы приложения идут через один экземпляр axios. О сессии этот модуль не знает: вход
+ * Запросы данных идут через один экземпляр axios. О сессии этот модуль не знает: вход
  * подтверждают cookie, которые браузер прикладывает к запросу сам, а обновление токенов при
  * ответе 401 подключает к этому же экземпляру модуль сессии (`authentication/session.ts`).
  * Поэтому код, который вызывает `request`, истёкший access-токен не замечает.
  */
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios';
+import { observeApplicationVersions } from './application-versions';
 
 /** Общее начало адресов API. */
 export const apiPath = '/api';
@@ -16,6 +17,7 @@ export const apiPath = '/api';
  * Через него идут только запросы, требующие входа: по их ответам модуль сессии судит о её состоянии.
  */
 export const api = axios.create({ baseURL: apiPath });
+observeApplicationVersions(api);
 
 /**
  * Неуспешный запрос к API. Текст ошибки приходит с сервера на русском языке и показывается

@@ -16,6 +16,7 @@ import { dataProvider } from '../data-provider/data-provider';
 import { metadataQuery, useMetadata } from '../data-provider/metadata';
 import { WindowTabsProvider } from '../tabs/window-tabs';
 import { ApplicationLayout } from './layout';
+import { ApplicationVersionUpdateNotice } from './application-versions';
 import { i18nProvider, useNotificationProvider } from './notifications';
 import { queryClient } from './query-client';
 import { objectResources } from './resources';
@@ -44,6 +45,7 @@ export function Application() {
                 {/* Модальные окна не выходят за пределы экрана и прокручивают тело с тенями у краёв. */}
                 <DialogStyles />
                 <AntdApplication>
+                    <ApplicationVersionUpdateNotice />
                     <QueryClientProvider client={queryClient}>
                         <ShellGroupsProvider entries={configurationShellGroups}>
                             <RefineApplication />

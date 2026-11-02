@@ -1,6 +1,7 @@
-import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Injectable, type OnApplicationBootstrap } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service.js';
 import { MetadataService } from '../metadata/metadata.service.js';
+import { VersionInformation } from '../metadata/version-information.js';
 import { describeSchema } from './structure.js';
 import { synchronizeSchema } from './synchronization.js';
 
@@ -10,9 +11,10 @@ import { synchronizeSchema } from './synchronization.js';
  */
 @Injectable()
 export class SchemaService implements OnApplicationBootstrap {
-    constructor(private readonly database: DatabaseService, private readonly metadata: MetadataService) {}
+    constructor(private readonly database: DatabaseService, private readonly metadata: MetadataService, @Inject(VersionInformation) private readonly versions: VersionInformation) {}
 
     async onApplicationBootstrap(): Promise<void> {
-        await synchronizeSchema(this.database.effect, describeSchema(this.metadata.objects));
+        // Бизнес-логика получает значения версий от провайдера без зависимости от Nest.
+        await synchronizeSchema(this.database.effect, describeSchema(this.metadata.objects), this.versions);
     }
 }
