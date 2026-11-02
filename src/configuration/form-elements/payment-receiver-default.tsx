@@ -3,6 +3,12 @@ import { useEffect, useRef } from 'react';
 import { useActionResult, useObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
+/**
+ * Способы, при которых деньги не принимаются и не выдаются: оплата продажи «Рассрочка» и расчёт
+ * возврата «В счёт долга». У них приёмника нет, и поле очищается.
+ */
+const withoutMoney = (method: string | null) => method === 'Рассрочка' || method === 'В счёт долга';
+
 /** Поля оплаты, которые участвуют в подстановке. Остальные поля строки сохраняются буквально. */
 interface Payment {
     readonly method: string | null;
@@ -26,7 +32,7 @@ export function PaymentReceiverDefault({ method, receiver, initialize, disabled 
     const result = useActionResult<{ readonly items: ReadonlyArray<{ readonly guid: string; readonly paymentMethod: string | null }> }>({
         object: Objects.catalog.paymentReceivers,
         action: 'list',
-        enabled: !disabled && view !== undefined && method !== null && method !== 'Рассрочка',
+        enabled: !disabled && view !== undefined && method !== null && !withoutMoney(method),
         payload: {
             filter: [{ field: 'paymentMethod', operator: 'equals', value: method }, { field: 'deletedAt', operator: 'equals', value: null }],
             sort: view?.list?.defaultSort ?? [], page: 1, pageSize: 1,
@@ -40,7 +46,7 @@ export function PaymentReceiverDefault({ method, receiver, initialize, disabled 
         if (previous.current !== method) {
             previous.current = method;
             pending.current = receiver == null || (automatic.current !== null && same(receiver, automatic.current));
-            if (method === 'Рассрочка') {
+            if (withoutMoney(method)) {
                 pending.current = false;
                 automatic.current = null;
                 if (receiver != null) onChange(null);
@@ -55,7 +61,7 @@ export function PaymentReceiverDefault({ method, receiver, initialize, disabled 
         }
         // Ручной ввод до окончания запроса отменяет отложенную подстановку этого выбора способа.
         if (receiver != null) pending.current = false;
-        if (!pending.current || method === null || method === 'Рассрочка') return;
+        if (!pending.current || method === null || withoutMoney(method)) return;
         const first = result.data?.items[0];
         // Кеш может временно вернуть ответ прежнего способа. Такой ответ не заполняет поле.
         if (first === undefined || first.paymentMethod !== method || view === undefined) return;

@@ -12,7 +12,7 @@
 import { Effect } from 'effect';
 import { objectReference } from '../server/metadata/index.js';
 import { formatMoney } from '../server/ui/value-format.js';
-import { allocate, percentOf, PayrollContext, type PayrollData, type PayrollLine, type PayrollRuleDescription, type PayrollSale, type SalePart } from './payroll-context.js';
+import { allocate, percentOf, PayrollContext, type PayrollData, type PayrollLine, type PayrollRefund, type PayrollRuleDescription, type PayrollSale, type SalePart } from './payroll-context.js';
 
 /** Правило: читает контекст расчёта и возвращает свои строки. */
 // Требование эффекта — данные периода: сервис `PayrollContext` объявлен по их интерфейсу.
@@ -79,9 +79,26 @@ const goodsLines = (
     }));
 };
 
-/** Начисляет часть продажи по её товарам пропорционально их итогам. */
+/** Момент даты: строки хранятся с часовым поясом клиента, и их сравнение дало бы неверный порядок. */
+const moment = (date: string): number => new Date(date).getTime();
+
+/**
+ * Возврат оформлен до закрытия собственной рассрочки: тогда его доля в рассрочке уменьшает её
+ * начисление, а не вычитается отдельно. У незакрытой рассрочки до закрытия оформлен любой возврат.
+ */
+const beforeClosing = (refund: PayrollRefund, part: SalePart) => part.installmentClosedAt === null || moment(refund.date) <= moment(part.installmentClosedAt);
+
+/**
+ * Начисляет часть продажи по её товарам пропорционально их итогам. Собственная рассрочка
+ * начисляется за вычетом своей доли во всех возвратах по продаже, оформленных до её закрытия,
+ * в каком бы периоде они ни были: в счёт долга и деньгами. Возвращённый товар бонус не даёт,
+ * а вычесть его долю в периоде возврата было нельзя: рассрочка тогда ещё не начислялась.
+ */
 const partLines = (context: PayrollData, sale: PayrollSale, part: SalePart): PayrollLine[] => {
-    const shares = allocate(part.amount, sale.goods.map((line) => line.total));
+    const index = sale.parts.indexOf(part);
+    const returned = part.kind !== 'ownInstallment' ? 0 : sale.refunds.filter((refund) => beforeClosing(refund, part))
+        .reduce((total, refund) => total + refundShares(refund, sale).reduce((sum, { shares }) => sum + shares[index]!, 0), 0);
+    const shares = allocate(Math.max(0, part.amount - returned), sale.goods.map((line) => line.total));
     return sale.goods.flatMap((line, index) => goodsLines(context, part, sale.guid, line, shares[index]!, 1, { kind: kinds[part.kind], document: part.document, date: part.date! }));
 };
 
@@ -108,22 +125,52 @@ const installmentGoods: PayrollRule = Effect.gen(function* () {
     });
 });
 
+/** Доли строки возврата по частям продажи и погашение долга, вошедшее в долю собственной рассрочки. */
+interface RefundLineShares {
+    readonly line: PayrollRefund['lines'][number];
+    /** Доли по частям продажи в порядке `sale.parts`; неоформленная сумма рассрочки в них не входит. */
+    readonly shares: ReadonlyArray<number>;
+}
+
 /**
- * Возврат делит итог товара по всем частям продажи, включая неоформленную сумму рассрочки,
- * и вычитает только части, начисленные не позже конца периода: остальные ещё не начислялись.
- * Ставка берётся по действующим правилам.
+ * Делит строки возврата `refund` по продаже `sale` по частям её оплаты (раздел «Правила учёта»).
+ * Погашение долга возвратом относится к собственной рассрочке: оно делится по строкам пропорционально
+ * их итогам. Остаток строки делится по остальным частям продажи, включая неоформленную сумму
+ * рассрочки, пропорционально их суммам. Если других частей нет, остаток тоже относится
+ * к собственной рассрочке. Без погашения возврат делится по всем частям, как прежде.
+ */
+const refundShares = (refund: PayrollRefund, sale: PayrollSale): RefundLineShares[] => {
+    const lines = refund.lines.filter((line) => line.sale === sale.guid);
+    const own = sale.parts.findIndex((part) => part.kind === 'ownInstallment');
+    const credit = own === -1 ? 0 : Math.min(refund.credits.get(sale.guid) ?? 0, lines.reduce((total, line) => total + line.total, 0));
+    const credits = allocate(credit, lines.map((line) => line.total));
+    const others = [...sale.parts.map((part, index) => credit > 0 && index === own ? 0 : part.amount), sale.unarranged];
+    const weights = others.some((weight) => weight > 0) ? others : [...sale.parts.map((_part, index) => index === own ? 1 : 0), 0];
+    return lines.map((line, position) => {
+        const lineCredit = credits[position]!;
+        const shares = allocate(line.total - lineCredit, weights).slice(0, sale.parts.length);
+        return { line, shares: shares.map((share, index) => index === own ? share + lineCredit : share) };
+    });
+};
+
+/**
+ * Возврат делит итог товара по частям продажи (`refundShares`) и вычитает только части,
+ * начисленные не позже конца периода: остальные ещё не начислялись. Долю собственной рассрочки
+ * возврат вычитает, только если оформлен после её закрытия: возврат до закрытия уже уменьшил
+ * начисление рассрочки (`partLines`). Ставка берётся по действующим правилам.
  */
 const refunds: PayrollRule = Effect.gen(function* () {
     const context = yield* PayrollContext;
     return context.refunds.flatMap((refund) => {
         const document = objectReference({ kind: 'document', name: 'refund' }, refund.guid);
-        return refund.lines.flatMap((line) => {
-            const sale = context.sales.get(line.sale);
+        return [...new Set(refund.lines.map((line) => line.sale))].flatMap((guid) => {
+            const sale = context.sales.get(guid);
             if (sale === undefined) return [];
-            const shares = allocate(line.total, [...sale.parts.map((part) => part.amount), sale.unarranged]);
-            return sale.parts.flatMap((part, index) => part.countedDay !== null && part.countedDay <= context.closedThrough
-                ? goodsLines(context, part, sale.guid, line, shares[index]!, -1, { kind: kinds.refund, document, date: refund.date })
-                : []);
+            return refundShares(refund, sale).flatMap(({ line, shares }) => sale.parts.flatMap((part, index) => {
+                if (part.countedDay === null || part.countedDay > context.closedThrough) return [];
+                if (part.kind === 'ownInstallment' && beforeClosing(refund, part)) return [];
+                return goodsLines(context, part, sale.guid, line, shares[index]!, -1, { kind: kinds.refund, document, date: refund.date });
+            }));
         });
     });
 });
@@ -155,13 +202,15 @@ const shiftBonus: PayrollRule = Effect.gen(function* () {
         }
     }
     for (const refund of context.refunds) {
-        for (const line of refund.lines) {
-            const sale = context.sales.get(line.sale);
+        for (const guid of new Set(refund.lines.map((line) => line.sale))) {
+            const sale = context.sales.get(guid);
             if (sale === undefined) continue;
-            const shares = allocate(line.total, [...sale.parts.map((part) => part.amount), sale.unarranged]);
-            sale.parts.forEach((part, index) => {
-                if (part.kind !== 'money' || part.countedDay !== null) add(part.shift, 0 - shares[index]!);
-            });
+            // Выручка считает рассрочку полной суммой, поэтому вычитается вся доля возврата, вместе с погашением.
+            for (const { shares } of refundShares(refund, sale)) {
+                sale.parts.forEach((part, index) => {
+                    if (part.kind !== 'money' || part.countedDay !== null) add(part.shift, 0 - shares[index]!);
+                });
+            }
         }
     }
     return context.shifts.flatMap((shift) => {
@@ -201,13 +250,15 @@ export const payrollRules = {
             name: 'installmentGoods', title: 'Рассрочка', calculate: installmentGoods,
             description: 'Товар в рассрочку тоже приносит бонус, его получают сотрудники смены, которая оформила рассрочку. '
                 + 'Банковская рассрочка засчитывается сразу при оформлении, собственная — когда покупатель её погасил и рассрочку закрыли. '
+                + 'Товары, возвращённые до закрытия собственной рассрочки, в неё не засчитываются — и в счёт долга, и деньгами. '
                 + 'Банк забирает свою долю, поэтому бонус считается от цены за вычетом ставки банка, а ставка банка прибавляется к скидке. '
                 + `Например, скидка 10 % и ставка банка 12 % вместе дают 22 %: это меньше ${percent(discountLimit)}, и бонус равен ${percent(4)}.`,
         },
         {
             name: 'refunds', title: 'Возврат', calculate: refunds,
             description: 'Если покупатель вернул товар, бонус за него вычитается у тех сотрудников, которые его получили. Вычет попадает в период, когда оформлен возврат. '
-                + 'Если товар был в собственной рассрочке, которую ещё не закрыли, вычитать нечего: бонус за неё ещё не начислялся.',
+                + 'Часть возврата в счёт долга по собственной рассрочке относится к этой рассрочке, остальное — к остальным частям оплаты продажи. '
+                + 'Если товар вернули до закрытия собственной рассрочки, отдельно вычитать не нужно: рассрочка засчитывается при закрытии уже без него, даже если возврат был в прошлом периоде.',
         },
         {
             name: 'shiftBonus', title: 'Бонус за выручку смены', calculate: shiftBonus,

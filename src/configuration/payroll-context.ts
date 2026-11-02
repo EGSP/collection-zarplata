@@ -93,6 +93,11 @@ export interface PayrollSale {
     readonly parts: ReadonlyArray<SalePart>;
     /** Сумма оплат способом «Рассрочка», на которую рассрочка ещё не оформлена: она не начисляется. */
     readonly unarranged: number;
+    /**
+     * Все проведённые возвраты по продаже, в любом периоде. Собственная рассрочка начисляется при
+     * закрытии за вычетом возвращённого до закрытия, даже если возврат был в прошлом периоде.
+     */
+    readonly refunds: ReadonlyArray<PayrollRefund>;
 }
 
 /** Проведённый возврат периода: строки ссылаются на продажи. */
@@ -100,6 +105,8 @@ export interface PayrollRefund {
     readonly guid: string;
     readonly date: string;
     readonly lines: ReadonlyArray<PayrollGoods & { readonly sale: string }>;
+    /** Погашение долга по рассрочке по продажам: сумма строк расчёта «В счёт долга» возврата. */
+    readonly credits: ReadonlyMap<string, number>;
 }
 
 /** Смена, открытая в периоде. */
@@ -129,27 +136,5 @@ export interface PayrollData {
 /** Контекст расчёта: правило получает данные периода из окружения Effect. */
 export const PayrollContext = Context.Service<PayrollData>('PayrollContext');
 
-/**
- * Делит `total` копеек пропорционально весам так, чтобы доли в сумме дали ровно `total`.
- * Каждая доля сначала округляется вниз, оставшиеся копейки получают доли с наибольшим
- * отброшенным остатком, при равных остатках — первые. Без весов все доли нулевые.
- */
-export const allocate = (total: number, weights: ReadonlyArray<number>): number[] => {
-    const sum = weights.reduce((accumulated, weight) => accumulated + weight, 0);
-    if (sum === 0) return weights.map(() => 0);
-    // Целочисленное деление с остатком: произведения в копейках меньше 2^53, точность не теряется.
-    const shares = weights.map((weight, index) => ({ index, share: Math.floor((total * weight) / sum), remainder: (total * weight) % sum }));
-    let left = total - shares.reduce((accumulated, share) => accumulated + share.share, 0);
-    for (const share of [...shares].sort((first, second) => second.remainder - first.remainder || first.index - second.index)) {
-        if (left === 0) break;
-        share.share += 1;
-        left -= 1;
-    }
-    return shares.map((share) => share.share);
-};
-
-/**
- * Процент от суммы в копейках с округлением до копейки, половина вверх. Ставка переводится
- * в сотые доли процента, и деление остаётся целочисленным.
- */
-export const percentOf = (amount: number, percentage: number): number => Math.floor((amount * Math.round(percentage * 100) + 5000) / 10000);
+/** Деление сумм общее с проверкой возврата и его формой: функции лежат в модуле без зависимостей. */
+export { allocate, percentOf } from './money-shares.js';

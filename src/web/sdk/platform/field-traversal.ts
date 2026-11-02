@@ -19,6 +19,8 @@ export interface FieldTraversal {
     readonly register: (name: string) => RefCallback<InputHandle>;
     /** Переводит фокус в первое поле порядка обхода, которое есть на экране. */
     readonly focusFirst: () => void;
+    /** Передаёт фокус контролу по имени через его InputHandle; недоступный обход возвращает false. */
+    readonly focus: (name: string) => boolean;
     /** Переводит фокус в ближайшее поле перед названным. Если такого нет, фокус остаётся на месте. */
     readonly previous: (name: string) => void;
     /**
@@ -42,6 +44,7 @@ export function useFieldTraversal(order: ReadonlyArray<string>, enabled = true):
     };
     return {
         register: fields.register,
+        focus: (name) => enabled && fields.focus(name),
         focusFirst: () => void order.some((name) => fields.focus(name)),
         previous: (name) => move(name, -1),
         onKeyDownCapture: (event) => {

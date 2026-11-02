@@ -143,10 +143,27 @@ function compositeStorage(field: FieldDescription): FieldStorage {
 }
 
 /**
+ * Поле-итог регистра не хранится: столбцов у него нет, и записать его нельзя. Значение приходит
+ * из подзапроса, который строит `PlatformQuery` под именем поля; сумма пустого набора равна нулю.
+ * Сравнение тоже строит запрос, поэтому кодек его не поддерживает.
+ */
+function totalStorage(field: FieldDescription): FieldStorage {
+    return {
+        columns: [],
+        keyColumns: [],
+        orderColumns: [],
+        encode: () => [],
+        decode: (row) => Number(row[field.name] ?? 0),
+        comparison: () => { throw new Error(`Поле «${field.name}» является итогом регистра и сравнивается запросом`); },
+    };
+}
+
+/**
  * Возвращает отображение поля. `allowNull` разрешает искать NULL даже в обязательном поле:
  * добавленная при синхронизации колонка может содержать NULL у старых строк.
  */
 export function fieldStorage(field: FieldDescription): FieldStorage {
+    if (field.total != null) return totalStorage(field);
     if (field.kind === 'composite') return compositeStorage(field);
     const recorder = field.kind === 'recorder';
     const columns: readonly StorageColumn[] = recorder

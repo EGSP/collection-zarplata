@@ -1,7 +1,8 @@
 import { Card } from 'antd';
 import { goodsColumnSizes } from './goods-columns';
 import { RefundSaleGoods } from './refund-sale-goods';
-import { FieldGroup, Icons, MainActionButton, recordFormElements, RecordFormPage, Stack, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions } from '../../web/sdk';
+import { RefundPayout, RefundSaleSettlement, RefundSettlementDefaults, settlementsOptions } from './refund-settlements';
+import { FieldGroup, Icons, MainActionButton, recordFormElements, RecordFormPage, Stack, useRecordForm, type NewFormProperties, type RecordFormButtons, type RecordFormOptions, type RecordFormProperties, type RecordFormState, type TablePartOptions, TablePartTitle } from '../../web/sdk';
 
 /**
  * Новый возврат записывается и проводится одним запросом: если проведение отклонено, например по
@@ -16,35 +17,54 @@ const refundButtons: RecordFormButtons = { actions: [], postAndClose: false };
 /**
  * Основания возврата. Строку добавляет связь с продажей, а не пустая строка: значок цепи показывает,
  * что строка ссылается на продажу, из которой возвращают товары. Под строкой, изначально раскрытой,
- * стоят товары этой продажи с флажками: отмеченные попадают в «Товары на возврат».
+ * стоят товары этой продажи с флажками: отмеченные попадают в «Товары на возврат». Под товарами
+ * выводятся предупреждения по продаже, если они есть: неоформленная рассрочка или расхождение
+ * расчётов с ожидаемой выдачей.
  */
 const basesOptions: TablePartOptions = {
     addTitle: 'Связать с продажей',
     addIcon: <Icons.link />,
-    expandedRow: (row) => typeof row.sale === 'string' ? <RefundSaleGoods sale={row.sale} /> : null,
+    expandedRow: (row) => typeof row.sale === 'string' ? (
+        <Stack gap={4}>
+            <RefundSaleGoods sale={row.sale} />
+            <RefundSaleSettlement sale={row.sale} />
+        </Stack>
+    ) : null,
 };
 
 /**
  * «Товары на возврат» заполняют флажки у товаров под строками оснований: строки копируются из продаж, а не
  * вводятся вручную. Поэтому строки фиксированы, а все колонки только для чтения.
  *
+ * Сумма товаров выводится строкой «Итого» под колонкой итогов строк. «Проведено в 1С» не выводится:
+ * строка возврата ссылается на товар продажи, и отметку показывает таблица товаров продажи под основанием.
+ *
  * Колонки стоят в порядке продажи и с её размерами. Уже `xlg` код стоит над названием, а уже `lg`
- * объединены ещё размер и «Проведено в 1С», стоимость и скидка, комментарий и продажа.
+ * объединены ещё стоимость и скидка, комментарий и продажа.
  */
 const goodsOptions: TablePartOptions = {
     fixedRows: true,
     columnSizes: goodsColumnSizes,
-    columnOrder: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment', 'sale'],
+    columnOrder: ['code', 'name', 'size', 'cost', 'discount', 'total', 'comment', 'sale'],
     layouts: {
-        sm: [['code', 'name'], ['size', 'postedIn1C'], ['cost', 'discount'], 'total', ['comment', 'sale']],
-        lg: [['code', 'name'], 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment', 'sale'],
-        xlg: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment', 'sale'],
+        sm: [['code', 'name'], 'size', ['cost', 'discount'], 'total', ['comment', 'sale']],
+        lg: [['code', 'name'], 'size', 'cost', 'discount', 'total', 'comment', 'sale'],
+        xlg: ['code', 'name', 'size', 'cost', 'discount', 'total', 'comment', 'sale'],
     },
-    readOnlyColumns: ['name', 'code', 'size', 'comment', 'postedIn1C', 'cost', 'discount', 'total', 'sale'],
+    hiddenColumns: ['postedIn1C'],
+    readOnlyColumns: ['name', 'code', 'size', 'comment', 'cost', 'discount', 'total', 'sale'],
+    totals: ['total'],
 };
 
+/** Название расчётов выводит раскладка: между ним и таблицей стоит строка «К выдаче клиенту». */
+const settlementsTableOptions: TablePartOptions = { ...settlementsOptions, showTitle: false };
+
+/** Группа расчётов в описании формы возврата: раскладка выводит её отдельно от остальных. */
+const settlementsGroup = 'Расчёты возврата';
+
 /**
- * Форма возврата: шапка, основания и товары в одной группе без заголовка. Шапка в fluid-компоновке,
+ * Форма возврата: шапка, основания, товары и расчёты в одной карточке. Расчёты стоят отдельной
+ * группой полей: над их таблицей выводится ожидаемая выдача клиенту. Шапка в fluid-компоновке,
  * как у отвеса и продажи. Элементы конфигурации берутся из описания групп формы,
  * поэтому новый элемент появится на форме без правки раскладки.
  *
@@ -52,7 +72,8 @@ const goodsOptions: TablePartOptions = {
  * возврат и проводит его. Существующий возврат показывает стандартные кнопки действий.
  */
 function RefundFormLayout({ state }: { readonly state: RecordFormState }) {
-    const elements = state.view.groups.flatMap((group) => group.elements);
+    const elements = state.view.groups.filter((group) => group.title !== settlementsGroup).flatMap((group) => group.elements);
+    const settlements = state.view.groups.filter((group) => group.title === settlementsGroup).flatMap((group) => group.elements);
     const isNew = state.record === null;
     const post = isNew ? state.postAction : undefined;
     return (
@@ -68,6 +89,20 @@ function RefundFormLayout({ state }: { readonly state: RecordFormState }) {
                         traversal={state.traversal}
                         tablePartOptions={{ bases: basesOptions, goods: goodsOptions }}
                     />
+                    {settlements.length > 0 && (
+                        <Stack gap={3} align="stretch">
+                            <TablePartTitle>{settlementsGroup}</TablePartTitle>
+                            <RefundPayout />
+                            <FieldGroup
+                                elements={recordFormElements(state, settlements)}
+                                record={state.record}
+                                disabled={!state.editable}
+                                traversal={state.traversal}
+                                tablePartOptions={{ settlements: settlementsTableOptions }}
+                            />
+                        </Stack>
+                    )}
+                    <RefundSettlementDefaults />
                     {/* Обёртка не даёт стеку растянуть кнопку на всю ширину. */}
                     <div>
                         {post !== undefined && (

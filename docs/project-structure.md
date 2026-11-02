@@ -3,6 +3,7 @@ covers:
   - src/configuration/payroll.ts
   - src/configuration/payroll-rules.ts
   - src/configuration/payroll-context.ts
+  - src/configuration/money-shares.ts
   - src/configuration/period-summary.ts
 ---
 
@@ -77,7 +78,8 @@ repos/                исходники внешних библиотек дл�
 
 | Файл | Роль |
 |---|---|
-| `payroll-context.ts` | Типы данных периода (у части продажи и строки начисления есть `installmentDate`, дата открытия рассрочки), сервис Effect `PayrollContext` и общие функции: `allocate` делит сумму между долями методом наибольших остатков, `percentOf` считает процент с округлением половины вверх |
+| `money-shares.ts` | Деление денег: `allocate` делит сумму между долями методом наибольших остатков, `percentOf` считает процент с округлением половины вверх, `expectedPayout` считает ожидаемую выдачу по возврату с долей банка. Модуль общий для расчётов возврата и зарплаты |
+| `payroll-context.ts` | Типы данных периода (у части продажи и строки начисления есть `installmentDate`, дата открытия рассрочки), сервис Effect `PayrollContext`; функции `allocate` и `percentOf` реэкспортирует из `money-shares.ts` |
 | `payroll-rules.ts` | Правило задаётся объектом `PayrollRuleDefinition` с полями `name`, `title`, `description` и `calculate`. Эффект `calculate` читает данные из `PayrollContext` и возвращает строки начисления с текстом правила. Описания строятся из тех же констант, что и расчёт, например из границы ступени. Ступень ставки вынесена в чистую функцию `goodsRate` |
 | `payroll.ts` | Читает документы периода из базы, кладёт их в контекст, выполняет правила `payrollRules.rules` через `Effect.forEach` и складывает строки по сотрудникам |
 

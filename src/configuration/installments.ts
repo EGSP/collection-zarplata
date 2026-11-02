@@ -7,9 +7,11 @@
  * действием продажи «Внести изменения», которое снимает закрытие.
  * Банковскую рассрочку банк оплачивает целиком сразу: действие «Оплата банком» проводит её, вносит
  * остаток одним безналичным взносом и закрывает.
- * Остаток хранится вычисляемым полем шапки: по нему работают блок незакрытых рассрочек и условие
- * закрытия. Проведённая рассрочка записывает в регистр «Долги по рассрочкам» свою сумму
- * и взносы, а в регистр «Поступления денег» каждый взнос по его способу.
+ * Остаток — итог регистра «Долги по рассрочкам» по рассрочке: сумма за вычетом взносов и погашений
+ * возвратами. По нему работают блок незакрытых рассрочек и условие закрытия. Проведённая рассрочка
+ * записывает в регистр свою сумму и взносы, а в регистр «Поступления денег» каждый взнос по его
+ * способу. Погашения пишет в регистр проведение возврата (`refund.document.ts`): возврат в счёт
+ * долга гасит его без денег.
  */
 import { Effect } from 'effect';
 import { requireRight } from '../server/authorization/current-user-rights.js';
@@ -19,7 +21,6 @@ import { query } from '../server/database/sql.builder.js';
 import { Database } from '../server/database/database.effect.js';
 import {
     document,
-    formula,
     movements,
     objectReference,
     type DocumentBuilder,
@@ -82,9 +83,14 @@ type AmountField = { readonly amount: ReturnType<typeof amountField> };
 /**
  * Конец шапки и взносы: поля после суммы. Взнос хранит общие колонки оплат, дату и смену,
  * в которую его приняли. Смена необязательна: взнос принимается и без открытой смены.
+ *
+ * Остаток — итог регистра «Долги по рассрочкам» по этой рассрочке: её сумма за вычетом взносов
+ * и погашений возвратами. Погашения пишет в регистр сам возврат (строки «В счёт долга»), поэтому
+ * их нет в полях рассрочки, и остаток не может быть формулой по ним. Поле не хранится и читается
+ * из регистра (`MoneyFieldBuilder.total`). У непроведённой рассрочки движений нет, и остаток равен нулю.
  */
 const tail = <Name extends InstallmentName>(base: DocumentBuilder<Name, HeadFields & AmountField, {}>) => base
-    .field('balance', (field) => field.money().title('Остаток').required().computed(formula.subtract(formula.field('amount'), formula.sum('payments', 'amount'))))
+    .field('balance', (field) => field.money().title('Остаток').required().total(() => InstallmentDebts, 'amount', 'basis'))
     .field('closedAt', (field) => field.dateTime().title('Закрыта'))
     .tablePart('payments', (part) => part
         .title('Взносы')
@@ -201,6 +207,24 @@ const changedInstallmentDates = (existingRecord: InstallmentRecord | null, propo
 };
 
 /**
+ * Остаток долга по рассрочке из регистра «Долги по рассрочкам» без движений документа `recorder`:
+ * сумма рассрочки за вычетом взносов и погашений возвратами, кроме движений этого документа.
+ * Так проверяют изменение до того, как документ перепишет свои движения: политика рассрочки
+ * исключает саму рассрочку и подставляет её новую сумму и взносы, возврат исключает себя
+ * и подставляет новое погашение. Без `recorder` возвращается текущий остаток.
+ */
+export const installmentDebt = (installment: string, recorder: { readonly document: string; readonly guid: string } | null = null) => Effect.gen(function* () {
+    const database = yield* Database;
+    const basis = objectReference({ kind: 'document', name: 'saleInstallment' }, installment);
+    const row = yield* database.get(query(InstallmentDebts).sums({
+        groupBy: [],
+        sums: ['amount'],
+        where: [{ column: 'basis', operator: '=', value: basis }, ...recorder === null ? [] : [{ column: 'recorder', operator: '!=', value: recorder } as const]],
+    }));
+    return row?.amount ?? 0;
+});
+
+/**
  * Отменено ли основание рассрочки: например, продажа, по которой она оформлена, помечена на удаление.
  * Документ рассрочки задаёт проверку сам: общая часть не знает поля основания.
  */
@@ -241,8 +265,12 @@ const installmentRulesPolicy = (name: InstallmentName, cancelledWithBasis: Cance
         if (proposedRecord.type === ownInstallment && (proposedRecord.responsibleEmployee ?? null) === null) {
             return yield* rejected('Укажите ответственного сотрудника собственной рассрочки');
         }
-        if ((proposedRecord.closedAt ?? null) !== null && proposedRecord.balance !== 0) {
-            return yield* rejected(`Рассрочку можно закрыть, только когда остаток равен нулю, а он равен ${rubles(proposedRecord.balance)}`);
+        if ((proposedRecord.closedAt ?? null) !== null) {
+            // Остаток в записи — итог регистра до её проведения: сумма и взносы берутся из записи,
+            // а погашения возвратами — из регистра, без прежних движений самой рассрочки.
+            const others = yield* installmentDebt(proposedRecord.guid, { document: name, guid: proposedRecord.guid });
+            const balance = proposedRecord.amount - proposedRecord.payments.reduce((total, payment) => total + payment.amount, 0) + others;
+            if (balance !== 0) return yield* rejected(`Рассрочку можно закрыть, только когда остаток равен нулю, а он равен ${rubles(balance)}`);
         }
         if (closes) yield* checkClosingDate(proposedRecord);
         // Новые и изменённые взносы без «Куда оплачено» не принимаются; взносы, записанные

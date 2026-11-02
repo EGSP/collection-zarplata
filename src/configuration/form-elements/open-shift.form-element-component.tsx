@@ -1,5 +1,6 @@
+import { Form } from 'antd';
 import { useEffect, useRef } from 'react';
-import { useFormData, useFormValue, useObjectView, useRecordList } from '../../web/sdk';
+import { useFormData, useObjectView, useRecordList } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /**
@@ -20,7 +21,7 @@ export default function OpenShift() {
 /** Чтение открытой смены монтируется только на форме нового документа. */
 function NewDocumentShift() {
     const form = useFormData();
-    const shift = useFormValue(form.object, 'shift');
+    const values = Form.useFormInstance();
     const list = useRecordList(Objects.document.shift, { permanentFilter: [{ field: 'closedAt', operator: 'equals', value: null }], pageSize: 1 });
     const open = list.records[0]?.guid ?? null;
     const filled = useRef(false);
@@ -28,7 +29,9 @@ function NewDocumentShift() {
         // Пока элементы формы не сообщили ограничения, форма недоступна и значение не примет.
         if (filled.current || open === null || form.readOnly) return;
         filled.current = true;
-        if (shift === null) form.setValue('shift', open);
+        // Начальная подстановка не является вводом пользователя. Текущее значение читаем
+        // после запроса, чтобы не заменить смену, которую пользователь уже успел выбрать.
+        if (values.getFieldValue('shift') == null) values.setFieldValue('shift', open);
     }, [open, form.readOnly]);
     return null;
 }
