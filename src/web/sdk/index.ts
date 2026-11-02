@@ -132,6 +132,7 @@ export { Tile, type TileProperties } from './ds/tile';
 export { Button, type ButtonProperties, type ButtonSize } from './ds/button';
 export { FieldLabel, isEmptyFieldValue, type FieldLabelProperties } from './derivations/field-label';
 export { MainActionButton, type MainActionButtonProperties } from './derivations/main-action-button';
+export { ActionTile, type ActionTileProperties } from './derivations/action-tile';
 
 // Поверхности по уровням вложенности, роли текста и смысловые цвета учёта.
 export { Layer, Panel, useLayer, type LayerColors, type LayerLevel, type LayerProperties, type PanelProperties } from './ds/layer';
