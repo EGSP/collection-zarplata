@@ -1,10 +1,11 @@
 /**
- * Расчёты возврата на форме: сводка по продаже под её строкой в основаниях, автозаполнение
- * расчётов при отметке товаров и подстановка «Куда выдано». Правила расчётов проверяет сервер
+ * Расчёты возврата на форме: ожидаемая выдача над таблицей расчётов, предупреждения по продаже
+ * под её строкой в основаниях, автозаполнение расчётов при отметке товаров и подстановка
+ * «Откуда выдано». Правила расчётов проверяет сервер
  * (`refund.document.ts`); форма считает то же по тем же условиям, чтобы продавец видел итог до записи.
  */
 import { Alert, Typography } from 'antd';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Stack, useActionResult, useFormData, useFormValue, type TablePartOptions } from '../../web/sdk';
 import { PaymentMethodIcons } from '../form-elements/payment-method-input';
 import { PaymentReceiverDefaults } from '../form-elements/payment-receiver-default';
@@ -51,7 +52,7 @@ interface SettlementRow {
 
 /**
  * Таблица расчётов: способ выбирается кнопками из значков, как в оплатах продажи. Порядок колонок
- * задаёт чтение строки: по какой продаже, каким способом, сколько и куда выдано.
+ * задаёт чтение строки: по какой продаже, каким способом, сколько и откуда выдано.
  */
 export const settlementsOptions: TablePartOptions = {
     columnSizes: { method: { minimum: 18 } },
@@ -59,9 +60,6 @@ export const settlementsOptions: TablePartOptions = {
     columnOrder: ['sale', 'method', 'amount', 'receiver'],
     addTitle: 'Расчёт',
 };
-
-/** Название рассрочки в тексте: номер и день, как в её представлении. */
-const installmentName = (installment: NonNullable<SettlementTerms['installment']>) => `№ ${installment.number} от ${new Date(installment.date).toLocaleDateString('ru-RU')}`;
 
 /**
  * Можно ли погасить возвратом долг по рассрочке продажи: только проведённая собственная рассрочка,
@@ -73,9 +71,26 @@ const creditable = (terms: SettlementTerms) => {
 };
 
 /**
- * Расчёты по продаже под её строкой в основаниях возврата. Показывает итог отмеченных товаров,
- * ожидаемую выдачу с удержанием банка, сумму расчётов и расхождение, а также остаток рассрочки,
- * который можно погасить возвратом.
+ * Условия расчёта по продаже для отмеченных в возврате товаров этой продажи. Пока ответ на новый
+ * итог товаров не пришёл, возвращается `undefined`: прежний ответ посчитан для других товаров.
+ * Запрос одинаков у предупреждений по продаже и у строки «К выдаче клиенту», поэтому SDK
+ * выполняет его один раз.
+ */
+function useSettlementTerms(sale: string) {
+    const refunds = Objects.document.refund;
+    const form = useFormData(refunds);
+    const goods = useFormValue(refunds, 'goods');
+    const total = goods.filter((line) => line.sale === sale).reduce((sum, line) => sum + (line.total ?? 0), 0);
+    const result = useActionResult<SettlementTerms>({
+        object: refunds, action: 'settlementTerms',
+        payload: { sale, total, ...(form.saved === null ? {} : { excludedRefund: form.saved['guid'] }) },
+    }).data;
+    return { total, terms: result !== undefined && result.total === total ? result : undefined };
+}
+
+/**
+ * Предупреждения по продаже под её строкой в основаниях возврата: неоформленная рассрочка
+ * и расхождение расчётов с ожидаемой выдачей. Обычный возврат ничего здесь не выводит.
  *
  * Когда продавец меняет отмеченные товары продажи, строки расчёта этой продажи заполняются
  * заново: сначала в счёт остатка долга по собственной рассрочке, остальное наличными. Так покупатель
@@ -85,15 +100,8 @@ const creditable = (terms: SettlementTerms) => {
 export function RefundSaleSettlement({ sale }: { readonly sale: string }) {
     const refunds = Objects.document.refund;
     const form = useFormData(refunds);
-    const goods = useFormValue(refunds, 'goods');
     const settlements = useFormValue(refunds, 'settlements') as ReadonlyArray<SettlementRow>;
-    const total = goods.filter((line) => line.sale === sale).reduce((sum, line) => sum + (line.total ?? 0), 0);
-    const result = useActionResult<SettlementTerms>({
-        object: refunds, action: 'settlementTerms',
-        payload: { sale, total, ...(form.saved === null ? {} : { excludedRefund: form.saved['guid'] }) },
-    }).data;
-    // Пока ответ на новый итог не пришёл, прежний ответ не используется: его выдача посчитана для других товаров.
-    const terms = result !== undefined && result.total === total ? result : undefined;
+    const { total, terms } = useSettlementTerms(sale);
     const payout = terms?.payout ?? null;
 
     // Расчёты заполняются при изменении итога товаров, а не при открытии формы. Если условия
@@ -124,38 +132,25 @@ export function RefundSaleSettlement({ sale }: { readonly sale: string }) {
     if (terms === undefined || payout === null) return null;
     const lines = settlements.filter((row) => row.sale === sale);
     const settled = lines.reduce((sum, row) => sum + (row.amount ?? 0), 0);
-    const credited = lines.filter((row) => row.method === debtSettlement).reduce((sum, row) => sum + (row.amount ?? 0), 0);
-    const installment = terms.installment;
     const difference = payout.expected - settled;
+    const unarranged = terms.unarranged > 0;
+    const less = total > 0 && difference > 0;
+    if (!unarranged && !less && difference >= 0) return null;
     return (
         <Stack gap={3}>
-            <Typography.Text>
-                Товары на {rubles(total)}. К выдаче {rubles(payout.expected)}
-                {payout.bankShare > 0 ? ` (банк удерживает ${rubles(payout.bankShare)})` : ''}. В расчётах {rubles(settled)}.
-            </Typography.Text>
-            {terms.unarranged > 0 && (
+            {unarranged && (
                 <Alert type="error" showIcon title={`Оплата «${installmentMethod}» ${rubles(terms.unarranged)} не оформлена проведённой рассрочкой: возврат не проведётся, пока рассрочку не оформят и не проведут.`} />
             )}
-            {total > 0 && difference > 0 && (
+            {less && (
                 <Alert type="warning" showIcon title={`Магазин выдаёт на ${rubles(difference)} меньше ожидаемого. Если это не удержание, добавьте строку расчёта наличными или безналичными.`} />
             )}
             {difference < 0 && <Alert type="error" showIcon title={`Расчёты больше ожидаемой выдачи на ${rubles(-difference)}: возврат не проведётся.`} />}
-            {installment !== null && installment.type === ownInstallment && installment.posted && (
-                <Typography.Text type="secondary">
-                    {installment.closed
-                        ? `Рассрочка ${installmentName(installment)} закрыта: долг погашен, возврат выдаётся деньгами.`
-                        : `Остаток рассрочки ${installmentName(installment)}: ${rubles(installment.balance)}. Пока долг не погашен, возврат идёт в счёт долга, а не выдаётся деньгами.`}
-                </Typography.Text>
-            )}
-            {credited > 0 && (
-                <Alert type="info" showIcon title={`Возврат погасит ${rubles(credited)} долга по рассрочке. Если потом изменить или отменить этот возврат, долг снова вырастет, и закрытая рассрочка откроется: её нужно будет закрыть заново.`} />
-            )}
         </Stack>
     );
 }
 
 /**
- * Подставляет «Куда выдано» строкам расчёта деньгами по способу, как «Куда оплачено» в оплатах
+ * Подставляет «Откуда выдано» строкам расчёта деньгами по способу, как «Куда оплачено» в оплатах
  * продажи. У строки «В счёт долга» поле очищается: деньги не выдаются.
  */
 export function RefundSettlementDefaults() {
@@ -165,4 +160,45 @@ export function RefundSettlementDefaults() {
     return <PaymentReceiverDefaults rows={rows} initialize={form.saved === null} disabled={form.readOnly}
         onChange={(index, receiver) => form.setValue('settlements', (current) =>
             (current as ReadonlyArray<SettlementRow>).map((row, position) => position === index ? { ...row, receiver } : row) as never, { validate: false })} />;
+}
+
+/** Ожидаемая выдача по одной продаже: сообщает сумму родителю и ничего не выводит. */
+function SalePayout({ sale, onChange }: { readonly sale: string; readonly onChange: (sale: string, payout: SettlementTerms['payout'] | null) => void }) {
+    const { terms } = useSettlementTerms(sale);
+    const payout = terms?.payout ?? null;
+    useEffect(() => {
+        onChange(sale, payout);
+    }, [sale, payout?.expected, payout?.bankShare]);
+    useEffect(() => () => onChange(sale, null), [sale]);
+    return null;
+}
+
+/**
+ * Строка «К выдаче клиенту» над таблицей расчётов: сколько покупатель может ожидать за отмеченные
+ * товары по всем продажам, с удержанием банка по банковской рассрочке. Сумму считает сервер
+ * (`settlementTerms`), тем же расчётом, которым проведение ограничивает расчёты. Пока ответ хотя бы
+ * по одной продаже не пришёл, строка не выводится, чтобы не показывать неполную сумму.
+ */
+export function RefundPayout() {
+    const refunds = Objects.document.refund;
+    const bases = useFormValue(refunds, 'bases') as ReadonlyArray<{ readonly sale?: unknown }>;
+    const sales = [...new Set(bases.map((row) => row.sale).filter((sale): sale is string => typeof sale === 'string'))];
+    const [payouts, setPayouts] = useState<ReadonlyMap<string, SettlementTerms['payout']>>(new Map());
+    const update = (sale: string, payout: SettlementTerms['payout'] | null) => setPayouts((current) => {
+        const next = new Map(current);
+        if (payout === null) next.delete(sale); else next.set(sale, payout);
+        return next;
+    });
+    const known = sales.map((sale) => payouts.get(sale));
+    const complete = known.every((payout) => payout !== undefined);
+    const expected = known.reduce((sum, payout) => sum + (payout?.expected ?? 0), 0);
+    const bankShare = known.reduce((sum, payout) => sum + (payout?.bankShare ?? 0), 0);
+    return <>
+        {sales.map((sale) => <SalePayout key={sale} sale={sale} onChange={update} />)}
+        {sales.length > 0 && complete && (
+            <Typography.Text>
+                К выдаче клиенту: {rubles(expected)}{bankShare > 0 ? ` (банк удерживает ${rubles(bankShare)})` : ''}
+            </Typography.Text>
+        )}
+    </>;
 }

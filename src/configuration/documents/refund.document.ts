@@ -51,7 +51,7 @@ const installmentTarget = { kind: 'document', name: 'saleInstallment' } as const
  * из его же объявления не дала бы вывести тип.
  *
  * Строка расчёта ссылается на продажу из оснований: расчёты ведутся по каждой продаже отдельно,
- * даже если в возврате товары нескольких продаж. «Куда выдано» — то же составное поле, что
+ * даже если в возврате товары нескольких продаж. «Откуда выдано» — то же составное поле, что
  * «Куда оплачено» у оплаты: приёмник из справочника или текст.
  */
 const refund = document('refund')
@@ -69,7 +69,7 @@ const refund = document('refund')
         .field('sale', (field) => field.reference(Sale).title('Продажа').required())
         .field('method', (field) => field.string().title('Способ').choices(settlementMethods).required())
         .field('amount', (field) => field.money().title('Сумма').minimum(1).required())
-        .field('receiver', (field) => receiverField(field).title('Куда выдано')))
+        .field('receiver', (field) => receiverField(field).title('Откуда выдано')))
     .listTableParts(['goods']);
 
 type RefundRecord = RecordOf<typeof refund>;
@@ -186,7 +186,7 @@ const settlementKey = (line: Settlement) => JSON.stringify([line.sale, line.meth
  * проведён: тогда действуют и правила, без которых возврат не может попасть в учёт.
  *
  * - Строка относится к продаже из оснований, и у продажи не больше одной строки каждого способа.
- * - У новых и изменённых строк деньгами «Куда выдано» обязательно, у строки «В счёт долга» оно пусто.
+ * - У новых и изменённых строк деньгами «Откуда выдано» обязательно, у строки «В счёт долга» оно пусто.
  * - «В счёт долга» допустимо только у продажи с проведённой собственной рассрочкой, которая ещё не закрыта:
  *   банковскую рассрочку банк уже оплатил, и возврат по ней выдаётся деньгами, а закрытая погашена.
  *   Изменить уже записанное погашение закрытой рассрочки можно только в меньшую сторону: так возврат
@@ -209,12 +209,12 @@ const checkSettlements = (record: RefundRecord, existing: RefundRecord | null, p
         if (seen.has(key)) return yield* rejected(`${place}: способ «${line.method}» по этой продаже уже указан. У продажи не больше одной строки расчёта каждого способа`);
         seen.add(key);
         // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
-        if (line.method === debtSettlement && (line.receiver ?? null) !== null) return yield* rejected(`${place}: у строки «${debtSettlement}» «Куда выдано» не заполняется: деньги не выдаются`);
+        if (line.method === debtSettlement && (line.receiver ?? null) !== null) return yield* rejected(`${place}: у строки «${debtSettlement}» «Откуда выдано» не заполняется: деньги не выдаются`);
     }
     const withoutReceiver = paymentsWithoutReceiver(existing?.settlements ?? [], record.settlements, settlementKey);
     if (withoutReceiver.length > 0) {
         return yield* new DataValidationError({
-            message: `Строки расчёта ${withoutReceiver.map((index) => index + 1).join(', ')}: укажите «Куда выдано»`,
+            message: `Строки расчёта ${withoutReceiver.map((index) => index + 1).join(', ')}: укажите «Откуда выдано»`,
             fields: withoutReceiver.map((index) => `payload.fields.settlements.${index}.receiver`),
         });
     }
@@ -252,7 +252,7 @@ const checkSettlements = (record: RefundRecord, existing: RefundRecord | null, p
 const refundSettlementsPolicy: Policy<RefundRecord> = {
     name: 'refund-settlements',
     save: ({ existingRecord, proposedRecord }) => checkSettlements(proposedRecord, existingRecord, proposedRecord.posted),
-    // При проведении строки не меняются: «Куда выдано» проверила запись перед ним. Новое погашение
+    // При проведении строки не меняются: «Откуда выдано» проверила запись перед ним. Новое погашение
     // только уменьшает долг, поэтому открывать рассрочки при проведении не нужно.
     post: ({ document }) => checkSettlements(document, document, true),
     // Отмена проведения снимает погашения: долг закрытой рассрочки может снова вырасти.
@@ -378,6 +378,10 @@ const refundWithPolicies = refund
  * Действие `settlementTerms` отдаёт форме условия расчёта по продаже и ожидаемую выдачу за товары
  * на сумму `total`: по ним она заполняет расчёты и предупреждает о расхождении и погашении долга.
  * Выдачу считает сервер тем же расчётом, что и правило расчётов, поэтому форма с ним не расходится.
+ *
+ * Действие `saleRefunds` отдаёт проведённые возвраты по продаже в порядке даты и номера: продажа
+ * выводит их под своими рассрочками. Черновики не выводятся: в расчётах они не участвуют. Связь с продажей хранит строка оснований,
+ * а отбор списка по строкам табличной части платформа не поддерживает, поэтому нужно действие.
  */
 export const Refund = refundWithPolicies
     .action('returnedGoods', (action) => action
@@ -416,4 +420,23 @@ export const Refund = refundWithPolicies
             const terms = yield* saleTerms(input.sale, input.excludedRefund ?? null);
             const total = input.total ?? 0;
             return { ...terms, total, payout: expectedPayout(total, terms.parts) };
+        })))
+    .action('saleRefunds', (action) => action
+        .title('Возвраты по продаже')
+        // Данные читает форма продажи сама: кнопка не нужна.
+        .placement('hidden')
+        .input((input) => input
+            .field('sale', (field) => field.reference(Sale).title('Продажа').required()))
+        .handle((input) => Effect.gen(function* () {
+            const database = yield* Database;
+            const owners = [...new Set((yield* database.all(query(refund).tablePart('bases').select({
+                columns: ['ownerGuid'],
+                where: [{ column: 'sale', operator: '=', value: input.sale }],
+            }))).map((row) => row.ownerGuid))];
+            if (owners.length === 0) return [];
+            return yield* database.all(query(refund).select({
+                columns: ['guid'],
+                where: [{ column: 'guid', operator: 'IN', value: owners }, { column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }],
+                orderBy: [{ column: 'date', direction: 'ASC' }, { column: 'number', direction: 'ASC' }],
+            }));
         })));
