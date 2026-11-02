@@ -5,6 +5,8 @@
  */
 export function hasOpenPicker(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
+    // Список ячейки различает видимость и явный выбор: при входе Enter сразу идёт дальше.
+    if (target.hasAttribute('data-cell-picker-enter')) return target.getAttribute('data-cell-picker-enter') === 'true';
     return target.getAttribute('aria-expanded') === 'true'
         || target.closest('[data-picker-open="true"]') !== null;
 }

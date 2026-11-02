@@ -16,9 +16,9 @@
  * Escape               → закрывает список; второй Escape отменяет редактирование ячейки
  * ```
  *
- * Пока в списке выделен вариант, у поля `aria-expanded="true"`: по нему обход таблицы уступает
- * Enter полю (`hasOpenPicker`). Без выделения Enter переходит к следующей ячейке, и набранное
- * значение остаётся, а не заменяется первым вариантом списка.
+ * `aria-expanded` отражает видимость списка. Отдельный `data-cell-picker-enter` уступает Enter
+ * выбору после стрелок, мыши или набора. Подсветка текущего значения при входе не задерживает
+ * обход таблицы и не заменяет значение первым вариантом.
  */
 import { theme } from 'antd';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
@@ -40,6 +40,10 @@ export interface CellComboInputProperties {
     readonly onText?: ((text: string) => void) | undefined;
     /** Может ли текст стоять в поле; недопустимый ввод отбрасывается. По умолчанию любой текст. */
     readonly accepts?: ((text: string) => boolean) | undefined;
+    /** Ключ текущего значения: при входе оно подсвечено, но Enter его не выбирает повторно. */
+    readonly selectedKey?: string | undefined;
+    /** Открывать варианты при входе; календарь и недоступное поле оставляют false. */
+    readonly openOnEntry?: boolean | undefined;
     readonly options?: ReadonlyArray<CellOption> | undefined;
     /** Пользователь выбрал вариант. Возвращает новый текст поля, например представление выбранной записи. */
     readonly onPick?: ((key: string) => string | undefined) | undefined;
@@ -71,11 +75,14 @@ export interface CellComboInputProperties {
 const listHeight = 10 * spacing[7];
 
 /** Поле ячейки со списком. Поведение описано во вводном комментарии модуля. */
-export function CellComboInput({ text: initialText, onText, accepts, options = [], onPick, loading = false, emptyText = 'Ничего не найдено', panel, autoHighlight = false, openOnType = true, trailing, inputMode = 'text', placeholder, id, label, ref }: CellComboInputProperties) {
+export function CellComboInput({ text: initialText, onText, accepts, options = [], onPick, loading = false, emptyText = 'Ничего не найдено', panel, selectedKey, openOnEntry = panel === undefined && onPick !== undefined, autoHighlight = false, openOnType = true, trailing, inputMode = 'text', placeholder, id, label, ref }: CellComboInputProperties) {
     const { token } = theme.useToken();
     const [text, setText] = useState(initialText);
-    const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(openOnEntry);
     const [highlighted, setHighlighted] = useState(-1);
+    // Подсветка прежнего значения при входе не означает намерения выбрать его клавишей Enter.
+    const [choosing, setChoosing] = useState(false);
+    const [typed, setTyped] = useState(false);
     const input = useRef<HTMLInputElement>(null);
     const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
 
@@ -103,10 +110,11 @@ export function CellComboInput({ text: initialText, onText, accepts, options = [
         };
     }, [open]);
 
-    // Новый набор вариантов сбрасывает выделение: прежний номер указывал бы на другую запись.
+    // При входе подсвечивается текущее значение, после набора действует правило автоматического выделения.
+    // Новый набор вариантов пересчитывает индекс: прежний номер мог указывать на другую запись.
     useEffect(() => {
-        setHighlighted(autoHighlight && options.length > 0 && text !== '' ? 0 : -1);
-    }, [options, autoHighlight]);
+        setHighlighted(typed ? autoHighlight && options.length > 0 && text !== '' ? 0 : -1 : options.findIndex((option) => option.key === selectedKey));
+    }, [options, autoHighlight, selectedKey, typed]);
 
     const pick = (index: number) => {
         const option = options[index];
@@ -120,18 +128,21 @@ export function CellComboInput({ text: initialText, onText, accepts, options = [
     const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
         if (event.key === 'ArrowDown') {
             event.preventDefault();
+            setChoosing(true);
             if (!open) setOpen(true);
             else if (panel === undefined) setHighlighted((index) => Math.min(index + 1, options.length - 1));
         } else if (event.key === 'ArrowUp' && open && panel === undefined) {
             event.preventDefault();
+            setChoosing(true);
             setHighlighted((index) => Math.max(index - 1, -1));
-        } else if (event.key === 'Enter' && open && highlighted >= 0) {
+        } else if (event.key === 'Enter' && open && highlighted >= 0 && (choosing || typed)) {
             event.preventDefault();
             event.stopPropagation();
             pick(highlighted);
         } else if (event.key === 'Escape' && open) {
-            // Первый Escape закрывает список; ячейка видит обработанное событие и не отменяет ввод.
+            // Первый Escape закрывает список и не доходит до команды закрытия формы.
             event.preventDefault();
+            event.stopPropagation();
             setOpen(false);
             setHighlighted(-1);
         }
@@ -168,7 +179,7 @@ export function CellComboInput({ text: initialText, onText, accepts, options = [
                         key={option.key}
                         role="option"
                         aria-selected={index === highlighted}
-                        onMouseEnter={() => setHighlighted(index)}
+                        onMouseEnter={() => { setChoosing(true); setHighlighted(index); }}
                         onClick={() => pick(index)}
                         style={{
                             minHeight: spacing[7],
@@ -198,7 +209,8 @@ export function CellComboInput({ text: initialText, onText, accepts, options = [
                 aria-autocomplete="list"
                 // Признак открытого выбора для обхода таблицы: Enter уступается полю, только пока
                 // в списке выделен вариант или открыт свой выбор, например календарь.
-                aria-expanded={open && (highlighted >= 0 || panel !== undefined)}
+                aria-expanded={open}
+                data-cell-picker-enter={open && (panel !== undefined || highlighted >= 0 && (choosing || typed))}
                 autoComplete="off"
                 inputMode={inputMode}
                 value={text}
@@ -206,6 +218,8 @@ export function CellComboInput({ text: initialText, onText, accepts, options = [
                     const next = event.target.value;
                     if (accepts !== undefined && !accepts(next)) return;
                     setText(next);
+                    setTyped(true);
+                    setChoosing(false);
                     if (openOnType) setOpen(true);
                     onText?.(next);
                 }}

@@ -236,6 +236,9 @@ function dataTableStyleSheet(): string {
         `.${cell} > [data-cell-state="editing"] > * { flex: 1; min-width: 0; }`,
         // В собственном поле ячейки растягивается только само поле; кнопка рядом, например подбора, — своей ширины.
         `.${cell} > [data-cell-editor="native"] > :not(.${input}) { flex: none; }`,
+        // Нативная подсказка совпадает с фоновым названием в просмотре и не меняет высоту строки.
+        `.${cell} .${input}::placeholder { color: var(--data-table-placeholder); font-weight: var(--data-table-header-weight); opacity: 1; }`,
+        `.${cell} .${input}:placeholder-shown { text-overflow: ellipsis; }`,
         // Поле редактирования без рамки и внутреннего отступа: текст не сдвигается при входе в редактирование.
         // Отступ списка выбора Ant Design задаёт CSS-переменной на самом элементе, поэтому она переопределяется здесь.
         `.${cell} .ant-select { --ant-select-padding-horizontal: 0px; }`,
@@ -307,6 +310,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         '--data-table-hover': token.controlItemBgHover,
         '--data-table-selected': token.controlItemBgActive,
         '--data-table-muted': token.colorTextDisabled,
+        '--data-table-placeholder': token.colorTextPlaceholder,
         '--data-table-locked-background': token.colorFillTertiary,
         '--data-table-locked-text': token.colorTextTertiary,
         '--data-table-focus': token.colorPrimary,

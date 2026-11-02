@@ -55,6 +55,8 @@ export interface ButtonProperties {
     readonly block?: boolean | undefined;
     /** Значок из реестра `Icons`. */
     readonly icon?: ReactNode;
+    /** Участие в обходе Tab: -1 для служебного действия внутри обхода ячеек. */
+    readonly tabIndex?: number | undefined;
     readonly disabled?: boolean | undefined;
     /** Кнопка показывает ожидание и не нажимается. */
     readonly loading?: boolean | undefined;
@@ -67,13 +69,14 @@ export interface ButtonProperties {
 }
 
 /** Кнопка с видом Ant Design и размером Carbon. */
-export function Button({ type = 'default', size = 'sm', danger, block, icon, disabled, loading, htmlType, onClick, 'aria-label': label, children }: ButtonProperties) {
+export function Button({ type = 'default', size = 'sm', danger, block, icon, tabIndex, disabled, loading, htmlType, onClick, 'aria-label': label, children }: ButtonProperties) {
     const { token } = theme.useToken();
     const style = sizeStyle(size, token);
     const iconOnly = icon !== undefined && (children === undefined || children === null);
     return (
         <AntButton
             type={type}
+            {...(tabIndex === undefined ? {} : { tabIndex })}
             style={iconOnly ? { ...style, width: style.height, paddingInline: 0 } : type === 'link' ? { ...style, paddingInline: 0 } : style}
             {...(danger === undefined ? {} : { danger })}
             {...(block === undefined ? {} : { block })}
