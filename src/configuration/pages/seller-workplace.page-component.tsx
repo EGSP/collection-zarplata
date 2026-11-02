@@ -1,6 +1,6 @@
 import { Alert, Button, Divider, Flex, Result, Spin, theme, Typography } from 'antd';
 import type { ComponentType } from 'react';
-import { ActionButton, Column, FieldDisplay, Grid, Icons, Layer, Page, Panel, RecordLink, Stack, Text, useObjectView, useOpenRecord, type ColumnCount, type PerformTarget } from '../../web/sdk';
+import { ActionButton, ActionTile, Column, FieldDisplay, Grid, Icons, Page, Panel, RecordLink, Stack, useObjectView, useOpenRecord, type ColumnCount, type PerformTarget } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { employeeCount, useCurrentShift, type OpenShiftState } from '../shell-components/current-shift-state';
 import OpenSaleInstallments from '../shell-components/open-sale-installments';
@@ -11,9 +11,6 @@ import RecentSales from '../shell-components/recent-sales';
 function useCreatable(object: PerformTarget): boolean {
     return useObjectView(object)?.form?.actions.some((action) => action.name === 'save') === true;
 }
-
-/** Высота содержимого тайла действия: такой она была с пояснением в три строки. */
-const actionTileHeight = 168;
 
 /**
  * Ширины областей рабочего места в колонках сетки. Тайлы действий стоят по два в строке
@@ -32,10 +29,11 @@ const closedShiftSpan: ColumnCount = { md: 6 };
 const closedShiftOffset: ColumnCount = { md: 1, lg: 5 };
 
 /** Свойства тайла действия продавца. */
-interface ActionTileProperties {
-    readonly title: string;
+interface DocumentActionTileProperties {
     /** Подпись кнопки: глагол действия, например «Продать». */
     readonly action: string;
+    /** Продажа выделена акцентным цветом; остальные операции второстепенные. */
+    readonly primary?: boolean;
     /** Иконка кнопки из реестра `Icons`; у каждого действия своя. */
     readonly icon: ComponentType;
     /** Документ, новая запись которого открывается кнопкой. */
@@ -43,29 +41,17 @@ interface ActionTileProperties {
 }
 
 /**
- * Тайл одного действия продавца: заголовок и единственная кнопка, открывающая новый документ
- * во вкладке. Пояснения нет, но высота тайла прежняя: крупная кнопка остаётся на привычном месте
- * и в неё легко попасть. Списка и общей кнопки «Создать» у тайла нет: продавцу нужно только
- * оформить операцию, а найти прежние документы можно в разделе «Продажи».
- *
- * Тайла нет у пользователя без права записи документа: кнопка, которая всегда завершается
- * отказом, продавцу не нужна. Тайл — поверхность первого уровня: фон карточки без рамки
- * и скруглённые углы, как у `Tile` из SDK, поэтому тайлы действий и плитки главного экрана
- * выглядят одинаково. Заголовок той же ступени, что у плитки.
+ * Связывает плитку SDK с созданием документа во вкладке. Проверка права записи остаётся
+ * в конфигурации: универсальная плитка знает только подпись, значок и обработчик действия.
  */
-function ActionTile({ title, action, icon: Icon, object }: ActionTileProperties) {
+function DocumentActionTile({ action, primary = false, icon: Icon, object }: DocumentActionTileProperties) {
     const openRecord = useOpenRecord();
     if (!useCreatable(object)) return null;
     return (
         <Column span={columns.actionTile}>
-            <Layer>
-                <Flex vertical justify="space-between" gap="middle" style={{ minHeight: actionTileHeight }}>
-                    <Text.Heading variant="03">{title}</Text.Heading>
-                    <Button type="primary" size="large" block icon={<Icon />} onClick={() => void openRecord(object, null)}>
-                        {action}
-                    </Button>
-                </Flex>
-            </Layer>
+            <ActionTile type={primary ? 'primary' : 'default'} icon={<Icon />} onClick={() => void openRecord(object, null)}>
+                {action}
+            </ActionTile>
         </Column>
     );
 }
@@ -143,9 +129,9 @@ function OpenShiftWorkplace({ shift }: { readonly shift: OpenShiftState }) {
         <Stack gap={5}>
             <ShiftHeader shift={shift} />
             <Grid>
-                <ActionTile title="Продажа" action="Продать" icon={Icons.sell} object={Objects.document.sale} />
-                <ActionTile title="Отвес" action="Отложить товар" icon={Icons.weigh} object={Objects.document.weighing} />
-                <ActionTile title="Возврат" action="Оформить возврат" icon={Icons.refund} object={Objects.document.refund} />
+                <DocumentActionTile action="Продать" primary icon={Icons.sell} object={Objects.document.sale} />
+                <DocumentActionTile action="Отложить товар" icon={Icons.weigh} object={Objects.document.weighing} />
+                <DocumentActionTile action="Оформить возврат" icon={Icons.refund} object={Objects.document.refund} />
             </Grid>
             {/* Линия делит экран на действия и справки. Цвет рамки, а не разделителя: на сером фоне
                 страницы стандартная линия Ant Design почти не видна. */}
