@@ -43,7 +43,7 @@ covers:
 - в ответе открытого запроса `GET /api/health`:
 
   ```json
-  { "status": "ok", "versions": { "platform": "1.0.0", "configuration": "1.0.0" } }
+  { "status": "ok", "versions": { "platform": "1.0.0", "configuration": "1.0.0" }, "testEnvironment": true }
   ```
 
 - в имени архива комплекта: скрипт `npm run build:executable` в конце печатает `collection-zarplata_portable_platform-<x.y.z>_configuration-<x.y.z>.zip`. Сам архив собирают вручную.

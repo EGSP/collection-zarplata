@@ -29,7 +29,7 @@ export function LoginPage() {
 
     return (
         <Layout>
-            <Flex justify="center" align="center" style={{ minHeight: '100vh' }}>
+            <Flex justify="center" align="center" style={{ minHeight: 'var(--application-height, 100dvh)' }}>
                 <Card style={{ width: 360 }}>
                     <Typography.Title level={4} style={{ textAlign: 'center' }}>
                         Учёт зарплаты и продаж

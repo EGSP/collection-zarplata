@@ -52,7 +52,7 @@ export function ApplicationLayout() {
     const collapsed = presentation.docked === 'rail';
     const bottom = presentation.docked === 'bottom';
     return (
-        <Layout style={{ height: '100dvh', flexDirection: bottom ? 'column' : 'row' }}>
+        <Layout style={{ height: 'var(--application-height, 100dvh)', flexDirection: bottom ? 'column' : 'row' }}>
             {/* Свёрнутое меню Ant Design по умолчанию шире полосы (80 px), поэтому его ширина выровнена по панели. */}
             {!bottom && <ConfigProvider theme={{ components: { Menu: { collapsedWidth: navigationWidths.rail } } }}>
                 <Layout.Sider

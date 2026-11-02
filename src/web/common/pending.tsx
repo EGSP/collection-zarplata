@@ -6,7 +6,7 @@ import { Flex, Spin } from 'antd';
  */
 export function Pending({ fullPage = false }: { readonly fullPage?: boolean }) {
     return (
-        <Flex justify="center" align="center" style={{ height: fullPage ? '100vh' : '100%' }}>
+        <Flex justify="center" align="center" style={{ height: fullPage ? 'var(--application-height, 100dvh)' : '100%' }}>
             <Spin size="large" delay={200} />
         </Flex>
     );
