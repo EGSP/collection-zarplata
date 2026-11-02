@@ -1,3 +1,4 @@
+import { InputDraftItem } from '../../widgets/input-draft';
 import { Form, Typography } from 'antd';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentType, type Key, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import type { FormField, FormTablePart } from '../../../server/ui/descriptions';
@@ -309,7 +310,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
             render: (row) => {
                 const name = cellName(row, column.name);
                 return (
-                    <Form.Item name={[row.name, column.name]} rules={fieldRules(column)} noStyle>
+                    <InputDraftItem name={[row.name, column.name]} rules={fieldRules(column)} noStyle>
                         {column.readOnly || !hasInput(column)
                             ? <CellValue field={column} type={fieldColumn(column).type} />
                             : <TableCell
@@ -323,7 +324,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
                                 onLeave={() => setEditing((current) => (current === name ? null : current))}
                                 ref={cells.register(name)}
                             />}
-                    </Form.Item>
+                    </InputDraftItem>
                 );
             },
         })),

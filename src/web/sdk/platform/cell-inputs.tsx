@@ -8,6 +8,8 @@
  * Значение каждое поле отдаёт в формате сервера, как виджеты реестра: число, `guid` записи,
  * дата строкой `YYYY-MM-DD`. Наружу у всех одинаковое управление фокусом (`CellTextInputHandle`).
  */
+import { useInputDraft } from '../../widgets/input-draft';
+import { dateTextError, parseDateText } from '../../widgets/date-text';
 import { useList, type CrudFilter } from '@refinedev/core';
 import { Calendar } from 'antd';
 import dayjs from 'dayjs';
@@ -325,26 +327,13 @@ function CompositeCellInput({ field, value, onChange, id, ref }: CellInputProper
     );
 }
 
-/** Дата в поле: «дд.мм.гггг»; дата со временем: «дд.мм.гггг чч:мм». */
-const dateText = /^(\d{2})\.(\d{2})\.(\d{4})$/u;
-const dateTimeText = /^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2})$/u;
-
-/** Текст «дд.мм.гггг» в значение `YYYY-MM-DD`; несуществующая дата вроде 31.02 не принимается. */
-function parseDate(text: string): string | null | undefined {
-    if (text === '') return null;
-    const match = dateText.exec(text);
-    if (match === null) return undefined;
-    const [, day, month, year] = match;
-    const date = dayjs(`${year}-${month}-${day}`);
-    return date.isValid() && date.format('DD.MM.YYYY') === text ? date.format('YYYY-MM-DD') : undefined;
-}
-
 /**
  * Дата: набирается текстом «дд.мм.гггг» и выбирается в календаре. Календарь открывают стрелка вниз
  * и кнопка справа в ячейке; при наборе он не открывается, чтобы Enter переходил к следующей ячейке.
  * Пока дата не набрана целиком, значение не меняется.
  */
 function DateCellInput({ field, value, onChange, id, ref }: CellInputProperties) {
+    const { draft, setDraft } = useInputDraft();
     const current = typeof value === 'string' ? value : null;
     return (
         <CellComboInput
@@ -352,13 +341,17 @@ function DateCellInput({ field, value, onChange, id, ref }: CellInputProperties)
             {...(id === undefined ? {} : { id })}
             label={field.title}
             placeholder="дд.мм.гггг"
-            text={formatCell('date', current)}
+            text={draft !== null && Object.is(draft.value ?? null, value ?? null) ? draft.text : formatCell('date', current)}
             accepts={(text) => /^[\d.]{0,10}$/u.test(text)}
             inputMode="numeric"
             openOnType={false}
             onText={(text) => {
-                const parsed = parseDate(text);
-                if (parsed !== undefined) onChange?.(parsed);
+                const parsed = parseDateText(text, 'date');
+                const error = dateTextError(text, 'date');
+                const next = parsed === undefined ? value : parsed;
+                setDraft({ text, error, value: next });
+                // Даже при прежнем значении запускаются проверка формы и отметка изменений.
+                onChange?.(next);
             }}
             panel={(done) => (
                 <Calendar
@@ -367,6 +360,7 @@ function DateCellInput({ field, value, onChange, id, ref }: CellInputProperties)
                     onSelect={(date, { source }) => {
                         // Смена месяца или года в шапке календаря значение не выбирает.
                         if (source !== 'date') return;
+                        setDraft(null);
                         onChange?.(date.format('YYYY-MM-DD'));
                         done(date.format('DD.MM.YYYY'));
                     }}
@@ -378,23 +372,11 @@ function DateCellInput({ field, value, onChange, id, ref }: CellInputProperties)
 }
 
 /**
- * Текст «дд.мм.гггг чч:мм» в значение ISO 8601 в UTC: время пользователь видит по часовому
- * поясу браузера, а сервер требует пояс в значении, как у поля даты и времени на форме.
- */
-function parseDateTime(text: string): string | null | undefined {
-    if (text === '') return null;
-    const match = dateTimeText.exec(text);
-    if (match === null) return undefined;
-    const [, day, month, year, hour, minute] = match;
-    const date = dayjs(`${year}-${month}-${day}T${hour}:${minute}`);
-    return date.isValid() && date.format('DD.MM.YYYY HH:mm') === text ? date.toISOString() : undefined;
-}
-
-/**
  * Дата и время: набираются текстом «дд.мм.гггг чч:мм», дата выбирается в календаре. Календарь
  * меняет только дату, а время остаётся прежним; у пустого значения время — текущее.
  */
 function DateTimeCellInput({ field, value, onChange, id, ref }: CellInputProperties) {
+    const { draft, setDraft } = useInputDraft();
     const current = typeof value === 'string' ? dayjs(value) : null;
     return (
         <CellComboInput
@@ -402,13 +384,17 @@ function DateTimeCellInput({ field, value, onChange, id, ref }: CellInputPropert
             {...(id === undefined ? {} : { id })}
             label={field.title}
             placeholder="дд.мм.гггг чч:мм"
-            text={current === null ? '' : current.format('DD.MM.YYYY HH:mm')}
+            text={draft !== null && Object.is(draft.value ?? null, value ?? null) ? draft.text : current === null ? '' : current.format('DD.MM.YYYY HH:mm')}
             accepts={(text) => /^[\d.: ]{0,16}$/u.test(text)}
             inputMode="numeric"
             openOnType={false}
             onText={(text) => {
-                const parsed = parseDateTime(text);
-                if (parsed !== undefined) onChange?.(parsed);
+                const parsed = parseDateText(text, 'dateTime');
+                const error = dateTextError(text, 'dateTime');
+                const next = parsed === undefined ? value : parsed;
+                setDraft({ text, error, value: next });
+                // Даже при прежнем значении запускаются проверка формы и отметка изменений.
+                onChange?.(next);
             }}
             panel={(done) => (
                 <Calendar
@@ -418,6 +404,7 @@ function DateTimeCellInput({ field, value, onChange, id, ref }: CellInputPropert
                         if (source !== 'date') return;
                         const time = current ?? dayjs();
                         const chosen = date.hour(time.hour()).minute(time.minute()).second(0).millisecond(0);
+                        setDraft(null);
                         onChange?.(chosen.toISOString());
                         done(chosen.format('DD.MM.YYYY HH:mm'));
                     }}
