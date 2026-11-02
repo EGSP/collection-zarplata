@@ -1,3 +1,4 @@
+import { InputDraftItem } from '../../widgets/input-draft';
 import { ComputedValues } from './computed-values';
 import { TablePart } from './table-part';
 import { useFieldTraversal, fieldAttribute } from './field-traversal';
@@ -73,13 +74,13 @@ export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClo
             {/* Окно ведёт собственный ввод: недоступность формы продажи не должна наследоваться
                 его полями. Во время выполнения запроса блокируется уже сам ввод окна. */}
             <BreakpointContainer of="fixed" point="sm">
-            <Form form={form} disabled={executing} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])) }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
+            <Form form={form} scrollToFirstError={{ focus: true }} disabled={executing} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])) }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
                 <ComputedValues view={{ fields: action.input, tableParts: parts }} />
                 {action.input.map((field) => {
                     const limits = field.kind === 'date' ? dateLimits?.[field.name] : undefined;
                     const Input = fieldInputs?.[field.name] ?? FieldInput;
                     return (
-                        <Form.Item {...{ [fieldAttribute]: field.name }} key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={[
+                        <InputDraftItem {...{ [fieldAttribute]: field.name }} key={field.name} name={field.name} label={field.title} required={isMarkedRequired(field)} rules={[
                             ...fieldRules(field),
                             // Проверка формы нужна и для прежнего значения: пока окно открыто,
                             // другое действие могло закрыть период и сдвинуть доступную границу.
@@ -91,7 +92,7 @@ export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClo
                             } }],
                         ]}>
                             {field.readOnly ? <FieldDisplay field={field} /> : <Input field={field} dateLimits={limits} ref={traversal.register(field.name)} />}
-                        </Form.Item>
+                        </InputDraftItem>
                     );
                 })}
                 {parts.map((part) => <div key={part.name} {...{ [fieldAttribute]: part.name }}><TablePart part={part} ref={traversal.register(part.name)} onPrevious={() => traversal.previous(part.name)} disabled={executing} /></div>)}

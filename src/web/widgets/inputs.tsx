@@ -5,10 +5,9 @@
  * Каждое поле принимает и отдаёт значение в формате сервера (`widget.ts`) и умеет принять фокус
  * по команде извне.
  */
-import { Checkbox, DatePicker, Input, InputNumber, Select } from 'antd';
-import dayjs from 'dayjs';
-import { useCallback, useImperativeHandle, useRef, useState, type Ref, type RefCallback } from 'react';
-import { dateFormat, dateTimeFormat } from './format';
+import { Checkbox, Input, InputNumber, Select } from 'antd';
+import { useCallback, useImperativeHandle, useRef, type Ref, type RefCallback } from 'react';
+export { DateInput, DateTimeInput } from './date-input';
 import type { InputHandle, InputProperties } from './widget';
 
 /**
@@ -91,55 +90,6 @@ export function MoneyInput({ value, onChange, disabled, id, ref }: InputProperti
             value={value === null || value === undefined ? null : value / 100}
             onChange={(roubles) => onChange?.(roubles === null ? null : Math.round(roubles * 100))}
         />
-    );
-}
-
-/** Поле выбора даты в календаре. Значение поля: строка `YYYY-MM-DD`. */
-export function DateInput({ value, onChange, disabled, dateLimits, id, ref }: InputProperties<string>) {
-    const inner = useInputHandle(ref);
-    const [open, setOpen] = useState(false);
-    return (
-        <div data-picker-open={open}>
-            <DatePicker
-                ref={inner}
-                onOpenChange={setOpen}
-                {...defined({ id, disabled })}
-                style={fullWidth}
-                format={dateFormat}
-                // disabledDate оставляет закрытые дни видимыми, но запрещает и выбор, и подтверждение
-                // введённой даты. Ограничение относится к календарному дню, без времени и часового пояса.
-                disabledDate={(date) => {
-                    const day = date.format('YYYY-MM-DD');
-                    return (dateLimits?.minimum !== undefined && day < dateLimits.minimum)
-                        || (dateLimits?.maximum !== undefined && day > dateLimits.maximum);
-                }}
-                value={value === null || value === undefined ? null : dayjs(value)}
-                onChange={(date) => onChange?.(date === null ? null : date.format('YYYY-MM-DD'))}
-            />
-        </div>
-    );
-}
-
-/**
- * Поле выбора даты и времени. Пользователь видит время по часовому поясу браузера, а значением
- * поля служит строка ISO 8601 в UTC: сервер требует часовой пояс в значении.
- */
-export function DateTimeInput({ value, onChange, disabled, id, ref }: InputProperties<string>) {
-    const inner = useInputHandle(ref);
-    const [open, setOpen] = useState(false);
-    return (
-        <div data-picker-open={open}>
-            <DatePicker
-                ref={inner}
-                onOpenChange={setOpen}
-                {...defined({ id, disabled })}
-                style={fullWidth}
-                showTime={{ format: 'HH:mm' }}
-                format={dateTimeFormat}
-                value={value === null || value === undefined ? null : dayjs(value)}
-                onChange={(date) => onChange?.(date === null ? null : date.toISOString())}
-            />
-        </div>
     );
 }
 

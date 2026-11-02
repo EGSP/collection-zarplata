@@ -38,6 +38,7 @@
  * приходят от формы. Текст ошибки не выводится под ячейкой, чтобы строка не меняла высоту:
  * ячейка обводится красным, а текст показывает подсказка у значка.
  */
+import { useInputDraft } from '../../widgets/input-draft';
 import { ConfigProvider, Form, Tooltip, theme } from 'antd';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type ComponentType, type KeyboardEvent, type Ref } from 'react';
 import { flushSync } from 'react-dom';
@@ -83,6 +84,7 @@ const borderless = { components: { Input: { paddingInline: 0 }, InputNumber: { p
 /** Ячейка табличной части. Поведение описано во вводном комментарии модуля. */
 export function TableCell({ name, field, type, input: CustomInput, value, onChange, id, disabled, editing, onEdit, onLeave, ref }: TableCellProperties) {
     const { token } = theme.useToken();
+    const { draft, setDraft } = useInputDraft(true);
     const { errors } = Form.Item.useStatus();
     const element = useRef<HTMLDivElement>(null);
     const display = useRef<HTMLDivElement>(null);
@@ -172,6 +174,7 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
             if (event.target instanceof HTMLElement && event.target.getAttribute('aria-expanded') === 'true') return;
             event.preventDefault();
             event.stopPropagation();
+            setDraft(null);
             onChange?.(initial.current ?? null);
             returnFocus.current = true;
             onLeave();
@@ -200,8 +203,9 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
         if (event.key === 'F2' || event.key === 'Enter') {
             event.preventDefault();
             start();
-        } else if (event.key === 'Delete' || event.key === 'Backspace' && value == null) {
+        } else if (event.key === 'Delete' || event.key === 'Backspace' && value == null && draft === null) {
             event.preventDefault();
+            setDraft(null);
             onChange?.(null);
         } else if (event.key.length === 1 && event.key !== ' ' || event.key === 'Backspace') {
             // Поле должно появиться и получить фокус до того, как браузер вставит символ: тогда
@@ -236,7 +240,7 @@ export function TableCell({ name, field, type, input: CustomInput, value, onChan
             }}
             onKeyDown={onKeyDown}
         >
-            <CellValue field={field} type={type} value={value} />
+            {draft !== null && Object.is(draft.value ?? null, value ?? null) ? draft.text : <CellValue field={field} type={type} value={value} />}
             {problem}
         </div>
     );
