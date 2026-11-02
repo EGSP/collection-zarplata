@@ -28,10 +28,19 @@ export interface LinkedInstallment {
     readonly posted: boolean;
     readonly deletedAt?: string | null;
     readonly payments: ReadonlyArray<InstallmentPayment>;
+    /** Остаток долга — итог регистра «Долги по рассрочкам»: сумма за вычетом взносов и погашений возвратами. */
+    readonly balance?: number;
 }
 
 /** Сумма заполненных взносов в копейках. */
 export const paidAmount = (payments: ReadonlyArray<InstallmentPayment>) => payments.reduce((total, payment) => total + (payment.amount ?? 0), 0);
+/**
+ * Сумма погашений возвратами в копейках: часть долга, которую закрыли не взносы. Погашения
+ * не хранятся в рассрочке: их пишет в регистр возврат, поэтому сумма выводится из сохранённого
+ * остатка. У непроведённой рассрочки движений нет, и погашений тоже.
+ */
+export const refundedAmount = (installment: LinkedInstallment) =>
+    !installment.posted || installment.balance === undefined ? 0 : installment.amount - paidAmount(installment.payments) - installment.balance;
 /** Заголовок присоединённой формы. */
 export const installmentTitle = (installment: LinkedInstallment) => `Рассрочка № ${installment.number} от ${new Date(installment.date).toLocaleDateString('ru-RU')}`;
 
@@ -81,6 +90,7 @@ const money = { kind: 'money', target: null } as const;
  */
 export function LinkedInstallmentForm({ installment, fields, editing = false, disabled = false, person, employee, onPersonChange, onEmployeeChange, amount, paid, amountInput, difference, payments, children }: LinkedInstallmentFormProperties) {
     const openRecord = useOpenRecord();
+    const refunded = refundedAmount(installment);
     const reference = (name: string, value: unknown, onChange: ((value: unknown) => void) | undefined) => {
         const field = fields.find((candidate) => candidate.name === name);
         if (field === undefined) return null;
@@ -111,7 +121,9 @@ export function LinkedInstallmentForm({ installment, fields, editing = false, di
                 {editing && <Column span={installmentColumns.amount}><Labelled title="Новая сумма" empty={amountInput !== undefined && isEmptyFieldValue(amount)} disabled={disabled}>{amountInput ?? <FieldDisplay field={money} value={amount} />}</Labelled></Column>}
                 {editing && <Column span={installmentColumns.amount}><Labelled title="Изменение">{difference}</Labelled></Column>}
                 <Column span={installmentColumns.amount}><Labelled title="Внесено"><FieldDisplay field={money} value={paid} /></Labelled></Column>
-                <Column span={installmentColumns.amount}><Labelled title="Остаток"><FieldDisplay field={money} value={amount - paid} /></Labelled></Column>
+                {/* Погашение показывается, только когда оно есть: у большинства рассрочек возвратов нет. */}
+                {refunded > 0 && <Column span={installmentColumns.amount}><Labelled title="Погашено возвратом"><FieldDisplay field={money} value={refunded} /></Labelled></Column>}
+                <Column span={installmentColumns.amount}><Labelled title="Остаток"><FieldDisplay field={money} value={amount - paid - refunded} /></Labelled></Column>
             </Grid>
             <Grid><Column span={installmentColumns.payments}><Stack gap={5}>{payments}</Stack></Column></Grid>
             {children}

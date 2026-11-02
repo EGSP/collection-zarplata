@@ -20,9 +20,9 @@ import { SaleInstallment } from './documents/sale-installment.document.js';
 import { Sale } from './documents/sale.document.js';
 import { Shift } from './documents/shift.document.js';
 import { ownInstallment } from './installments.js';
-import { PayrollContext, type PayrollData, type PayrollLine, type PayrollRuleDescription, type PayrollSale, type SalePart } from './payroll-context.js';
+import { PayrollContext, type PayrollData, type PayrollLine, type PayrollRefund, type PayrollRuleDescription, type PayrollSale, type SalePart } from './payroll-context.js';
 import { payrollRules } from './payroll-rules.js';
-import { installmentMethod } from './payments.js';
+import { debtSettlement, installmentMethod } from './payments.js';
 import { dayOf, lastClosedThrough } from './policies/closed-period.js';
 
 export type { PayrollLine, PayrollRuleDescription } from './payroll-context.js';
@@ -64,6 +64,31 @@ const active = [
 const distinct = (values: ReadonlyArray<string | null>): string[] => [...new Set(values.filter((value): value is string => value !== null))];
 
 /**
+ * Возвраты с товарами и погашениями долга по продажам. Погашения (строки «В счёт долга») нужны,
+ * чтобы разделить возврат по частям продажи: погашение относится к собственной рассрочке.
+ */
+const refundDetails = (heads: ReadonlyArray<{ readonly guid: string; readonly date: string }>) => Effect.gen(function* () {
+    if (heads.length === 0) return [];
+    const database = yield* Database;
+    const guids = heads.map((refund) => refund.guid);
+    const lines = yield* database.all(query(Refund).tablePart('goods').select({
+        columns: ['ownerGuid', 'name', 'discount', 'total', 'sale'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: guids }],
+        orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
+    }));
+    const credits = yield* database.all(query(Refund).tablePart('settlements').select({
+        columns: ['ownerGuid', 'sale', 'amount'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: guids }, { column: 'method', operator: '=', value: debtSettlement }],
+    }));
+    return heads.map((refund): PayrollRefund => ({
+        guid: refund.guid, date: refund.date,
+        lines: lines.filter((line) => line.ownerGuid === refund.guid).map((line) => ({ name: line.name, discount: line.discount ?? 0, total: line.total, sale: line.sale })),
+        credits: credits.filter((line) => line.ownerGuid === refund.guid)
+            .reduce((sums, line) => sums.set(line.sale, (sums.get(line.sale) ?? 0) + line.amount), new Map<string, number>()),
+    }));
+});
+
+/**
  * Читает данные периода по день `closedThrough` включительно.
  *
  * Отбор по датам запросом грубый: строки дат хранятся с часовым поясом клиента, а период
@@ -87,12 +112,7 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
     const shifts = (yield* database.all(query(Shift).select({ columns: ['guid', 'date'], where: dateRange('date') }))).filter((shift) => inPeriod(shift.date));
     const shiftGuids = shifts.map((shift) => shift.guid);
     const periodSales = (yield* database.all(query(Sale).select({ columns: ['guid', 'date'], where: [...active, ...dateRange('date')] }))).filter((sale) => inPeriod(sale.date));
-    const refunds = (yield* database.all(query(Refund).select({ columns: ['guid', 'date'], where: [...active, ...dateRange('date')] }))).filter((refund) => inPeriod(refund.date));
-    const refundLines = refunds.length === 0 ? [] : yield* database.all(query(Refund).tablePart('goods').select({
-        columns: ['ownerGuid', 'name', 'discount', 'total', 'sale'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: refunds.map((refund) => refund.guid) }],
-        orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
-    }));
+    const refunds = yield* refundDetails((yield* database.all(query(Refund).select({ columns: ['guid', 'date'], where: [...active, ...dateRange('date')] }))).filter((refund) => inPeriod(refund.date)));
     const installmentColumns = ['guid', 'date', 'sale', 'shift', 'type', 'rate', 'amount', 'closedAt'] as const;
     const bankInstallments = (yield* database.all(query(SaleInstallment).select({ columns: installmentColumns, where: [...active, ...dateRange('date')] })))
         .filter((installment) => installment.type !== ownInstallment && inPeriod(installment.date));
@@ -106,7 +126,7 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
     const saleGuids = distinct([
         ...periodSales.map((sale) => sale.guid),
         ...shiftSales.map((sale) => sale.guid),
-        ...refundLines.map((line) => line.sale),
+        ...refunds.flatMap((refund) => refund.lines.map((line) => line.sale)),
         ...[...bankInstallments, ...closedInstallments, ...shiftInstallments].map((installment) => installment.sale),
     ]);
     const sales = new Map<string, PayrollSale>();
@@ -126,6 +146,14 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
             columns: installmentColumns,
             where: [...active, { column: 'sale', operator: 'IN', value: saleGuids }],
         }));
+        // Все проведённые возвраты по этим продажам, не только возвраты периода: по ним собственная
+        // рассрочка начисляется за вычетом возвращённого до её закрытия.
+        const returnedLines = yield* database.all(query(Refund).tablePart('goods').select({ columns: ['ownerGuid'], where: [{ column: 'sale', operator: 'IN', value: saleGuids }] }));
+        const returnedGuids = distinct(returnedLines.map((line) => line.ownerGuid));
+        const saleRefunds = yield* refundDetails(returnedGuids.length === 0 ? [] : yield* database.all(query(Refund).select({
+            columns: ['guid', 'date'],
+            where: [...active, { column: 'guid', operator: 'IN', value: returnedGuids }],
+        })));
         const rateGuids = distinct(installments.map((installment) => installment.rate));
         const rates = new Map((rateGuids.length === 0 ? [] : yield* database.all(query(InstallmentRates).select({
             columns: ['guid', 'name', 'percentage'],
@@ -162,6 +190,7 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
                 goods: goods.filter((line) => line.ownerGuid === head.guid).map((line) => ({ name: line.name, discount: line.discount ?? 0, total: line.total })),
                 parts,
                 unarranged: Math.max(0, byInstallment - arranged),
+                refunds: saleRefunds.filter((refund) => refund.lines.some((line) => line.sale === head.guid)),
             });
         }
     }
@@ -178,10 +207,7 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
         periodStart, closedThrough, sales,
         periodSales: periodSales.map((sale) => sale.guid),
         periodInstallments: [...bankInstallments, ...closedInstallments].map((installment) => ({ sale: installment.sale, installment: installment.guid })),
-        refunds: refunds.map((refund) => ({
-            guid: refund.guid, date: refund.date,
-            lines: refundLines.filter((line) => line.ownerGuid === refund.guid).map((line) => ({ name: line.name, discount: line.discount ?? 0, total: line.total, sale: line.sale })),
-        })),
+        refunds,
         shifts,
         employeesOf: (shift) => members.filter((member) => member.ownerGuid === shift).map((member) => member.employee),
     };

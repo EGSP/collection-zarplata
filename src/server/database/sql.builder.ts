@@ -5,7 +5,7 @@
  */
 import type { FieldEntry, ListRecordOf, ObjectBuilder } from '../metadata/builders.js';
 import type { AnyFieldBuilder, FieldsRecord } from '../metadata/fields.js';
-import type { FieldDescription, ObjectDescription } from '../metadata/descriptions.js';
+import type { FieldDescription, ObjectDescription, RegisterTotal } from '../metadata/descriptions.js';
 import { fieldStorage, tablePartStorageFields, type FieldStorage } from './field-storage.js';
 import type { TypedSqlQuery } from './typed-query.js';
 
@@ -224,13 +224,24 @@ function queryVariant(entry: FieldEntry, variant: AnyFieldBuilder): FieldDescrip
     // К построению запроса все файлы конфигурации загружены, и функция цели уже возвращает билдер.
     const target = typeof state.target === 'function' ? state.target() : state.target;
     return { ...state, name: entry.name, role: entry.role, managed: entry.managed, title: entry.name, required: true,
-        target: target === null ? null : { kind: target.kind, name: target.name }, suggestions: null, variants: null, inputMode: 'solid' };
+        target: target === null ? null : { kind: target.kind, name: target.name }, suggestions: null, variants: null, inputMode: 'solid', total: null };
+}
+
+/**
+ * Источник поля-итога по билдеру. Регистр и вид его измерения берутся из билдера регистра:
+ * к построению запроса все файлы конфигурации загружены, и функция регистра уже возвращает билдер.
+ */
+function queryTotal(state: FieldEntry['builder']['~state']): RegisterTotal | null {
+    if (state.total === null) return null;
+    const register = (typeof state.total.register === 'function' ? state.total.register() : state.total.register) as unknown as { readonly name: string; readonly '~state'?: { readonly fields: ReadonlyArray<FieldEntry> } };
+    const dimension = register['~state']?.fields.find((field) => field.name === state.total!.dimension)?.builder['~state'].kind;
+    return { register: register.name, resource: state.total.resource, dimension: state.total.dimension, match: dimension === 'reference' ? 'reference' : 'objectReference' };
 }
 
 /** Описание поля билдера для кодека; цель обычной ссылки не требуется для проверки и хранения GUID. */
 function queryField(entry: FieldEntry): FieldDescription {
     const state = entry.builder['~state'];
-    return { ...state, name: entry.name, role: entry.role, managed: entry.managed,
+    return { ...state, total: queryTotal(state), name: entry.name, role: entry.role, managed: entry.managed || state.total !== null,
         // Способ ввода запросу не нужен; значение задано, чтобы состояние билдера совпало с типом описания.
         title: state.title ?? entry.name, target: null, suggestions: null, inputMode: 'solid',
         variants: state.variants === null ? null : state.variants.map((variant) => queryVariant(entry, variant)) };
@@ -245,12 +256,37 @@ function checkQueryProperties(value: unknown, allowed: readonly string[]): void 
 }
 
 /**
+ * Подзапрос поля-итога: сумма ресурса регистра по движениям, у которых измерение ссылается на
+ * строку таблицы `table`. Полная ссылка хранится JSON-строкой `{"kind","name","guid"}` в том
+ * же порядке ключей, что пишет кодек поля, поэтому строка собирается из вида и имени объекта
+ * таблицы и GUID строки. Вид и имя проверены как идентификаторы и попадают в строку SQL без
+ * параметров: подзапрос стоит и в списке выборки, где позиции параметров не совпали бы с отбором.
+ *
+ * Итог считается при каждом чтении и не кешируется, как и итоги регистра (`register-totals.ts`).
+ * Это не окончательное решение: если чтение станет медленным, итоги можно хранить отдельно,
+ * и поле от этого не изменится.
+ */
+function totalExpression(table: string, total: RegisterTotal): string {
+    const separator = table.indexOf('_');
+    const kind = table.slice(0, separator);
+    const name = table.slice(separator + 1);
+    const register = sqlIdentifier(`register_${total.register}`);
+    const dimension = `${register}.${sqlIdentifier(total.dimension)}`;
+    const owner = `${sqlIdentifier(table)}.${sqlIdentifier('guid')}`;
+    for (const part of [kind, name]) if (!/^[A-Za-z][A-Za-z0-9]*$/.test(part)) throw new Error(`Итог регистра недоступен для таблицы «${table}»`);
+    const match = total.match === 'objectReference'
+        ? `${dimension} = '{"kind":"${kind}","name":"${name}","guid":"' || ${owner} || '"}'`
+        : `${dimension} = ${owner}`;
+    return `(SELECT COALESCE(SUM(${register}.${sqlIdentifier(total.resource)}), 0) FROM ${register} WHERE ${match})`;
+}
+
+/**
  * Запросы одной таблицы в логических полях. Билдер не выполняет запрос и не открывает транзакцию:
  * права, политики и атомарность остаются у действующего контура действий.
  * Все методы отклоняют неверные имена, значения и варианты операторов до обращения к Database.
  */
 export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Record<string, Record<string, unknown>> = {}> {
-    private readonly fields = new Map<string, { readonly description: FieldDescription; readonly storage: FieldStorage }>();
+    private readonly fields = new Map<string, { readonly description: FieldDescription; readonly storage: FieldStorage; readonly expression: string | null }>();
 
     constructor(
         private readonly table: string,
@@ -267,7 +303,8 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
                 if (columns.has(column.name)) throw new Error(`Повторяется столбец «${column.name}»`);
                 columns.add(column.name);
             }
-            this.fields.set(description.name, { description, storage });
+            // У поля-итога вместо столбца подзапрос к регистру; он используется в выборке, отборе и сортировке.
+            this.fields.set(description.name, { description, storage, expression: description.total == null ? null : totalExpression(table, description.total) });
         }
     }
 
@@ -288,7 +325,23 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
         if (!Array.isArray(names) || names.some((name) => typeof name !== 'string')) throw new Error('Поля должны быть списком имён');
         if (names.length === 0) throw new Error('Нужно указать хотя бы одно поле');
         if (new Set(names).size !== names.length) throw new Error('Поле указано дважды');
-        return names.flatMap((name) => this.field(name).storage.columns.map((column) => sqlIdentifier(column.name)));
+        return names.flatMap((name) => {
+            const field = this.field(name);
+            // Группировать и суммировать поле-итог незачем: оно само сумма движений регистра.
+            if (field.expression !== null) throw new Error(`Поле «${name}» является итогом регистра: группировка и суммы по нему недоступны`);
+            return field.storage.columns.map((column) => sqlIdentifier(column.name));
+        });
+    }
+
+    /** Список выборки: столбцы хранимых полей и подзапросы полей-итогов под их именами. */
+    private selectList(names: readonly string[]): string[] {
+        if (!Array.isArray(names) || names.some((name) => typeof name !== 'string')) throw new Error('Поля должны быть списком имён');
+        if (names.length === 0) throw new Error('Нужно указать хотя бы одно поле');
+        if (new Set(names).size !== names.length) throw new Error('Поле указано дважды');
+        return names.flatMap((name) => {
+            const field = this.field(name);
+            return field.expression === null ? this.columnNames([name]) : [`${field.expression} AS ${sqlIdentifier(name)}`];
+        });
     }
 
     private filter(filter: QueryFilter<Row>, parameters: SqlValue[]): string {
@@ -300,9 +353,16 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
             return `(${group.map((member: QueryFilter<Row>) => this.filter(member, parameters)).join('any' in filter ? ' OR ' : ' AND ')})`;
         }
         checkQueryProperties(filter, ['column', 'operator', 'value']);
-        const { description, storage } = this.field(filter.column);
+        const { description, storage, expression } = this.field(filter.column);
         const compare = (value: unknown, operator: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'LIKE'): string => {
             if (!operators.has(operator)) throw new Error('Недопустимый оператор отбора');
+            if (expression !== null) {
+                // Итог всегда число: сумма пустого набора равна нулю, поэтому NULL у него не бывает.
+                if (value === null) return operator === '=' ? '(0 = 1)' : operator === '!=' ? '(1 = 1)' : (() => { throw new Error('С NULL допустимы только = и !='); })();
+                if (operator === 'LIKE' || typeof value !== 'number') throw new Error(`Поле «${description.name}» сравнивается только с числом`);
+                parameters.push(value);
+                return `(${expression} ${operator} ?)`;
+            }
             if (value === null) {
                 if (operator !== '=' && operator !== '!=') throw new Error('С NULL допустимы только = и !=');
                 const names = storage.columns.map((column) => sqlIdentifier(column.name));
@@ -344,7 +404,9 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
                 checkQueryProperties(order, ['column', 'direction']);
                 if (order.direction !== 'ASC' && order.direction !== 'DESC') throw new Error('Недопустимое направление сортировки');
                 if (typeof order.column !== 'string') throw new Error('Сортировка требует имя поля');
-                return this.field(order.column).storage.orderColumns.map((name) => `${sqlIdentifier(name)} ${order.direction}`);
+                const field = this.field(order.column);
+                if (field.expression !== null) return [`${field.expression} ${order.direction}`];
+                return field.storage.orderColumns.map((name) => `${sqlIdentifier(name)} ${order.direction}`);
             }).join(', ')}`;
         }
         if (options.limit !== undefined || options.offset !== undefined) {
@@ -368,7 +430,7 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
     ): TypedSqlQuery<Pick<Row, Columns[number]>> {
         checkQueryProperties(options, ['columns', 'where', 'orderBy', 'limit', 'offset']);
         const names = options.columns ?? [...this.fields.keys()];
-        const columns = this.columnNames(names);
+        const columns = this.selectList(names);
         const parameters: SqlValue[] = [];
         return { sql: `SELECT ${columns.join(', ')} FROM ${sqlIdentifier(this.table)}${this.where(options.where, parameters)}${this.tail(options, parameters)}`,
             parameters, decodeRow: this.decoder(names) };
