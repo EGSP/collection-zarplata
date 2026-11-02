@@ -1,3 +1,4 @@
+import { useOverflowShadows } from './overflow-shadows';
 /**
  * Таблица данных дизайн-системы по образцу Data table из Carbon с цветами темы Ant Design.
  * Таблица Ant Design здесь не используется: её ячейка — рамка вокруг содержимого со своим
@@ -40,7 +41,7 @@
  * Элемент с атрибутом `data-cell-target` получает щелчок по отступу ячейки вокруг него.
  */
 import { Checkbox, Pagination, Radio, Spin, theme } from 'antd';
-import { Fragment, isValidElement, useLayoutEffect, useState, useRef, type CSSProperties, type Key, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { Fragment, isValidElement, useState, useRef, type CSSProperties, type Key, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { useBreakpoint } from './breakpoints';
 import { Button } from './button';
 import { cellAlign, cellColumnSize, cellInputClass, formatCell, type CellType } from './cell-types';
@@ -245,11 +246,6 @@ function dataTableStyleSheet(): string {
         // Заголовок переносится только между словами: слово не разрывается, колонка не уже него.
         `.${header} .${cell} { overflow-wrap: normal; }`,
         `.${empty} { padding: var(--data-table-cell-padding); color: var(--data-table-muted); text-align: center; border-bottom: 1px solid var(--data-table-border); }`,
-        // Тени у краёв прокрутки: видны, только если с этой стороны есть невидимое содержимое.
-        `.${frame}::before, .${frame}::after { content: ""; position: absolute; top: 0; bottom: 0; width: ${spacing[5]}px; pointer-events: none; opacity: 0; transition: opacity 0.15s; z-index: 1; }`,
-        `.${frame}::before { left: 0; background: linear-gradient(to right, var(--data-table-shadow), transparent); }`,
-        `.${frame}::after { right: 0; background: linear-gradient(to left, var(--data-table-shadow), transparent); }`,
-        `.${frame}[data-overflow-start]::before, .${frame}[data-overflow-end]::after { opacity: 1; }`,
     ].join('\n');
 }
 
@@ -316,7 +312,6 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         '--data-table-focus': token.colorPrimary,
         '--data-table-error': token.colorError,
         '--data-table-editing-background': token.colorBgContainer,
-        '--data-table-shadow': token.colorFill,
     } as CSSProperties;
 
     const role = interactive ? 'gridcell' : 'cell';
@@ -495,33 +490,4 @@ function focusContent(event: MouseEvent<HTMLDivElement>) {
     if (content === null) return;
     event.preventDefault();
     content.click();
-}
-
-/**
- * Следит, есть ли невидимое содержимое слева и справа от области прокрутки, и отмечает это
- * атрибутами рамки: по ним CSS показывает тени у краёв. Пересчёт идёт при прокрутке и при смене
- * размеров области и её содержимого.
- */
-function useOverflowShadows(frame: RefObject<HTMLDivElement | null>, scroller: RefObject<HTMLDivElement | null>) {
-    useLayoutEffect(() => {
-        const outer = frame.current;
-        const area = scroller.current;
-        if (outer === null || area === null) return;
-        const update = () => {
-            // Округление: при дробном масштабе страницы прокрутка до края даёт не ровно ноль.
-            const start = area.scrollLeft > 1;
-            const end = area.scrollLeft + area.clientWidth < area.scrollWidth - 1;
-            outer.toggleAttribute('data-overflow-start', start);
-            outer.toggleAttribute('data-overflow-end', end);
-        };
-        update();
-        area.addEventListener('scroll', update, { passive: true });
-        const observer = new ResizeObserver(update);
-        observer.observe(area);
-        if (area.firstElementChild !== null) observer.observe(area.firstElementChild);
-        return () => {
-            area.removeEventListener('scroll', update);
-            observer.disconnect();
-        };
-    }, []);
 }

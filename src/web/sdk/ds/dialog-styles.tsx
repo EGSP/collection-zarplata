@@ -19,6 +19,7 @@
  */
 import { theme } from 'antd';
 import { spacing } from './layout';
+import { overflowShadowBackground, overflowShadowColorToken } from './overflow-shadows';
 
 /** Отступ окна от верхнего края экрана у Ant Design и запас снизу: вместе они ограничивают высоту окна. */
 const dialogTop = 100;
@@ -27,19 +28,13 @@ const dialogTop = 100;
 export function DialogStyles() {
     const { token } = theme.useToken();
     const background = token.colorBgElevated;
-    const shadow = token.colorFill;
+    const shadow = token[overflowShadowColorToken];
     const edge = spacing[5];
     const css = [
         `.ant-modal { max-width: calc(100vw - ${2 * edge}px); }`,
         `.ant-modal .ant-modal-container { display: flex; flex-direction: column; max-height: calc(100dvh - ${dialogTop + spacing[6]}px); }`,
         `.ant-modal .ant-modal-header, .ant-modal .ant-modal-footer { flex: none; }`,
-        [
-            `.ant-modal .ant-modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; background:`,
-            `linear-gradient(${background} 30%, transparent) center top / 100% ${3 * edge}px no-repeat local,`,
-            `linear-gradient(transparent, ${background} 70%) center bottom / 100% ${3 * edge}px no-repeat local,`,
-            `radial-gradient(farthest-side at 50% 0, ${shadow}, transparent) center top / 100% ${edge}px no-repeat scroll,`,
-            `radial-gradient(farthest-side at 50% 100%, ${shadow}, transparent) center bottom / 100% ${edge}px no-repeat scroll; }`,
-        ].join(' '),
+        `.ant-modal .ant-modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; background: ${overflowShadowBackground(background, shadow)}; }`,
     ].join('\n');
     return <style>{css}</style>;
 }
