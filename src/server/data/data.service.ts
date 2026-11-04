@@ -5,8 +5,6 @@ import { resolveAccess, emptyAccess } from '../authorization/access-schema.js';
 import { calculatedInput } from './computed-values.js';
 import { resolveRecordOpening } from './record-opening.js';
 import { Injectable } from '@nestjs/common';
-import { AuthenticationService } from '../authentication/authentication.service.js';
-import { userDirectoryAction } from '../users/users.js';
 import { accessTreeAction } from '../authorization/access-tree.js';
 import { backupAction, backupsTarget } from '../backup/backup.action.js';
 import { BackupService } from '../backup/backup.service.js';
@@ -101,7 +99,6 @@ export class DataService {
         private readonly metadata: MetadataService,
         private readonly database: DatabaseService,
         private readonly rightsGuard: RightsGuardPlatform,
-        private readonly authentication: AuthenticationService,
         private readonly backups: BackupService,
     ) {}
 
@@ -199,9 +196,9 @@ export class DataService {
                 if (segments[0] === 'write') return extra === 'edit' || access.extensions.some(extension => extension.entries.some(entry => entry.target.kind === operation.target.kind && entry.target.name === operation.target.name && entry.path.startsWith('fields.') && entry.level === 'edit'));
                 return extra === 'allow';
             };
-            // Функции есть только у объектов конфигурации: у служебных целей платформы их нет.
+            // Функции принадлежат описанным объектам, включая встроенные справочники платформы.
             if (operation.function !== undefined) {
-                const owner = operation.target.kind === 'platform' ? undefined : this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
+                const owner = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
                 const functionRight = owner === undefined ? undefined : requiredFunctionRight(owner, operation.function);
                 if (owner === undefined || functionRight === undefined) {
                     return yield* new DataNotFoundError({ message: `Функция «${operation.function}» для ${operation.target.kind}.${operation.target.name} не найдена` });
@@ -222,10 +219,6 @@ export class DataService {
                 if (operation.action !== 'repost') return yield* new DataNotFoundError({ message: `Действие «${operation.action}» для документов не найдено` });
                 yield* this.rightsGuard.require(user, platformRights.documents.repost);
                 return yield* repostDocuments.pipe(Effect.provideService(ActionContext, context), Effect.provideService(AccessExecution, access));
-            }
-            if (operation.target.kind === 'platform' && operation.target.name === 'users') {
-                return yield* userDirectoryAction(operation.action, operation.payload, user, this.rightsGuard, (pin) => this.authentication.pinHash(pin))
-                    .pipe(Effect.provideService(ActionContext, context));
             }
             if (operation.target.kind === backupsTarget.kind && operation.target.name === backupsTarget.name) {
                 return yield* backupAction(operation.action, operation.payload, user, this.rightsGuard, this.backups)
@@ -281,17 +274,22 @@ export class DataService {
             const computed = yield* calculatedInput(declared.input, declared.tableParts, payload, 'payload');
             const input = yield* validated(functionInputSchema(description, name)!, computed, 'payload');
             // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
-            const result = declared.handler(input as never);
+            const result = description.storage?.callFunction?.(name, input as RecordValue) ?? declared.handler(input as never);
             if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик функции должен вернуть Effect'));
             return yield* (result as Effect.Effect<unknown, unknown, ActionRequirements>).pipe(
                 Effect.provideService(Database, readOnlyDatabase(this.database.effect)),
                 Effect.provideService(ActionDispatcher, deniedActionDispatcher),
+                Effect.provideService(ReadonlyDatabase, description.storage === undefined ? (yield* ReadonlyDatabase) : readOnlyDatabase(this.database.effect)),
             );
         }.bind(this));
     }
 
     /** Выбирает стандартное или собственное действие; неизвестное действие возвращает 404. */
     private dispatch(description: ObjectDescription, action: string, payload: unknown): Effect.Effect<unknown, unknown, ActionRequirements> {
+        // Адаптер перечисляет поддержанные операции: неподдержанная запись не должна попасть в SQL-представление.
+        if (description.storage !== undefined && !description.storage.standardActions.includes(action) && !description.actions.some(candidate => candidate.name === action)) {
+            return Effect.fail(new DataNotFoundError({ message: `Действие «${action}» для ${description.name} не предусмотрено` }));
+        }
         if (description.kind === 'informationRegister') {
             switch (action) {
                 case 'list': return this.list(description, payload);
@@ -335,12 +333,13 @@ export class DataService {
                 const computed = yield* calculatedInput(custom.input, custom.tableParts, payload, 'payload');
                 const input = yield* validated(schema, computed, 'payload');
                 // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
-                const result = custom.handler!(input as never);
+                const result = description.storage?.action?.(action, input as RecordValue) ?? custom.handler!(input as never);
                 if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик действия должен вернуть Effect'));
-                const value = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ConfigurationRequirements>, Database, readOnlyDatabase(this.database.effect));
+                const value = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ConfigurationRequirements>, Database, description.storage === undefined ? readOnlyDatabase(this.database.effect) : this.database.effect);
                 // Платформа не знает, что именно изменил обработчик: изменения записей попадают в журнал
                 // строками вложенных действий, а эта строка связывает их с вызовом через parentActionGuid.
-                yield* writeJournal({ occurredAt, target: { kind: description.kind, name: description.name, guid: null }, action, changes: null });
+                const recordGuid = description.storage !== undefined && typeof (input as RecordValue)['guid'] === 'string' ? (input as RecordValue)['guid'] as string : null;
+                yield* writeJournal({ occurredAt, target: { kind: description.kind, name: description.name, guid: recordGuid }, action, changes: description.storage?.journalChanges?.(action, input as RecordValue) ?? null });
                 return value;
             }.bind(this));
         }
@@ -670,6 +669,7 @@ export class DataService {
         creating: boolean,
     ): Effect.Effect<RecordValue, unknown, ActionRequirements> {
         return Effect.gen(function* (this: DataService) {
+            if (description.storage !== undefined) return yield* description.storage.save(guid, input, creating);
             const database = this.database.effect;
             if (creating) {
                 yield* database.run(query(description).insert(values));

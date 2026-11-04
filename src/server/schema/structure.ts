@@ -118,7 +118,7 @@ const platformTables: readonly TableStructure[] = [
 
 /** Строит все прикладные и служебные таблицы в устойчивом порядке; имена проверяются при построении SQL. */
 export function describeSchema(objects: readonly ObjectDescription[]): SchemaStructure {
-    const tables = [...platformTables, ...objects.flatMap((object) => [objectTable(object), ...tableParts(object)])];
+    const tables = [...platformTables, ...objects.filter(object => object.storage === undefined).flatMap((object) => [objectTable(object), ...tableParts(object)])];
     const names = new Set<string>();
     for (const table of tables) {
         sqlIdentifier(table.name);

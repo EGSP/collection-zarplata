@@ -10,7 +10,6 @@
  * собственная форма без контракта показывается ошибкой, а не формой, которая молча не сообщает
  * области о записи и несохранённых изменениях.
  */
-import { UserListForm, UserRecordForm } from '../users/user-forms';
 import { Result } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { objectForms } from '../../configuration/object-forms.generated';
@@ -32,10 +31,7 @@ function formKey(object: PerformTarget, kind: ObjectFormKind): string {
  * при запуске, поэтому файл без объявления здесь пропускается: с такой конфигурацией сервер не запустится.
  */
 const components: ReadonlyMap<string, ComponentType<never>> = new Map(
-    [...objectForms.flatMap((module) => (module.definition === undefined ? [] : [[formKey(module.definition.object, module.definition.kind), module.component] as const])),
-        ['platform/users/list', UserListForm as ComponentType<never>],
-        ['platform/users/new', UserRecordForm as ComponentType<never>],
-        ['platform/users/record', UserRecordForm as ComponentType<never>]],
+    objectForms.flatMap(module => module.definition === undefined ? [] : [[formKey(module.definition.object, module.definition.kind), module.component] as const]),
 );
 
 /** Компонент формы объекта нужного вида: собственный из конфигурации либо стандартный. */

@@ -156,7 +156,7 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
     const actions: ReadonlyArray<FormAction> = [
         // Имя с точками отделяет служебную команду от имён действий конфигурации.
         { name: 'platform.journal.history', title: 'Журнал действий', standard: true, opens: 'journal', input: [] },
-        ...standardFormActions[object.kind].map((action) => ({ ...action, standard: true, input: [] })),
+        ...standardFormActions[object.kind].filter(action => object.storage === undefined || object.storage.standardActions.includes(action.name)).map((action) => ({ ...action, standard: true, input: [] })),
         ...object.actions.map((action) => ({
             name: action.name,
             title: action.title,

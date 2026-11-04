@@ -24,7 +24,7 @@ interface RightNode {
 
 /** Названия служебных разделов; сами права читаются из platformRights, поэтому новые не теряются. */
 const platformTitles: Readonly<Record<keyof typeof platformRights, string>> = {
-    authorization: 'Права доступа', users: 'Пользователи', journal: 'Журнал действий', documents: 'Документы', backups: 'Резервные копии',
+    authorization: 'Права доступа', journal: 'Журнал действий', documents: 'Документы', backups: 'Резервные копии',
 };
 
 function leaf(key: string, title: string): RightNode {

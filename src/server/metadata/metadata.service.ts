@@ -1,8 +1,13 @@
+import { AuthenticationService } from '../authentication/authentication.service.js';
+import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
+import { Users } from '../users/object.js';
+import { userStorage } from '../users/storage.js';
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Effect } from 'effect';
 import { configurationModules, formElementModules, objectFormModules } from '../../configuration/configuration.generated.js';
 import type { ObjectDescription, ObjectKind } from './descriptions.js';
 import { loadConfiguration } from './registry.js';
+import { platformObjectBuilders } from './platform-objects.js';
 
 /**
  * Сервис метаданных — единственный источник описаний объектов конфигурации для платформы.
@@ -18,9 +23,14 @@ export class MetadataService implements OnModuleInit {
     private readonly logger = new Logger(MetadataService.name);
     private descriptions: ReadonlyArray<ObjectDescription> | undefined;
 
+    constructor(private readonly authentication: AuthenticationService, private readonly rights: RightsGuardPlatform) {}
+
     onModuleInit(): void {
         // Сборка синхронна: функции целей ссылок и проверки не обращаются к внешним ресурсам.
-        this.descriptions = Effect.runSync(loadConfiguration(configurationModules, formElementModules, objectFormModules));
+        this.descriptions = Effect.runSync(loadConfiguration(configurationModules, formElementModules, objectFormModules, platformObjectBuilders));
+        // Меняется только способ хранения. Поля, ссылки и формы уже проверены общим commit.
+        this.descriptions = this.descriptions.map(object => object.kind === Users.kind && object.name === Users.name
+            ? Object.freeze({ ...object, storage: userStorage(pin => this.authentication.pinHash(pin), this.rights.roles) }) : object);
         this.logger.log(`Метаданные собраны: объектов ${this.descriptions.length}`);
     }
 
