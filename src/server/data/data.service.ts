@@ -1,3 +1,7 @@
+import { RightsDeniedError } from '../authorization/authorization.errors.js';
+import { accessEditorAction } from '../authorization/access-editor.js';
+import { AccessExecution, currentAccess, checkQuery, dataLevel, accessDenied, publicRecord, writableInput, type ExecutionAccess } from '../authorization/access-execution.js';
+import { resolveAccess, emptyAccess } from '../authorization/access-schema.js';
 import { calculatedInput } from './computed-values.js';
 import { resolveRecordOpening } from './record-opening.js';
 import { Injectable } from '@nestjs/common';
@@ -26,6 +30,7 @@ import { ActionContext, ActionDispatcher, FunctionDispatcher } from './action-co
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
 import { filterValue, guidValue, loadRecord, objectValue, pageOptions, sqlOperators, stringValue, validated, type RecordValue } from './records.js';
+import type { ConfigurationRequirements } from '../metadata/builders.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { enforcePolicies, type PolicyInvocation } from './policies.js';
 import { importCatalog } from './import.js';
@@ -150,7 +155,10 @@ export class DataService {
         work: Effect.Effect<Value, Error, Requirements>,
     ): Effect.Effect<Value, Error, Exclude<Exclude<Exclude<Requirements, Database>, ReadonlyDatabase>, Metadata>> {
         const database = this.database.effect;
-        const readonlyDatabase: ReadonlyDatabaseShape = { get: (query) => database.get(query), all: (query) => database.all(query) };
+        const readonlyDatabase: ReadonlyDatabaseShape = {
+            get: (query) => Effect.flatMap(currentAccess, access => Effect.andThen(checkQuery(access, query), database.get(query))),
+            all: (query) => Effect.flatMap(currentAccess, access => Effect.andThen(checkQuery(access, query), database.all(query))),
+        };
         return work.pipe(
             Effect.provideService(Database, database),
             Effect.provideService(ReadonlyDatabase, readonlyDatabase),
@@ -176,6 +184,21 @@ export class DataService {
                 actionGuid: newGuid(),
                 parentActionGuid: parent._tag === 'Some' ? parent.value.actionGuid : null,
             };
+            const inherited = yield* Effect.serviceOption(AccessExecution);
+            const caller = inherited._tag === 'Some' ? inherited.value : undefined;
+            const direct = caller === undefined;
+            const own = yield* this.rightsGuard.rightsOf(user);
+            const label = `${operation.target.kind}.${operation.target.name}.${operation.function ?? operation.action}`;
+            const access: ExecutionAccess = { user: own, objects: this.metadata.objects, extensions: caller?.extensions ?? [], chain: [...(caller?.chain ?? []), label], disclosure: caller?.disclosure ?? { sensitive: false } };
+            const allowed = (right: { readonly key: string }) => {
+                if (own.allows(right)) return true;
+                const [, , ...segments] = right.key.split('.');
+                const path = segments[0] === 'read' || segments[0] === 'write' ? 'fields' : segments[0] === 'post' ? 'actions.post' : segments.join('.');
+                const extra = resolveAccess(access.extensions, operation.target as ObjectDescription, path).level;
+                if (segments[0] === 'read') return extra === 'read' || extra === 'edit';
+                if (segments[0] === 'write') return extra === 'edit' || access.extensions.some(extension => extension.entries.some(entry => entry.target.kind === operation.target.kind && entry.target.name === operation.target.name && entry.path.startsWith('fields.') && entry.level === 'edit'));
+                return extra === 'allow';
+            };
             // Функции есть только у объектов конфигурации: у служебных целей платформы их нет.
             if (operation.function !== undefined) {
                 const owner = operation.target.kind === 'platform' ? undefined : this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
@@ -183,17 +206,22 @@ export class DataService {
                 if (owner === undefined || functionRight === undefined) {
                     return yield* new DataNotFoundError({ message: `Функция «${operation.function}» для ${operation.target.kind}.${operation.target.name} не найдена` });
                 }
-                yield* this.rightsGuard.require(user, functionRight);
-                return yield* Effect.provideService(this.callFunction(owner, operation.function, operation.payload), ActionContext, context);
+                if (!allowed(functionRight)) return yield* accessDenied(access, owner, `functions.${operation.function}`, 'allow', 'deny');
+                if ([...owner.fields.map(field => field.name), ...owner.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => dataLevel(access, owner, name, true) === 'deny')) access.disclosure.sensitive = true;
+                const extension = owner.functions.find(candidate => candidate.name === operation.function)?.access ?? emptyAccess;
+                const result = yield* this.callFunction(owner, operation.function, operation.payload).pipe(Effect.catchIf(error => access.disclosure.sensitive && !(error instanceof RightsDeniedError), () => Effect.fail(accessDenied(access, owner, 'result', 'read', 'deny'))), Effect.provideService(ActionContext, context), Effect.provideService(AccessExecution, { ...access, extensions: [...access.extensions, extension] }));
+                if (direct && access.disclosure.sensitive && result !== undefined) return yield* accessDenied(access, owner, 'result', 'read', 'deny');
+                return result;
             }
             if (operation.target.kind === journalTarget.kind && operation.target.name === journalTarget.name) {
                 yield* this.rightsGuard.require(user, platformRights.journal.read);
+                if (this.metadata.objects.some(object => [...object.fields.map(field => field.name), ...object.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => own.decision(object, `fields.${name}`).level === 'deny'))) return yield* accessDenied(access, { kind: 'document', name: 'journal' }, 'journal', 'read', 'deny');
                 return yield* readJournal(operation.action, operation.payload);
             }
             if (operation.target.kind === documentsTarget.kind && operation.target.name === documentsTarget.name) {
                 if (operation.action !== 'repost') return yield* new DataNotFoundError({ message: `Действие «${operation.action}» для документов не найдено` });
                 yield* this.rightsGuard.require(user, platformRights.documents.repost);
-                return yield* Effect.provideService(repostDocuments, ActionContext, context);
+                return yield* repostDocuments.pipe(Effect.provideService(ActionContext, context), Effect.provideService(AccessExecution, access));
             }
             if (operation.target.kind === 'platform' && operation.target.name === 'users') {
                 return yield* userDirectoryAction(operation.action, operation.payload, user, this.rightsGuard, (pin) => this.authentication.pinHash(pin))
@@ -204,11 +232,11 @@ export class DataService {
                     .pipe(Effect.provideService(ActionContext, context));
             }
             if (operation.target.kind === 'platform' && operation.target.name === 'authorization') {
-                return yield* accessTreeAction(operation.action, operation.payload, user, this.rightsGuard, this.metadata.objects);
+                return yield* (['settings', 'saveSettings'].includes(operation.action) ? accessEditorAction(operation.action, operation.payload, user, this.rightsGuard, this.metadata.objects) : accessTreeAction(operation.action, operation.payload, user, this.rightsGuard, this.metadata.objects));
             }
             if (operation.target.kind === 'platform' && operation.target.name === 'records') {
                 if (operation.action !== 'resolveOpening') return yield* new DataNotFoundError({ message: `Действие «${operation.action}» для открытия записей не найдено` });
-                return yield* resolveRecordOpening(operation.payload);
+                return yield* resolveRecordOpening(operation.payload).pipe(Effect.provideService(AccessExecution, access));
             }
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
             if (description === undefined) {
@@ -216,8 +244,26 @@ export class DataService {
             }
             // Действия, которого у объекта нет, право не защищает: диспетчер ответит, что оно не найдено.
             const right = requiredRight(description, operation.action);
-            if (right !== undefined) yield* this.rightsGuard.require(user, right);
-            return yield* Effect.provideService(this.dispatch(description, operation.action, operation.payload), ActionContext, context);
+            if (right !== undefined && !allowed(right)) return yield* accessDenied(access, description, right.key.split('.').slice(2).join('.'), 'allow', 'deny');
+            if (description.actions.some(candidate => candidate.name === operation.action) && [...description.fields.map(field => field.name), ...description.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => dataLevel(access, description, name, true) === 'deny')) access.disclosure.sensitive = true;
+            if (['markDeleted', 'unmarkDeleted'].includes(operation.action) && dataLevel(access, description, 'deletedAt') !== 'edit') return yield* accessDenied(access, description, 'fields.deletedAt', 'edit', dataLevel(access, description, 'deletedAt'));
+            const extension = description.actions.find(candidate => candidate.name === operation.action)?.access ?? emptyAccess;
+            if (['save', 'post', 'unpost', 'delete', 'markDeleted', 'unmarkDeleted'].includes(operation.action) && [...description.fields.map(field => field.name), ...description.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => dataLevel(access, description, name, true) === 'deny')) access.disclosure.sensitive = true;
+            const result = yield* this.dispatch(description, operation.action, operation.payload).pipe(Effect.catchIf(error => access.disclosure.sensitive && !(error instanceof RightsDeniedError), () => Effect.fail(accessDenied(access, description, 'result', 'read', 'deny'))), Effect.provideService(ActionContext, context), Effect.provideService(AccessExecution, { ...access, extensions: [...access.extensions, extension] }));
+            if (direct && (description.actions.some(candidate => candidate.name === operation.action) || operation.action === 'lookup' || operation.action === 'totals')) return access.disclosure.sensitive ? { completed: true } : result;
+            if (Array.isArray(result) || operation.action === 'delete' || operation.action === 'import') return result;
+            if (!direct) {
+                if (!description.actions.some(candidate => candidate.name === operation.action) && result !== null && typeof result === 'object') {
+                    if ('items' in result && Array.isArray(result.items)) return { ...result, items: result.items.map(record => publicRecord(description, record as RecordValue, access, false)) };
+                    return publicRecord(description, result as RecordValue, access, false);
+                }
+                return result;
+            }
+            if (result !== null && typeof result === 'object') {
+                if ('items' in result && Array.isArray(result.items)) return { ...result, items: result.items.map(record => publicRecord(description, record as RecordValue, access)) };
+                return publicRecord(description, result as RecordValue, access);
+            }
+            return result;
         }.bind(this));
     }
 
@@ -249,7 +295,7 @@ export class DataService {
             switch (action) {
                 case 'list': return this.list(description, payload);
                 case 'get': return getInformation(description, payload);
-                case 'save': return mutateInformation(description, 'save', payload);
+                case 'save': return this.saveInformation(description, payload);
                 case 'delete': return mutateInformation(description, 'delete', payload);
             }
         }
@@ -290,7 +336,7 @@ export class DataService {
                 // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
                 const result = custom.handler!(input as never);
                 if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик действия должен вернуть Effect'));
-                const value = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ActionRequirements>, Database, readOnlyDatabase(this.database.effect));
+                const value = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ConfigurationRequirements>, Database, readOnlyDatabase(this.database.effect));
                 // Платформа не знает, что именно изменил обработчик: изменения записей попадают в журнал
                 // строками вложенных действий, а эта строка связывает их с вызовом через parentActionGuid.
                 yield* writeJournal({ occurredAt, target: { kind: description.kind, name: description.name, guid: null }, action, changes: null });
@@ -298,6 +344,18 @@ export class DataService {
             }.bind(this));
         }
         return Effect.fail(new DataNotFoundError({ message: `Действие «${action}» для ${description.kind}.${description.name} не найдено` }));
+    }
+
+    /** Сведения сравниваются с текущей записью до проверки схемы и замены ресурсов. */
+    private saveInformation(description: ObjectDescription, payload: unknown): Effect.Effect<RecordValue, unknown, ActionRequirements> {
+        return Effect.gen(function* () {
+            const request = objectValue(payload, 'payload');
+            const fields = objectValue(request['fields'], 'payload.fields');
+            const dimensions = Object.fromEntries(description.fields.filter(field => field.role === 'dimension').map(field => [field.name, fields[field.name]]));
+            const existing = yield* getInformation(description, { dimensions }).pipe(Effect.catchTag('DataNotFoundError', () => Effect.void));
+            const safe = writableInput(description, fields, typeof existing === 'object' ? existing : undefined, yield* currentAccess);
+            return yield* mutateInformation(description, 'save', { ...request, fields: safe });
+        });
     }
 
     /** Проверяет идентификатор в действиях чтения и пометки до запроса к базе. */
@@ -439,9 +497,11 @@ export class DataService {
             if (presentation !== '' && presented === null) {
                 return yield* new DataValidationError({ message: 'Поиск по представлению доступен только для справочников и документов', fields: ['payload.presentation'] });
             }
-            const columns = buildList(description).columns;
+            const access = yield* currentAccess;
+            const columns = buildList(description).columns.filter(column => dataLevel(access, description, column.field) !== 'deny');
             const context = yield* ActionContext;
             const rights = yield* this.rightsGuard.rightsOf(context.userGuid);
+            if (presentation !== '' && description.fields.some(field => dataLevel(access, description, field.name) === 'deny')) return yield* accessDenied(access, description, 'presentation', 'read', 'deny');
             const presentations = new ListPresentations(this.metadata.objects, rights, columns);
             const filters = options['filter'] ?? [];
             const sorting = options['sort'] ?? [];
@@ -464,6 +524,7 @@ export class DataService {
             for (const raw of filters) {
                 const filter = objectValue(raw, 'payload.filter');
                 const name = stringValue(filter['field'], 'payload.filter.field');
+                if (dataLevel(access, description, name) === 'deny') return yield* accessDenied(access, description, `fields.${name}`, 'read', 'deny');
                 const field = description.fields.find((candidate) => candidate.name === name);
                 if (field === undefined) return yield* new DataValidationError({ message: `Неизвестное поле отбора «${name}»`, fields: [`payload.filter.${name}`] });
                 const operator = filter['operator'] as FilterOperator;
@@ -503,6 +564,7 @@ export class DataService {
                 const name = stringValue(sort['field'], 'payload.sort.field');
                 const direction = sort['direction'];
                 // Регистратор хранится в двух колонках и в описании списка не сортируется.
+                if (dataLevel(access, description, name) === 'deny') return yield* accessDenied(access, description, `fields.${name}`, 'read', 'deny');
                 const field = description.fields.find((candidate) => candidate.name === name);
                 if (field === undefined || field.kind === 'recorder' || (direction !== 'ascending' && direction !== 'descending')) {
                     return yield* new DataValidationError({ message: `Неверная сортировка по «${name}»`, fields: [`payload.sort.${name}`] });
@@ -568,7 +630,9 @@ export class DataService {
             const request = objectValue(payload, 'payload');
             const guid = request['guid'] === undefined ? newGuid() : stringValue(request['guid'], 'payload.guid');
             if (request['guid'] !== undefined) yield* validated(fieldSchema(description.fields.find((field) => field.name === 'guid')!), guid, 'payload.guid');
-            const computed = yield* calculatedInput(description.fields, description.tableParts, request['fields'], 'payload.fields');
+            const access = yield* currentAccess;
+            const safeInput = writableInput(description, objectValue(request['fields'], 'payload.fields'), existingRecord, access);
+            const computed = yield* calculatedInput(description.fields, description.tableParts, safeInput, 'payload.fields');
             const input = yield* validated(inputSchema(description), computed, 'payload.fields') as Effect.Effect<RecordValue, DataValidationError>;
             const values: RecordValue = { guid, deletedAt: null };
             for (const field of description.fields) {

@@ -158,6 +158,9 @@ function DescribedTable({ object, list, columns: columnNames, hiddenRowActions, 
         } }),
     }));
 
+    // Недоступное число или строка должны отличаться от пустой ячейки.
+    for (const [index, column] of shown.entries()) if (column.access === 'deny') columns[index] = { key: column.field, title: column.title, type: 'free', render: () => <span>Нет доступа</span> };
+
     if (formActions.has('markDeleted') || formActions.has('unmarkDeleted')) {
         columns.push({
             key: 'actions',

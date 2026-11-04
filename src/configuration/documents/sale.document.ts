@@ -1,3 +1,4 @@
+import { accessSchema } from '../../server/authorization/access-schema.js';
 /**
  * Продажа: товары, проданные в смену, и их оплата. Сумма продажи хранится вычисляемым полем шапки:
  * по ней работают списки. Проведённая продажа записывает сумму в регистр «Продажи за вычетом возвратов» со своей сменой;
@@ -14,7 +15,7 @@ import { Effect } from 'effect';
 import { ActionDispatcher, callFunction } from '../../server/data/action-context.js';
 import { DataPolicyError, DataValidationError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { document, formula, Metadata, movements, type LookupInput, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { formatDateTime, formatMoney, normalizeSearchText } from '../../server/ui/value-format.js';
 import { Employees } from '../catalogs/employees.catalog.js';
@@ -244,7 +245,7 @@ const saleWeighingPolicy: Policy<SaleRecord> = {
  * магазина этого достаточно; без поиска строки страницы читаются запросом с LIMIT и OFFSET.
  */
 const searchSales = ({ search, pageSize, offset }: LookupInput) => Effect.gen(function* () {
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const sales = query(sale);
     const where = [{ column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }] as const;
     const columns = ['guid', 'number', 'date', 'paymentMode', 'amount'] as const;
@@ -376,7 +377,7 @@ const changesState = (guid: string) => Effect.gen(function* () {
     const metadata = yield* Metadata;
     const description = metadata.find('document', installmentTarget.name);
     if (description === undefined) return yield* Effect.die(new Error('В конфигурации нет документа «Рассрочка по продаже»'));
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const rows = yield* database.all(query(description).select({
         columns: ['guid'],
         where: [{ column: 'sale', operator: '=', value: guid }, { column: 'deletedAt', operator: '=', value: null }],
@@ -454,7 +455,7 @@ const checkInstallmentChanges = (state: SaleChangesState, changes: ReadonlyArray
     const known = new Set(state.installments.map((installment) => installment.guid));
     if (changes.some((change) => !known.has(change.installment))) return yield* rejected('В изменениях указана рассрочка, которая не относится к этой продаже');
     if (paymentRows.some((row) => !given.has(row.installment))) return yield* rejected('Взнос указан у рассрочки, которой нет в изменениях');
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const shift = yield* database.get(query(Shift).select({ columns: ['guid'], where: [{ column: 'closedAt', operator: '=', value: null }], limit: 1 }));
     // Погашения возвратами считает функция рассрочек. Вызов идёт по ссылке, а не по билдеру рассрочки:
     // файл рассрочки импортирует продажу, и импорт в обратную сторону замкнул бы их в круг.
@@ -572,7 +573,7 @@ const arrangedAmount = (sale: string) => Effect.gen(function* () {
     const metadata = yield* Metadata;
     const description = metadata.find('document', installmentTarget.name);
     if (description === undefined) return yield* Effect.die(new Error('В конфигурации нет документа «Рассрочка по продаже»'));
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const rows = yield* database.all(query(description).select({
         columns: ['amount', 'type', 'person'],
         where: [{ column: 'sale', operator: '=', value: sale }, { column: 'deletedAt', operator: '=', value: null }],
@@ -632,7 +633,7 @@ const writeInstallment = ({ existing, fields }: InstallmentWrite) => Effect.gen(
  * вложенным `save`, а оно проверяется по правам того же пользователя, поэтому пользователю нужны
  * права на действие, на чтение продажи и на запись рассрочки по продаже.
  */
-export const Sale = sale
+const saleWithHandlers = sale
     // Элементы ставятся на форму только в группе, а группы выводятся раньше остальных полей.
     // Поэтому шапка тоже собрана в группу: иначе товары оказались бы над ней.
     .form((form) => form
@@ -822,7 +823,7 @@ export const Sale = sale
             const refundTarget = { kind: 'document', name: 'refund' };
             const refundDescription = metadata.find('document', refundTarget.name);
             if (refundDescription === undefined) return yield* Effect.die(new Error('В конфигурации нет документа «Возврат»'));
-            const database = yield* Database;
+            const database = yield* ReadonlyDatabase;
             const bases = yield* database.all(query(refundDescription).tablePart('bases').select({
                 columns: ['ownerGuid'],
                 where: [{ column: 'sale', operator: '=', value: state.sale.guid }],
@@ -865,3 +866,6 @@ export const Sale = sale
         // Оплаты способом «Рассрочка» записаны одной суммой: рассрочки оформляются на продажу, а не на строку.
         movements(UnarrangedInstallments, installmentAmount(record) > 0 ? [{ sale: record.guid, amount: installmentAmount(record) }] : []),
     ]));
+
+/** Группа полномочий объединяет суммы и оплаты независимо от расположения на форме. */
+export const Sale = saleWithHandlers.withAccess(accessSchema(saleWithHandlers).defineGroup('financial', ['amount', 'paid', 'payments', 'goods.cost', 'goods.discount', 'goods.total'], 'Финансы'));

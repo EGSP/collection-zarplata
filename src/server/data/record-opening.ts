@@ -1,3 +1,4 @@
+import { currentAccess, dataLevel } from '../authorization/access-execution.js';
 /** Общий серверный выбор формы: клиент передаёт исходную ссылку, конфигурация выбирает цель. */
 import { Effect } from 'effect';
 import { CurrentUserRights } from '../authorization/current-user-rights.js';
@@ -54,6 +55,9 @@ export const resolveRecordOpening = Effect.fn('resolveRecordOpening')(function* 
         yield* rights.require(readRight(description));
         const record = yield* loadRecord(description, reference.guid);
         if (input['original'] === true || description.opening === null) return reference;
+        // Правило открытия не получает скрытые реквизиты и не раскрывает их ссылкой назначения.
+        const access = yield* currentAccess;
+        if (description.fields.some(field => dataLevel(access, description, field.name, true) === 'deny')) return reference;
         // Тип аргумента соответствует описанию, по которому только что прочитана запись.
         const result = description.opening(record as never);
         if (result === null) return reference;

@@ -19,15 +19,14 @@
  * удалить прежние движения документа.
  */
 import { Effect, flow, pipe, Schema } from 'effect';
-import type { CurrentUserRights } from '../authorization/current-user-rights.js';
 import { Database } from '../database/database.effect.js';
 import { query } from '../database/sql.builder.js';
 import type { ObjectDescription, RegisterMovements } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { fieldsSchema } from '../metadata/schema.js';
-import type { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataValidationError } from './data.errors.js';
 import { loadRecord, validated, type RecordValue } from './records.js';
+import type { ConfigurationRequirements } from '../metadata/builders.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { documentMovementKeys, enforceConstraints } from './register-constraints.js';
 
@@ -42,7 +41,7 @@ export interface DocumentState {
  * обработчику проведения: он выполняется внутри действия, может вызывать вложенные действия
  * и проверять права пользователя.
  */
-type PostingRequirements = Database | Metadata | ActionContext | ActionDispatcher | CurrentUserRights;
+type PostingRequirements = Database | ConfigurationRequirements;
 
 /** Шаг проведения. Ошибка обработчика проведения конфигурации не типизирована, поэтому ошибка шага — `unknown`. */
 type Step = (state: DocumentState) => Effect.Effect<DocumentState, unknown, PostingRequirements>;
@@ -108,7 +107,7 @@ const writeMovements: Step = (state) => Effect.gen(function* () {
     // Описание хранит обработчики разных документов; вызов допустим с записью этого документа.
     const result = description.posting(record as never);
     if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть Effect'));
-    const groups = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, PostingRequirements>, Database, readOnlyDatabase(database));
+    const groups = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ConfigurationRequirements>, Database, readOnlyDatabase(database));
     if (!Array.isArray(groups)) return yield* Effect.die(new Error('Обработчик проведения должен вернуть список движений'));
     // Номера строк сквозные внутри регистра, даже если обработчик вернул для него несколько групп.
     const lineNumbers = new Map<string, number>();

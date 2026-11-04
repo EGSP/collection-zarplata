@@ -53,6 +53,7 @@ export function RecordTablePart({ object, guid, part, onRowClick, selection, lay
     const description = view?.tableParts?.find((candidate) => candidate.name === part);
     if (view === undefined) return <Alert type="warning" title="Нет доступа" />;
     if (query.isError) return <Alert type="error" title="Не удалось прочитать строки" description={query.error.message} />;
+    if (description?.access === 'deny') return <Alert type="info" title="Нет доступа к строкам" />;
     if (description === undefined) return <Alert type="warning" title="Табличная часть недоступна" />;
     const rows = query.data?.data[0]?.[part];
     return <ReadOnlyTablePart part={description} rows={Array.isArray(rows) ? rows : []} loading={query.isFetching} onRowClick={onRowClick} selection={selection} layouts={layouts} />;

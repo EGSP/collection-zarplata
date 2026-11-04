@@ -34,7 +34,7 @@ covers:
 | `requireRight`: нет права | 403, ключ права |
 | Остальные ошибки | по [общим правилам API](single-endpoint.md) |
 
-В политиках, собственных действиях и обработчиках проведения сервис `Database` разрешает только чтение в текущей транзакции. Прямой изменяющий SQL и создание транзакции прерывают запрос и откатывают изменения. Изменять данные нужно через `ActionDispatcher`. Платформенные шаги используют полный доступ к базе. Движения регистров напрямую не изменяются: их записывает платформа при проведении документа.
+Политики, собственные действия и обработчики проведения получают `ReadonlyDatabase` с методами `get` и `all` в текущей транзакции. Контракты билдеров не допускают `Database` в окружении обработчика; попытка вызвать `run` или `transaction` у сервиса чтения также не проходит проверку типов. Изменять данные нужно через `ActionDispatcher`. Защитная обёртка дополнительно запрещает прямой изменяющий SQL во время выполнения. Платформенные шаги используют полный доступ к базе. Движения регистров записывает платформа при проведении документа.
 
 ## Контракт обработчиков
 
@@ -51,7 +51,7 @@ covers:
 
 Справочники и документы удаляются пометкой, поэтому им нужны `markDeleted` и `unmarkDeleted`. Обработчик `delete` относится только к регистру сведений. Обработчик в политике не добавляет объекту нового действия.
 
-В окружении обработчика доступны `Database`, `Metadata`, `ActionContext`, `ActionDispatcher` и `CurrentUserRights`; права проверяют `hasRight` и `requireRight`. Типы определены в [билдерах метаданных](https://github.com/EGSP/collection-zarplata/blob/main/src/server/metadata/builders.ts), вызов проверок реализован в [модуле политик](https://github.com/EGSP/collection-zarplata/blob/main/src/server/data/policies.ts), общий конвейер изменения записей находится в [диспетчере данных](https://github.com/EGSP/collection-zarplata/blob/main/src/server/data/data.service.ts).
+В окружении обработчика доступны `ReadonlyDatabase`, `Metadata`, `ActionContext`, `ActionDispatcher`, `FunctionDispatcher` и `CurrentUserRights`; права проверяют `hasRight` и `requireRight`. Типы определены в [билдерах метаданных](https://github.com/EGSP/collection-zarplata/blob/main/src/server/metadata/builders.ts), вызов проверок реализован в [модуле политик](https://github.com/EGSP/collection-zarplata/blob/main/src/server/data/policies.ts), общий конвейер изменения записей находится в [диспетчере данных](https://github.com/EGSP/collection-zarplata/blob/main/src/server/data/data.service.ts).
 
 ## Как подключить политику к объекту
 

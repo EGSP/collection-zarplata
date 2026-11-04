@@ -56,6 +56,7 @@ export interface ActionCall<Action extends string = string> {
 export function useAction(): <Action extends string = string, Result = unknown>(call: ActionCall<Action>) => Promise<Result> {
     const { mutateAsync } = useCustomMutation<BaseRecord, ApiError>();
     const invalidateData = useInvalidateData();
+    const queryClient = useQueryClient();
     return useCallback(
         async <Action extends string = string, Result = unknown>({ object, action, payload = {}, successMessage, failureMessage }: ActionCall<Action>) => {
             const response = await mutateAsync({
@@ -66,9 +67,10 @@ export function useAction(): <Action extends string = string, Result = unknown>(
                 ...(failureMessage === undefined ? {} : { errorNotification: (error) => ({ type: 'error', message: failureMessage, description: error?.message ?? '' }) }),
             });
             void invalidateData();
+            if (object.kind === 'platform' && (object.name === 'authorization' || object.name === 'users')) void queryClient.invalidateQueries({ queryKey: ['metadata'] });
             return response.data as Result;
         },
-        [mutateAsync, invalidateData],
+        [mutateAsync, invalidateData, queryClient],
     );
 }
 
@@ -158,8 +160,11 @@ export function useActionResult<Result = unknown, Action extends string = string
         queryOptions: { enabled, refetchInterval: refreshInterval },
         errorNotification: false,
     });
+    const result = query.data?.data;
+    // Подтверждение исполнения без публичного результата не подставляется вместо данных экрана.
+    const concealed = result !== null && typeof result === 'object' && Object.keys(result).length === 1 && result['completed'] === true;
     return {
-        data: query.data?.data as Result | undefined,
+        data: concealed ? undefined : result as Result | undefined,
         loading: query.isFetching,
         refresh: async () => {
             await query.refetch();

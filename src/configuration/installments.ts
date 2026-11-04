@@ -21,7 +21,7 @@ import { requireRight } from '../server/authorization/current-user-rights.js';
 import { ActionDispatcher } from '../server/data/action-context.js';
 import { DataPolicyError } from '../server/data/data.errors.js';
 import { query } from '../server/database/sql.builder.js';
-import { Database } from '../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../server/database/database.effect.js';
 import {
     document,
     movements,
@@ -118,7 +118,7 @@ const notPosted = 'Рассрочка не проведена: сначала п
  * если её удалили или пометили на удалении, рассрочку не оформить, и отказ называет причину.
  */
 export const ownInstallmentRate = Effect.gen(function* () {
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const rate = yield* database.get(query(InstallmentRates).select({
         columns: ['guid'],
         where: [{ column: 'name', operator: '=', value: ownInstallmentRateName }, { column: 'deletedAt', operator: '=', value: null }],
@@ -218,7 +218,7 @@ const changedInstallmentDates = (existingRecord: InstallmentRecord | null, propo
  * и подставляет новое погашение. Без `recorder` возвращается текущий остаток.
  */
 export const installmentDebt = (installment: string, recorder: { readonly document: string; readonly guid: string } | null = null) => Effect.gen(function* () {
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const basis = objectReference({ kind: 'document', name: 'saleInstallment' }, installment);
     const row = yield* database.get(query(InstallmentDebts).sums({
         groupBy: [],
@@ -232,7 +232,7 @@ export const installmentDebt = (installment: string, recorder: { readonly docume
  * Отменено ли основание рассрочки: например, продажа, по которой она оформлена, помечена на удаление.
  * Документ рассрочки задаёт проверку сам: общая часть не знает поля основания.
  */
-export type CancelledWithBasis<Record = InstallmentRecord> = (record: Record) => Effect.Effect<boolean, unknown, Database>;
+export type CancelledWithBasis<Record = InstallmentRecord> = (record: Record) => Effect.Effect<boolean, unknown, ReadonlyDatabase>;
 
 /**
  * Правила рассрочки (раздел «Правила учёта»).
@@ -385,7 +385,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
                 if (!record.posted) return yield* rejected(`${notPosted}, чтобы внести взнос`);
                 // Взнос запоминает смену, в которую его приняли. Без открытой смены взнос принимается
                 // с пустой сменой: работа не должна зависеть от того, успели ли открыть смену.
-                const database = yield* Database;
+                const database = yield* ReadonlyDatabase;
                 const shift = yield* database.get(query(Shift).select({
                     columns: ['guid'],
                     where: [{ column: 'closedAt', operator: '=', value: null }],
@@ -419,7 +419,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
                 // Проведение проверяет покупателя и ставку и записывает долг: взнос банка его погасит.
                 if (!found.posted) yield* dispatcher.execute({ target, action: 'post', payload: { guid: found.guid } });
                 const record = yield* read(input.installment);
-                const database = yield* Database;
+                const database = yield* ReadonlyDatabase;
                 const rate = record.rate === null ? undefined : yield* database.get(query(InstallmentRates).select({
                     columns: ['name'],
                     where: [{ column: 'guid', operator: '=', value: record.rate }],

@@ -11,7 +11,7 @@
  * функцию, поэтому начисление при закрытии совпадает с предварительным расчётом по тот же день.
  */
 import { Effect } from 'effect';
-import { Database } from '../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../server/database/database.effect.js';
 import { query } from '../server/database/sql.builder.js';
 import { objectReference } from '../server/metadata/index.js';
 import { InstallmentRates } from './catalogs/installment-rates.catalog.js';
@@ -69,7 +69,7 @@ const distinct = (values: ReadonlyArray<string | null>): string[] => [...new Set
  */
 const refundDetails = (heads: ReadonlyArray<{ readonly guid: string; readonly date: string }>) => Effect.gen(function* () {
     if (heads.length === 0) return [];
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const guids = heads.map((refund) => refund.guid);
     const lines = yield* database.all(query(Refund).tablePart('goods').select({
         columns: ['ownerGuid', 'name', 'discount', 'total', 'sale'],
@@ -96,7 +96,7 @@ const refundDetails = (heads: ReadonlyArray<{ readonly guid: string; readonly da
  * сравнивается так же, как в политике закрытого периода: по первым десяти знакам даты.
  */
 const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const previous = yield* lastClosedThrough;
     const periodStart = previous === null ? null : nextDay(previous);
     const inPeriod = (date: string) => (periodStart === null || dayOf(date) >= periodStart) && dayOf(date) <= closedThrough;

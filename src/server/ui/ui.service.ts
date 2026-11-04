@@ -49,7 +49,7 @@ export class UiService {
     async metadataResponse(userGuid: string): Promise<MetadataResponse> {
         this.views ??= this.metadata.objects.map((object) => ({ object, view: buildObjectView(object) }));
         const rights = await Effect.runPromise(this.rightsGuard.rightsOf(userGuid).pipe(Effect.provideService(Database, this.database.effect)));
-        const objects = this.views.flatMap(({ object, view }) => restrictObjectView(object, view, rights.allows) ?? []);
+        const objects = this.views.flatMap(({ object, view }) => restrictObjectView(object, view, rights.allows, rights) ?? []);
         if (rights.allows(platformRights.users.read)) objects.push(userObjectView(rights.allows(platformRights.users.write)));
         const pages = this.pages.filter((page) => rights.allows(pageOpenRight(page.name)));
         // Схема отбирается по уже отобранным описаниям: пункт без описания клиент не смог бы ни подписать, ни открыть.

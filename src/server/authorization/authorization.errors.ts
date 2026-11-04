@@ -7,4 +7,10 @@ import { Data } from 'effect';
 export class RightsDeniedError extends Data.TaggedError('RightsDeniedError')<{
     readonly message: string;
     readonly right: string;
+    readonly code?: string;
+    readonly target?: { readonly kind: string; readonly name: string };
+    readonly path?: string;
+    readonly required?: string;
+    readonly actual?: string;
+    readonly chain?: readonly string[];
 }> {}
