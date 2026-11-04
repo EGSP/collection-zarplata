@@ -11,6 +11,7 @@
  * `commit()` у объектов: объект и страница указываются импортированными билдерами, а имена
  * подсистем накапливаются в параметре типа, и повтор имени не компилируется.
  */
+import type { platformUsers } from '../users/descriptions.js';
 import type { ObjectBuilder } from '../metadata/builders.js';
 import type { ShellGroup, ShellItem, ShellSubsystem, ShellView, SubsystemIcon } from './descriptions.js';
 import { pageKind, type PageBuilder } from './pages.js';
@@ -42,10 +43,10 @@ export class SubsystemBuilder {
 
     /**
      * Группа с заголовком; объекты и страницы показываются в указанном порядке. Пункт передаётся
-     * билдером из файла объекта или объявления страницы, поэтому опечатка в имени невозможна,
+     * билдером объекта, объявления страницы или дескриптором служебного объекта, поэтому опечатка в имени невозможна,
      * а строка не компилируется.
      */
-    group(title: string, items: ReadonlyArray<ObjectBuilder | PageBuilder>): SubsystemBuilder {
+    group(title: string, items: ReadonlyArray<ObjectBuilder | PageBuilder | typeof platformUsers>): SubsystemBuilder {
         const group: ShellGroup = { title, items: items.map((item): ShellItem => ({ kind: item.kind, name: item.name })) };
         return new SubsystemBuilder(this['~title'], this['~icon'], [...this['~groups'], group]);
     }

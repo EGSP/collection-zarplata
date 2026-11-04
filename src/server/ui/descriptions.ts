@@ -242,11 +242,11 @@ export interface ListView {
     readonly tableParts?: ReadonlyArray<string>;
 }
 
-/** Описание объекта для клиента: заголовок, форма и список. */
+/** Описание прикладного или служебного объекта ИБ для клиента: заголовок, форма и список. */
 export interface ObjectView {
     /** Полный состав частей для просмотра строк независимо от раскладки формы. */
     readonly tableParts?: ReadonlyArray<FormTablePart>;
-    readonly kind: ObjectKind;
+    readonly kind: ObjectKind | 'platform';
     readonly name: string;
     readonly title: string;
     /**
@@ -275,8 +275,8 @@ export interface LookupView {
  * из его описания в `objects`, заголовок страницы — из `pages`; иконку он выбирает по виду.
  */
 export interface ShellItem {
-    /** Вид объекта либо `page` у страницы конфигурации. */
-    readonly kind: ObjectKind | 'page';
+    /** Вид прикладного объекта, `platform` у служебного объекта или `page` у страницы. */
+    readonly kind: ObjectKind | 'platform' | 'page';
     readonly name: string;
 }
 
@@ -345,4 +345,11 @@ export interface MetadataResponse {
     readonly objects: ReadonlyArray<ObjectView>;
     readonly pages: ReadonlyArray<PageView>;
     readonly shell: ShellView;
+}
+
+/** Адрес открываемой записи ИБ. Служебные записи не становятся прикладными ссылками полей. */
+export interface RecordOpeningReference {
+    readonly kind: 'catalog' | 'document' | 'platform';
+    readonly name: string;
+    readonly guid: string;
 }
