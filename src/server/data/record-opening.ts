@@ -1,7 +1,9 @@
 /** Общий серверный выбор формы: клиент передаёт исходную ссылку, конфигурация выбирает цель. */
 import { Effect } from 'effect';
 import { CurrentUserRights } from '../authorization/current-user-rights.js';
-import { readRight } from '../authorization/rights.js';
+import { Database } from '../database/database.effect.js';
+import { select } from '../database/sql.builder.js';
+import { readRight, platformRights } from '../authorization/rights.js';
 import type { ObjectReferenceValue } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
@@ -26,6 +28,18 @@ export const resolveRecordOpening = Effect.fn('resolveRecordOpening')(function* 
     const input = objectValue(payload, 'payload');
     if (input['original'] !== undefined && typeof input['original'] !== 'boolean') {
         return yield* new DataValidationError({ message: 'original должен быть логическим значением', fields: ['payload.original'] });
+    }
+    // Служебная запись проходит общую проверку открытия, сохраняя свои права и таблицу.
+    const source = objectValue(input['reference'], 'payload.reference');
+    if (source['kind'] === 'platform') {
+        const rights = yield* CurrentUserRights;
+        if (source['name'] !== 'users') return yield* new DataNotFoundError({ message: 'Служебный объект не найден' });
+        yield* rights.require(platformRights.users.read);
+        const guid = guidValue(source['guid'], 'payload.reference.guid');
+        const database = yield* Database;
+        const user = yield* database.get<{ guid: string }>(select('platform_users', { columns: ['guid'], where: [{ column: 'guid', operator: '=', value: guid }] }));
+        if (user === undefined) return yield* new DataNotFoundError({ message: 'Пользователь не найден' });
+        return { kind: 'platform' as const, name: 'users', guid };
     }
     let reference = referenceValue(input['reference']);
     const metadata = yield* Metadata;

@@ -9,7 +9,7 @@ import { ExistingRecordForm } from './existing-record-form';
 import { ObjectRecordForm } from './object-forms';
 import { Pending } from '../common/pending';
 import { resolveRecordOpening } from '../data-provider/record-opening';
-import type { ObjectReferenceValue } from '../../server/metadata/descriptions';
+import type { RecordOpeningReference } from '../../server/ui/descriptions';
 import type { ObjectView } from '../../server/ui/descriptions';
 
 /**
@@ -48,7 +48,7 @@ export function RecordPage() {
  * раз при открытии: фоновое обновление не должно заменять форму с несохранённым вводом.
  */
 function ResolvedRecordPage({ object, guid, original }: { readonly object: ObjectView; readonly guid: string; readonly original: boolean }) {
-    const [result, setResult] = useState<ObjectReferenceValue | Error | null>(null);
+    const [result, setResult] = useState<RecordOpeningReference | Error | null>(null);
     const kind = object.kind;
     const name = object.name;
     useEffect(() => {

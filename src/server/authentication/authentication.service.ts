@@ -1,5 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { Effect } from 'effect';
 import { jwtVerify, SignJWT } from 'jose';
 import type { DatabaseError } from '../database/database.errors.js';
@@ -14,7 +14,8 @@ export interface TokenPair {
 }
 
 type UserRow = Record<string, unknown> & { guid: string; disabledAt: string | null };
-type TokenRow = Record<string, unknown> & { userGuid: string; expiresAt: string; revokedAt: string | null };
+type SessionRow = Record<string, unknown> & { userGuid: string; expiresAt: string; revokedAt: string | null };
+type TokenRow = SessionRow & { sessionGuid: string | null };
 
 /**
  * Хранит только HMAC PIN и SHA-256 refresh-токена. Ротация и отзыв выполняются в
@@ -60,40 +61,57 @@ export class AuthenticationService {
         return this.issue(userGuid);
     }
 
+    /** Создаёт сессию и первую пару токенов атомарно; UUID остаётся прежним при ротации. */
     private async issue(userGuid: string): Promise<TokenPair> {
+        const sessionGuid = randomUUID();
+        const now = new Date().toISOString();
+        const expiresAt = new Date(Date.now() + this.settings.refreshTokenLifetimeSeconds * 1000).toISOString();
         const refresh = randomBytes(32).toString('base64url');
-        const access = await new SignJWT({}).setProtectedHeader({ alg: 'HS256' })
+        const access = await new SignJWT({ sessionGuid }).setProtectedHeader({ alg: 'HS256' })
             .setSubject(userGuid).setJti(this.tokenHash(refresh)).setIssuedAt().setExpirationTime(`${this.settings.accessTokenLifetimeSeconds}s`).sign(this.signingKey);
-        await Effect.runPromise(this.database.effect.run(insert('platform_tokens', {
-            guid: this.tokenHash(refresh), userGuid,
-            expiresAt: new Date(Date.now() + this.settings.refreshTokenLifetimeSeconds * 1000).toISOString(), revokedAt: null,
-        })));
+        const database = this.database.effect;
+        await Effect.runPromise(database.transaction(Effect.gen(function* (this: AuthenticationService) {
+            yield* database.run(insert('platform_sessions', { guid: sessionGuid, userGuid, createdAt: now, lastConnectedAt: now, refreshedAt: now, expiresAt, revokedAt: null }));
+            yield* database.run(insert('platform_tokens', {
+                guid: this.tokenHash(refresh), userGuid, sessionGuid, expiresAt, revokedAt: null,
+            }));
+        }.bind(this))));
         return { access, refresh };
     }
 
-    /** Подтверждает подпись и срок access-токена, затем проверяет, что пользователь активен. */
+    /** Проверяет подпись, срок, пользователя, текущий токен и сессию; отмечает успешное подключение. */
     async authenticate(access: string | undefined): Promise<string> {
         if (access === undefined) throw new UnauthorizedException('Требуется вход');
         let guid: string | undefined;
         let sessionHash: string | undefined;
+        let sessionGuid: unknown;
         try {
             const result = await jwtVerify(access, this.signingKey, { algorithms: ['HS256'] });
             guid = result.payload.sub;
             sessionHash = result.payload.jti;
+            sessionGuid = result.payload['sessionGuid'];
         } catch {
             throw new UnauthorizedException('Требуется повторный вход');
         }
-        if (guid === undefined || sessionHash === undefined) throw new UnauthorizedException('Требуется повторный вход');
+        if (guid === undefined || sessionHash === undefined || typeof sessionGuid !== 'string') throw new UnauthorizedException('Требуется повторный вход');
         const user = await Effect.runPromise(this.database.effect.get<UserRow>(select('platform_users', {
             columns: ['guid', 'disabledAt'], where: [{ column: 'guid', operator: '=', value: guid }],
         })));
         if (user === undefined || user.disabledAt !== null) throw new UnauthorizedException('Требуется повторный вход');
         const session = await Effect.runPromise(this.database.effect.get<TokenRow>(select('platform_tokens', {
-            columns: ['userGuid', 'expiresAt', 'revokedAt'], where: [{ column: 'guid', operator: '=', value: sessionHash }],
+            columns: ['userGuid', 'sessionGuid', 'expiresAt', 'revokedAt'], where: [{ column: 'guid', operator: '=', value: sessionHash }],
         })));
-        if (session === undefined || session.userGuid !== guid || session.revokedAt !== null || session.expiresAt <= new Date().toISOString()) {
+        if (session === undefined || session.sessionGuid !== sessionGuid || session.userGuid !== guid || session.revokedAt !== null || session.expiresAt <= new Date().toISOString()) {
             throw new UnauthorizedException('Требуется повторный вход');
         }
+        // Подписи JWT недостаточно: отзыв сессии действует уже на следующем запросе.
+        const activeSession = await Effect.runPromise(this.database.effect.get<SessionRow>(select('platform_sessions', {
+            columns: ['userGuid', 'expiresAt', 'revokedAt'], where: [{ column: 'guid', operator: '=', value: sessionGuid }],
+        })));
+        if (activeSession === undefined || activeSession.userGuid !== guid || activeSession.revokedAt !== null || activeSession.expiresAt <= new Date().toISOString()) {
+            throw new UnauthorizedException('Требуется повторный вход');
+        }
+        await Effect.runPromise(this.database.effect.run(update('platform_sessions', { lastConnectedAt: new Date().toISOString() }, [{ column: 'guid', operator: '=', value: sessionGuid }])));
         return guid;
     }
 
@@ -104,10 +122,17 @@ export class AuthenticationService {
         return Effect.runPromise(database.transaction(Effect.gen(function* (this: AuthenticationService) {
             const hash = this.tokenHash(token);
             const row = yield* database.get<TokenRow>(select('platform_tokens', {
-                columns: ['userGuid', 'expiresAt', 'revokedAt'], where: [{ column: 'guid', operator: '=', value: hash }],
+                columns: ['userGuid', 'sessionGuid', 'expiresAt', 'revokedAt'], where: [{ column: 'guid', operator: '=', value: hash }],
             }));
-            if (row === undefined || row.revokedAt !== null || row.expiresAt <= new Date().toISOString()) {
+            if (row === undefined || typeof row.sessionGuid !== 'string' || row.revokedAt !== null || row.expiresAt <= new Date().toISOString()) {
                 throw new UnauthorizedException('Токен обновления недействителен');
+            }
+            const sessionGuid = row.sessionGuid;
+            const session = yield* database.get<SessionRow>(select('platform_sessions', {
+                columns: ['userGuid', 'expiresAt', 'revokedAt'], where: [{ column: 'guid', operator: '=', value: sessionGuid }],
+            }));
+            if (session === undefined || session.userGuid !== row.userGuid || session.revokedAt !== null || session.expiresAt <= new Date().toISOString()) {
+                throw new UnauthorizedException('Требуется повторный вход');
             }
             const user = yield* database.get<UserRow>(select('platform_users', {
                 columns: ['guid', 'disabledAt'], where: [{ column: 'guid', operator: '=', value: row.userGuid }],
@@ -118,21 +143,31 @@ export class AuthenticationService {
             ]));
             const refresh = randomBytes(32).toString('base64url');
             yield* database.run(insert('platform_tokens', {
-                guid: this.tokenHash(refresh), userGuid: row.userGuid,
+                guid: this.tokenHash(refresh), userGuid: row.userGuid, sessionGuid,
                 expiresAt: new Date(Date.now() + this.settings.refreshTokenLifetimeSeconds * 1000).toISOString(), revokedAt: null,
             }));
-            const access = yield* Effect.promise(() => new SignJWT({}).setProtectedHeader({ alg: 'HS256' })
+            const access = yield* Effect.promise(() => new SignJWT({ sessionGuid }).setProtectedHeader({ alg: 'HS256' })
                 .setSubject(row.userGuid).setJti(this.tokenHash(refresh)).setIssuedAt().setExpirationTime(`${this.settings.accessTokenLifetimeSeconds}s`).sign(this.signingKey));
+            yield* database.run(update('platform_sessions', {
+                refreshedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + this.settings.refreshTokenLifetimeSeconds * 1000).toISOString(),
+            }, [{ column: 'guid', operator: '=', value: sessionGuid }]));
             return { access, refresh };
         }.bind(this))));
     }
 
-    /** Отзывает предъявленный refresh-токен; повторный выход допускается. */
+    /** Завершает сессию действующего refresh-токена; повторный выход допускается. */
     async logout(token: string | undefined): Promise<void> {
         if (token === undefined) return;
-        await Effect.runPromise(this.database.effect.run(update('platform_tokens', { revokedAt: new Date().toISOString() }, [
-            { column: 'guid', operator: '=', value: this.tokenHash(token) },
-            { column: 'revokedAt', operator: '=', value: null },
-        ])));
+        const database = this.database.effect;
+        await Effect.runPromise(database.transaction(Effect.gen(function* (this: AuthenticationService) {
+            const row = yield* database.get<TokenRow>(select('platform_tokens', {
+                columns: ['sessionGuid', 'revokedAt'], where: [{ column: 'guid', operator: '=', value: this.tokenHash(token) }],
+            }));
+            // Уже израсходованный refresh не может завершить сессию после ротации.
+            if (row?.sessionGuid == null || row.revokedAt !== null) return;
+            const revokedAt = new Date().toISOString();
+            yield* database.run(update('platform_sessions', { revokedAt }, [{ column: 'guid', operator: '=', value: row.sessionGuid }]));
+            yield* database.run(update('platform_tokens', { revokedAt }, [{ column: 'sessionGuid', operator: '=', value: row.sessionGuid }, { column: 'revokedAt', operator: '=', value: null }]));
+        }.bind(this))));
     }
 }

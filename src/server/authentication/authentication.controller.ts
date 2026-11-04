@@ -76,7 +76,7 @@ export class AuthenticationController {
         this.setCookies(reply, request, tokens);
     }
 
-    /** Отзывает refresh-токен и удаляет cookie браузера. */
+    /** Завершает сессию действующего refresh-токена и удаляет cookie браузера. */
     @Post('logout')
     @HttpCode(HttpStatus.NO_CONTENT)
     async logout(@Req() request: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply): Promise<void> {

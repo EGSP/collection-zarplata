@@ -9,7 +9,7 @@ import { Database } from '../database/database.effect.js';
 import { insert, select, update } from '../database/sql.builder.js';
 import { writeJournal } from '../journal/journal.js';
 import type { JournalChanges } from '../journal/descriptions.js';
-import type { UserAccount, UserDirectory } from './descriptions.js';
+import type { UserAccount, UserDirectory, UserSession } from './descriptions.js';
 
 /** Читаем только публичные колонки: расширение служебной таблицы не раскроет секреты. */
 export const readUserAccounts = Effect.fn('users.read')(function* () {
@@ -34,8 +34,8 @@ export const readUserAccounts = Effect.fn('users.read')(function* () {
 export const userDirectoryAction = Effect.fn('users.action')(function* (
     action: string, payload: unknown, userGuid: string | null, guard: RightsGuardPlatform, pinHash: (pin: string) => string,
 ) {
-    if (!['list', 'get', 'save'].includes(action)) return yield* new DataNotFoundError({ message: `Действие «${action}» для пользователей не найдено` });
-    yield* guard.require(userGuid, action === 'save' ? platformRights.users.write : platformRights.users.read);
+    if (!['list', 'get', 'save', 'sessions', 'revokeSession'].includes(action)) return yield* new DataNotFoundError({ message: `Действие «${action}» для пользователей не найдено` });
+    yield* guard.require(userGuid, (action === 'save' || action === 'revokeSession') ? platformRights.users.write : platformRights.users.read);
     const database = yield* Database;
     if (action === 'list') {
         const rights = yield* guard.rightsOf(userGuid);
@@ -49,8 +49,29 @@ export const userDirectoryAction = Effect.fn('users.action')(function* (
     const input = objectValue(payload, 'payload');
     const guid = input['guid'] === undefined && action === 'save' ? newGuid() : guidValue(input['guid'], 'guid');
     const existing = (yield* readUserAccounts()).find((user) => user.guid === guid);
-    if ((action === 'get' || input['guid'] !== undefined) && existing === undefined) {
+    if ((action !== 'save' || input['guid'] !== undefined) && existing === undefined) {
         return yield* new DataNotFoundError({ message: 'Пользователь не найден' });
+    }
+    if (action === 'sessions') {
+        // Явный список колонок исключает раскрытие секретов при расширении таблицы.
+        return yield* database.all<UserSession & Record<string, unknown>>(select('platform_sessions', {
+            columns: ['guid', 'createdAt', 'lastConnectedAt', 'refreshedAt'],
+            where: [{ column: 'userGuid', operator: '=', value: guid }, { column: 'revokedAt', operator: '=', value: null }, { column: 'expiresAt', operator: '>', value: new Date().toISOString() }],
+            orderBy: [{ column: 'createdAt', direction: 'DESC' }],
+        }));
+    }
+    if (action === 'revokeSession') {
+        const sessionGuid = guidValue(input['sessionGuid'], 'sessionGuid');
+        const session = yield* database.get<{ revokedAt: string | null }>(select('platform_sessions', {
+            columns: ['revokedAt'], where: [{ column: 'guid', operator: '=', value: sessionGuid }, { column: 'userGuid', operator: '=', value: guid }],
+        }));
+        if (session === undefined) return yield* new DataNotFoundError({ message: 'Сессия не найдена' });
+        if (session.revokedAt !== null) return null;
+        const revokedAt = new Date().toISOString();
+        yield* database.run(update('platform_sessions', { revokedAt }, [{ column: 'guid', operator: '=', value: sessionGuid }]));
+        yield* database.run(update('platform_tokens', { revokedAt }, [{ column: 'sessionGuid', operator: '=', value: sessionGuid }, { column: 'revokedAt', operator: '=', value: null }]));
+        yield* writeJournal({ occurredAt: revokedAt, target: { kind: 'platform', name: 'users', guid }, action: 'revokeSession', changes: { sessionGuid: { before: null, after: sessionGuid } } });
+        return null;
     }
     if (action === 'get') return existing;
     if (typeof input['name'] !== 'string' || input['name'].trim().length === 0) {
@@ -89,6 +110,7 @@ export const userDirectoryAction = Effect.fn('users.action')(function* (
     yield* assignUserRoles(guid, roles);
     // Отключение и смена PIN отзывают прежние сессии, включая refresh. Включение их не восстанавливает.
     if (disabledAt !== null || hash !== undefined) {
+        yield* database.run(update('platform_sessions', { revokedAt: new Date().toISOString() }, [{ column: 'userGuid', operator: '=', value: guid }, { column: 'revokedAt', operator: '=', value: null }]));
         yield* database.run(update('platform_tokens', { revokedAt: new Date().toISOString() }, [
             { column: 'userGuid', operator: '=', value: guid }, { column: 'revokedAt', operator: '=', value: null },
         ]));

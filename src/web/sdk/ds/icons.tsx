@@ -225,6 +225,8 @@ export const Icons = {
 
     // Виды объектов и страница конфигурации. Имена совпадают с видами пунктов схемы оболочки:
     // меню подсистем берёт иконку пункта по его виду.
+    // Служебный объект сохраняет прежний значок страницы при подключении общих форм.
+    platform: AppstoreOutlined,
     catalog: BookOutlined,
     document: FileTextOutlined,
     register: BarChartOutlined,

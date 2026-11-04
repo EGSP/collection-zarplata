@@ -109,7 +109,9 @@ const platformTables: readonly TableStructure[] = [
     { name: 'platform_users', columns: [column('guid', 'TEXT', true), column('name', 'TEXT', true), column('pinHash', 'TEXT', true), column('disabledAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_users', 'pinHash', ['pinHash'], true)] },
     // Первичный ключ начинается с пользователя и покрывает единственный способ чтения: роли одного пользователя.
     { name: 'platform_user_roles', columns: [column('userGuid', 'TEXT', true), column('role', 'TEXT', true)], primaryKey: ['userGuid', 'role'], indexes: [] },
-    { name: 'platform_tokens',columns: [column('guid', 'TEXT', true), column('userGuid', 'TEXT', true), column('expiresAt', 'TEXT', true), column('revokedAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_tokens', 'userGuid', ['userGuid'])] },
+    // Сессия переживает ротацию токенов; прежние токены без sessionGuid больше не принимаются.
+    { name: 'platform_sessions', columns: [column('guid', 'TEXT', true), column('userGuid', 'TEXT', true), column('createdAt', 'TEXT', true), column('lastConnectedAt', 'TEXT', true), column('refreshedAt', 'TEXT', true), column('expiresAt', 'TEXT', true), column('revokedAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_sessions', 'userGuid', ['userGuid'])] },
+    { name: 'platform_tokens', columns: [column('guid', 'TEXT', true), column('userGuid', 'TEXT', true), column('sessionGuid', 'TEXT'), column('expiresAt', 'TEXT', true), column('revokedAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_tokens', 'userGuid', ['userGuid']), index('platform_tokens', 'sessionGuid', ['sessionGuid'])] },
 ];
 
 /** Строит все прикладные и служебные таблицы в устойчивом порядке; имена проверяются при построении SQL. */
