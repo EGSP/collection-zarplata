@@ -7,22 +7,22 @@ import { accessTreeAction } from '../authorization/access-tree.js';
 import { backupAction, backupsTarget } from '../backup/backup.action.js';
 import { BackupService } from '../backup/backup.service.js';
 import { Effect } from 'effect';
-import { platformRights, requiredRight } from '../authorization/rights.js';
+import { platformRights, requiredFunctionRight, requiredRight } from '../authorization/rights.js';
 import { CurrentUserRights } from '../authorization/current-user-rights.js';
 import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
 import { newGuid } from '../common/guid.js';
 import { DatabaseService } from '../database/database.service.js';
-import { Database } from '../database/database.effect.js';
+import { Database, ReadonlyDatabase, type ReadonlyDatabaseShape } from '../database/database.effect.js';
 import { query, type QueryFilter, type SqlOrder } from '../database/sql.builder.js';
 import type { FieldKind, ObjectDescription } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { MetadataService } from '../metadata/metadata.service.js';
-import { actionInputSchema, fieldSchema, inputSchema } from '../metadata/schema.js';
+import { actionInputSchema, fieldSchema, functionInputSchema, inputSchema } from '../metadata/schema.js';
 import { readJournal, recordChanges, writeJournal } from '../journal/journal.js';
 import { filterOperators, type FilterOperator, type ListColumn } from '../ui/descriptions.js';
 import { columnReference } from '../ui/reference-presentation.js';
 import { displayedKind, formatSearchValue, normalizeSearchText } from '../ui/value-format.js';
-import { ActionContext, ActionDispatcher } from './action-context.js';
+import { ActionContext, ActionDispatcher, FunctionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
 import { filterValue, guidValue, loadRecord, objectValue, pageOptions, sqlOperators, stringValue, validated, type RecordValue } from './records.js';
@@ -37,14 +37,18 @@ import { buildList } from '../ui/views.js';
 import { ListPresentations } from './list-presentations.js';
 
 /** Сервисы, которые получают из окружения Effect стандартные действия и обработчики конфигурации. */
-type ActionRequirements = Database | Metadata | ActionContext | ActionDispatcher | CurrentUserRights;
+type ActionRequirements = Database | ReadonlyDatabase | Metadata | ActionContext | ActionDispatcher | FunctionDispatcher | CurrentUserRights;
 /** Команда изменения: данные для всех применимых политик и эффект, исполняемый после их проверки. */
 type MutationOperation = {
     readonly policyArguments: PolicyInvocation;
     readonly execute: Effect.Effect<RecordValue, unknown, ActionRequirements>;
 };
-/** Внешний запрос после проверки обязательных полей оболочки; payload проверяется для выбранного действия. */
-type Operation = { readonly target: { readonly kind: string; readonly name: string }; readonly action: string; readonly payload: unknown };
+/**
+ * Внешний запрос после проверки обязательных полей оболочки; payload проверяется для выбранного
+ * действия или функции. Операция называет либо действие (`action`), либо функцию (`function`).
+ */
+type Operation = { readonly target: { readonly kind: string; readonly name: string }; readonly payload: unknown }
+    & ({ readonly action: string; readonly function?: undefined } | { readonly action?: undefined; readonly function: string });
 /**
  * Условие отбора, которое проверяется после чтения строки, а не в SQL: буквальная подстрока,
  * которую `LIKE` в Turso понимает как шаблон и сравнивает с учётом регистра кириллицы.
@@ -58,12 +62,22 @@ const numberWidth = 6;
 function parseOperation(value: unknown): Operation {
     const operation = objectValue(value, 'операция');
     const target = objectValue(operation['target'], 'target');
-    return {
-        target: { kind: stringValue(target['kind'], 'target.kind'), name: stringValue(target['name'], 'target.name') },
-        action: stringValue(operation['action'], 'action'),
-        payload: operation['payload'] ?? {},
-    };
+    const parsedTarget = { kind: stringValue(target['kind'], 'target.kind'), name: stringValue(target['name'], 'target.name') };
+    const payload = operation['payload'] ?? {};
+    if (operation['function'] !== undefined) {
+        if (operation['action'] !== undefined) throw new DataValidationError({ message: 'Операция называет либо действие, либо функцию', fields: ['action', 'function'] });
+        return { target: parsedTarget, function: stringValue(operation['function'], 'function'), payload };
+    }
+    return { target: parsedTarget, action: stringValue(operation['action'], 'action'), payload };
 }
+
+/**
+ * Диспетчер действий, который получает обработчик функции: любой вызов через него — дефект.
+ * По типам функции он недоступен, а здесь закрыт и обход типов: функция не меняет данные.
+ */
+const deniedActionDispatcher: ActionDispatcher = {
+    execute: () => Effect.die(new Error('Функция не вызывает действия: для расчёта по другим объектам используйте callFunction')),
+};
 
 /** Цель операции чтения журнала. Вид `platform` не совпадает ни с одним видом объектов конфигурации. */
 const journalTarget = { kind: 'platform', name: 'journal' } as const;
@@ -105,11 +119,25 @@ export class DataService {
         // Тот же диспетчер доступен обработчикам: вложенный вызов не обходит проверку и транзакцию.
         // Контракт диспетчера не требует от обработчика базы и метаданных, поэтому они передаются здесь.
         const dispatcher: ActionDispatcher = {
-            execute: (operation) => this.provideServices(this.execute(operation)).pipe(Effect.provideService(CurrentUserRights, rights)),
+            execute: (operation) => this.provideServices(this.execute(operation)).pipe(
+                Effect.provideService(CurrentUserRights, rights),
+                Effect.provideService(FunctionDispatcher, functions),
+            ),
+        };
+        // Вызов функции из кода сервера идёт тем же путём, что операция `{ target, function, payload }`.
+        // Диспетчеры передаются явно: обработчик функции получает закрытый диспетчер действий,
+        // а вложенная функция всё равно должна пройти через полный путь диспетчера.
+        const functions: FunctionDispatcher = {
+            call: (target, name, payload) => this.provideServices(this.execute({ target, function: name, payload })).pipe(
+                Effect.provideService(CurrentUserRights, rights),
+                Effect.provideService(ActionDispatcher, dispatcher),
+                Effect.provideService(FunctionDispatcher, functions),
+            ),
         };
         const program = Effect.forEach(operations, (operation) => this.execute(operation, userGuid)).pipe(
             (work) => this.database.effect.transaction(work),
             Effect.provideService(ActionDispatcher, dispatcher),
+            Effect.provideService(FunctionDispatcher, functions),
             Effect.provideService(CurrentUserRights, rights),
             (work) => this.provideServices(work),
             Effect.map((results) => Array.isArray(body) ? results : results[0]),
@@ -117,11 +145,17 @@ export class DataService {
         return Effect.runPromise(program);
     }
 
-    /** Передаёт в окружение Effect сервисы Nest, которые нужны действиям: базу и метаданные. */
+    /** Передаёт в окружение Effect сервисы Nest, которые нужны действиям: базу, чтение базы и метаданные. */
     private provideServices<Value, Error, Requirements>(
         work: Effect.Effect<Value, Error, Requirements>,
-    ): Effect.Effect<Value, Error, Exclude<Exclude<Requirements, Database>, Metadata>> {
-        return work.pipe(Effect.provideService(Database, this.database.effect), Effect.provideService(Metadata, this.metadata));
+    ): Effect.Effect<Value, Error, Exclude<Exclude<Exclude<Requirements, Database>, ReadonlyDatabase>, Metadata>> {
+        const database = this.database.effect;
+        const readonlyDatabase: ReadonlyDatabaseShape = { get: (query) => database.get(query), all: (query) => database.all(query) };
+        return work.pipe(
+            Effect.provideService(Database, database),
+            Effect.provideService(ReadonlyDatabase, readonlyDatabase),
+            Effect.provideService(Metadata, this.metadata),
+        );
     }
 
     /**
@@ -136,16 +170,26 @@ export class DataService {
             // У внешней операции родителя нет; вложенная получает текущий контекст из Effect.
             const parent = yield* Effect.serviceOption(ActionContext);
             const user = parent._tag === 'Some' ? parent.value.userGuid : userGuid;
-            if (operation.target.kind === journalTarget.kind && operation.target.name === journalTarget.name) {
-                yield* this.rightsGuard.require(user, platformRights.journal.read);
-                return yield* readJournal(operation.action, operation.payload);
-            }
             const context: ActionContext = {
                 userGuid: user,
                 traceGuid: parent._tag === 'Some' ? parent.value.traceGuid : newGuid(),
                 actionGuid: newGuid(),
                 parentActionGuid: parent._tag === 'Some' ? parent.value.actionGuid : null,
             };
+            // Функции есть только у объектов конфигурации: у служебных целей платформы их нет.
+            if (operation.function !== undefined) {
+                const owner = operation.target.kind === 'platform' ? undefined : this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
+                const functionRight = owner === undefined ? undefined : requiredFunctionRight(owner, operation.function);
+                if (owner === undefined || functionRight === undefined) {
+                    return yield* new DataNotFoundError({ message: `Функция «${operation.function}» для ${operation.target.kind}.${operation.target.name} не найдена` });
+                }
+                yield* this.rightsGuard.require(user, functionRight);
+                return yield* Effect.provideService(this.callFunction(owner, operation.function, operation.payload), ActionContext, context);
+            }
+            if (operation.target.kind === journalTarget.kind && operation.target.name === journalTarget.name) {
+                yield* this.rightsGuard.require(user, platformRights.journal.read);
+                return yield* readJournal(operation.action, operation.payload);
+            }
             if (operation.target.kind === documentsTarget.kind && operation.target.name === documentsTarget.name) {
                 if (operation.action !== 'repost') return yield* new DataNotFoundError({ message: `Действие «${operation.action}» для документов не найдено` });
                 yield* this.rightsGuard.require(user, platformRights.documents.repost);
@@ -174,6 +218,28 @@ export class DataService {
             const right = requiredRight(description, operation.action);
             if (right !== undefined) yield* this.rightsGuard.require(user, right);
             return yield* Effect.provideService(this.dispatch(description, operation.action, operation.payload), ActionContext, context);
+        }.bind(this));
+    }
+
+    /**
+     * Выполняет функцию объекта: проверяет входные данные по её описанию и вызывает обработчик.
+     * Журнал не пишется: функция только считает. Обработчику по типам доступно лишь чтение базы;
+     * во время выполнения `Database` тоже заменён чтением, а диспетчер действий закрыт, поэтому
+     * обход типов не даст функции изменить данные.
+     */
+    private callFunction(description: ObjectDescription, name: string, payload: unknown): Effect.Effect<unknown, unknown, ActionRequirements> {
+        return Effect.gen(function* (this: DataService) {
+            const declared = description.functions.find((candidate) => candidate.name === name)!;
+            if (declared.handler === null) return yield* Effect.die(new Error(`У функции «${name}» нет обработчика`));
+            const computed = yield* calculatedInput(declared.input, declared.tableParts, payload, 'payload');
+            const input = yield* validated(functionInputSchema(description, name)!, computed, 'payload');
+            // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
+            const result = declared.handler(input as never);
+            if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик функции должен вернуть Effect'));
+            return yield* (result as Effect.Effect<unknown, unknown, ActionRequirements>).pipe(
+                Effect.provideService(Database, readOnlyDatabase(this.database.effect)),
+                Effect.provideService(ActionDispatcher, deniedActionDispatcher),
+            );
         }.bind(this));
     }
 

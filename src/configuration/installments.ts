@@ -12,6 +12,9 @@
  * записывает в регистр свою сумму и взносы, а в регистр «Поступления денег» каждый взнос по его
  * способу. Погашения пишет в регистр проведение возврата (`refund.document.ts`): возврат в счёт
  * долга гасит его без денег.
+ *
+ * Взносы, погашения возвратами и долг на день отдаёт функция рассрочки `figures`
+ * (`documents/sale-installment.functions.ts`): по ней их показывают формы и сводка за период и проверяет сервер.
  */
 import { Effect } from 'effect';
 import { requireRight } from '../server/authorization/current-user-rights.js';
@@ -36,6 +39,7 @@ import { Employees } from './catalogs/employees.catalog.js';
 import { InstallmentRates, ownInstallmentRateName } from './catalogs/installment-rates.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { Rights } from './configuration.generated.js';
+import { figuresFunction, type SaleInstallmentFunctions } from './documents/sale-installment.functions.js';
 import { Shift } from './documents/shift.document.js';
 import { rubles } from './money.js';
 import { closedPeriodPolicy, dayOf, lastClosedThrough } from './policies/closed-period.js';
@@ -312,8 +316,8 @@ const installmentRulesPolicy = (name: InstallmentName, cancelledWithBasis: Cance
  * текущая: иначе деньги попали бы в поступления другого дня. Если дата рассрочки уже в закрытом
  * периоде, взнос и закрытие датируются текущим моментом: закрытый период не меняется.
  *
- * Тип результата несёт поля документа и имена действий: по ним строятся права `Rights`
- * и ссылки `Objects`.
+ * Тип результата несёт поля документа, имена действий и сигнатуры функций: по ним строятся права
+ * `Rights` и ссылки `Objects`.
  */
 export function installmentDocument<const Name extends InstallmentName, Fields extends HeadFields & AmountField, Parts extends TablePartMap>(
     name: Name,
@@ -321,7 +325,7 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
     extend: (base: HeadBuilder<Name>) => DocumentBuilder<Name, Fields, Parts>,
     additionalMovements: (record: ObjectRecord<'document', Fields, Parts>) => ReadonlyArray<RegisterMovements> = () => [],
     cancelledWithBasis: CancelledWithBasis<ObjectRecord<'document', Fields, Parts>> = () => Effect.succeed(false),
-): DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close' | 'settleByBank'> {
+): DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close' | 'settleByBank', SaleInstallmentFunctions> {
     // Общая часть читает только общие поля, поэтому дальше документ виден как билдер с ними одними.
     // Приведение нужно, потому что для обобщённых `Fields` компилятор не проверяет имена новых полей.
     const base = tail(extend(head(name, title)) as unknown as DocumentBuilder<Name, HeadFields & AmountField, {}>);
@@ -428,8 +432,10 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
                     ? [...record.payments, { date, method: cashless, amount: record.balance, receiver: rate === undefined ? null : { type: 'string' as const, value: rate.name }, shift: record.shift }]
                     : record.payments;
                 return yield* write(record, { payments, closedAt: date });
-            })));
+            })))
+        // Функции объявлены в отдельном файле: их сигнатуры нужны и там, откуда документ недоступен.
+        .function('figures', figuresFunction);
     // Точный тип существует только на уровне типов: билдер хранит поля документа в состоянии,
     // а общая часть добавлена к тем же полям.
-    return complete as unknown as DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close' | 'settleByBank'>;
+    return complete as unknown as DocumentBuilder<Name, Fields & TailBuilder['~fields'], Parts & TailBuilder['~tableParts'], 'pay' | 'close' | 'settleByBank', SaleInstallmentFunctions>;
 }

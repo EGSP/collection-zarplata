@@ -33,6 +33,21 @@ export interface DatabaseRunResult {
 /** Тег для передачи сервиса из Nest-провайдера в окружение бизнес-логики Effect. */
 export const Database = Context.Service<Database>('Database');
 
+/**
+ * Чтение базы без записи. Отдельный сервис, а не тот же `Database` с запретом во время выполнения:
+ * код, которому дан только он, не может записать данные по типам. Его получают функции объектов
+ * (`.function(...)`): они только считают, и попытка записи в них становится ошибкой компиляции.
+ */
+export type ReadonlyDatabaseShape = Pick<Database, 'get' | 'all'>;
+
+/**
+ * Тег чтения базы. Платформа передаёт его в окружение всех обработчиков конфигурации.
+ * Объявлен классом, а не `Context.Service<Shape>(...)`: требования Effect сравниваются по типам,
+ * и тег с типом-формой принял бы на своё место `Database`, у которого есть те же `get` и `all`.
+ * Класс делает идентификатор отдельным типом, поэтому требование `Database` в функции не пройдёт.
+ */
+export class ReadonlyDatabase extends Context.Service<ReadonlyDatabase, ReadonlyDatabaseShape>()('ReadonlyDatabase') {}
+
 /** Дескриптор принадлежит только открывшей его транзакции и её вложенным действиям. */
 interface TransactionContext {
     readonly connection: Transaction;

@@ -9,7 +9,11 @@
  * - из серверного кода и файлов объектов компонент импортирует только типы. Импорт значения
  *   включил бы в сборку клиента билдеры, Effect и обработчики действий;
  * - объявление страницы, элемента формы или формы объекта импортирует значения из модуля своего объявления
- *   и нейтральных ссылок objects.generated: файл объявления попадает и в сервер, и в клиент.
+ *   и нейтральных ссылок objects.generated: файл объявления попадает и в сервер, и в клиент;
+ * - файл функций объекта `X.functions.ts` не входит ни в один круг импортов и не доходит по ним
+ *   до своего документа или справочника `X.*.ts`. Его импортируют туда, откуда объект недоступен:
+ *   круг через него вернул бы ту самую зависимость, ради которой функции вынесены. Учитываются
+ *   и импорты только типов: круг во время выполнения они не создают, но замыкают в круг выводы типов.
  *
  * Скрипт разбирает импорты регулярным выражением, а не компилятором: ему нужны только путь
  * и признак `import type`, а API компилятора в TypeScript 7 для этого подключать не стоит.
@@ -86,6 +90,68 @@ function check(file: string, declaration: DeclarationKind | null): Array<string>
     return problems;
 }
 
+/** Файл исходника по пути модуля относительно `src`: `.ts`, `.tsx` или `index` каталога; `undefined` для пакета. */
+function sourceFile(module: string): string | undefined {
+    for (const candidate of [`${module}.ts`, `${module}.tsx`, `${module}/index.ts`]) {
+        if (globSync(candidate, { cwd: sourceDirectory }).length > 0) return path.join(sourceDirectory, candidate);
+    }
+    return undefined;
+}
+
+/** Относительные импорты файлов исходников, включая импорт только типов. Кешируются: граф обходится многократно. */
+const importedFiles = new Map<string, ReadonlyArray<string>>();
+function importsOf(file: string): ReadonlyArray<string> {
+    const known = importedFiles.get(file);
+    if (known !== undefined) return known;
+    const files: Array<string> = [];
+    for (const match of readFileSync(file, 'utf8').matchAll(importPattern)) {
+        const specifier = match[2] ?? match[3];
+        if (specifier === undefined || !specifier.startsWith('.')) continue;
+        const imported = sourceFile(moduleOf(file, specifier));
+        if (imported !== undefined && !files.includes(imported)) files.push(imported);
+    }
+    importedFiles.set(file, files);
+    return files;
+}
+
+/** Кратчайшая цепочка импортов от `from` до файла, для которого `reached` истинно; `null`, если такой нет. */
+function importChain(from: string, reached: (file: string) => boolean): ReadonlyArray<string> | null {
+    const previous = new Map<string, string>([[from, from]]);
+    const queue = [from];
+    while (queue.length > 0) {
+        const file = queue.shift()!;
+        for (const imported of importsOf(file)) {
+            if (reached(imported)) {
+                const chain = [imported, file];
+                while (chain.at(-1) !== from) chain.push(previous.get(chain.at(-1)!)!);
+                return chain.reverse();
+            }
+            if (previous.has(imported)) continue;
+            previous.set(imported, file);
+            queue.push(imported);
+        }
+    }
+    return null;
+}
+
+/** Путь файла относительно `src` для сообщений. */
+const shown = (file: string) => `src/${path.relative(sourceDirectory, file).split(path.sep).join('/')}`;
+
+/**
+ * Нарушения правила файла функций: круг импортов через него и путь до своего объекта.
+ * Объект файла `sale-installment.functions.ts` — соседний файл `sale-installment.<вид>.ts`.
+ */
+function checkFunctions(file: string): Array<string> {
+    const problems: Array<string> = [];
+    const cycle = importChain(file, (imported) => imported === file);
+    if (cycle !== null) problems.push(`${shown(file)}: файл функций входит в круг импортов ${cycle.map(shown).join(' → ')}`);
+    const prefix = path.basename(file).replace(/\.functions\.ts$/, '.');
+    const isOwner = (imported: string) => path.dirname(imported) === path.dirname(file) && path.basename(imported).startsWith(prefix) && imported !== file;
+    const owner = importChain(file, isOwner);
+    if (owner !== null) problems.push(`${shown(file)}: файл функций импортирует свой объект по цепочке ${owner.map(shown).join(' → ')}`);
+    return problems;
+}
+
 /** Файлы по шаблону в каталоге конфигурации, абсолютными путями в стабильном порядке. */
 function findFiles(pattern: string): Array<string> {
     return globSync(pattern, { cwd: configurationDirectory })
@@ -100,5 +166,12 @@ const problems = [
 
 if (problems.length > 0) {
     console.error(`Клиентские файлы конфигурации нарушают границу импортов:\n${problems.join('\n')}`);
+    process.exitCode = 1;
+}
+
+const functionProblems = findFiles('**/*.functions.ts').flatMap(checkFunctions);
+
+if (functionProblems.length > 0) {
+    console.error(`Файлы функций объектов нарушают правило импортов:\n${functionProblems.join('\n')}`);
     process.exitCode = 1;
 }

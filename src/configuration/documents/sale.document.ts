@@ -11,7 +11,7 @@
  * переводятся в состояние «Продано» в той же транзакции.
  */
 import { Effect } from 'effect';
-import { ActionDispatcher } from '../../server/data/action-context.js';
+import { ActionDispatcher, callFunction } from '../../server/data/action-context.js';
 import { DataPolicyError, DataValidationError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { Database } from '../../server/database/database.effect.js';
@@ -22,6 +22,7 @@ import { InstallmentRates } from '../catalogs/installment-rates.catalog.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
 import { installmentTypes, ownInstallment, ownInstallmentRate } from '../installments.js';
+import { SaleInstallmentFunctions } from './sale-installment.functions.js';
 import { numberAndDate, rubles } from '../money.js';
 import { cash, installmentMethod, paymentColumns, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from '../payments.js';
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
@@ -455,6 +456,13 @@ const checkInstallmentChanges = (state: SaleChangesState, changes: ReadonlyArray
     if (paymentRows.some((row) => !given.has(row.installment))) return yield* rejected('Взнос указан у рассрочки, которой нет в изменениях');
     const database = yield* Database;
     const shift = yield* database.get(query(Shift).select({ columns: ['guid'], where: [{ column: 'closedAt', operator: '=', value: null }], limit: 1 }));
+    // Погашения возвратами считает функция рассрочек. Вызов идёт по ссылке, а не по билдеру рассрочки:
+    // файл рассрочки импортирует продажу, и импорт в обратную сторону замкнул бы их в круг.
+    const figures = yield* callFunction(SaleInstallmentFunctions, 'figures', {
+        date: null,
+        installments: state.installments.map((installment) => ({ guid: installment.guid })),
+    });
+    const refundedBy = new Map(figures.map((item) => [item.installment, item.refunded]));
     const writes: InstallmentWrite[] = [];
     for (const existing of state.installments) {
         const change = given.get(existing.guid);
@@ -466,8 +474,7 @@ const checkInstallmentChanges = (state: SaleChangesState, changes: ReadonlyArray
         if (paymentsChanged && !existing.posted) return yield* rejected(`${installmentTitle(existing)} не проведена: её взносы изменить нельзя`);
         const paid = paidAmount(payments);
         // Погашение возвратом уменьшило долг так же, как взнос: сумму нельзя сделать меньше их вместе.
-        // Погашения не хранятся в рассрочке: это часть долга, которую закрыли не взносы.
-        const refunded = existing.amount - paidAmount(existing.payments) - existing.balance;
+        const refunded = refundedBy.get(existing.guid) ?? 0;
         if (change.amount < paid + refunded) {
             return yield* rejected(refunded === 0
                 ? `${installmentTitle(existing)}: сумма ${rubles(change.amount)} меньше взносов ${rubles(paid)}`
