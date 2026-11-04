@@ -33,7 +33,9 @@ export const roles = [
             // Рассрочку по продаже создаёт действие продажи вложенной записью: одного права на действие недостаточно.
             Rights.document.saleInstallment.read, Rights.document.saleInstallment.write, Rights.document.saleInstallment.post, Rights.document.saleInstallment.actions.pay,
             // Банковскую рассрочку при продаже закрывает «Оплата банком»: без права продажа в неё не пройдёт.
-            Rights.document.saleInstallment.actions.settleByBank)
+            Rights.document.saleInstallment.actions.settleByBank,
+            // Взносы, погашения возвратами и долг считает функция рассрочек: формы, сводка и «Внести изменения».
+            Rights.document.saleInstallment.functions.figures)
         // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
         .grant(Rights.register.salesNetOfReturns.read, Rights.register.installmentDebts.read, Rights.register.moneyReceipts.read, Rights.register.unarrangedInstallments.read)
         // Продавцы видят начисление всех сотрудников, но период не закрывают: права на «Закрыть период» нет.
@@ -47,7 +49,9 @@ export const roles = [
         // Продажи: чтение документов и справочника и рабочее место, на котором без права записи нет кнопок создания.
         .grant(Rights.catalog.discounts.read, Rights.catalog.paymentReceivers.read, Rights.catalog.installmentRates.read, Rights.document.sale.read, Rights.document.saleInstallment.read, Rights.document.weighing.read, Rights.document.refund.read, Rights.document.refund.actions.returnedGoods, Rights.document.refund.actions.settlementTerms, Rights.document.refund.actions.saleRefunds, Rights.page.sellerWorkplace.open)
         // Регистры продаж: по ним читаются итоги по продажам, рассрочкам, сменам и способам оплаты.
-        .grant(Rights.register.salesNetOfReturns.read, Rights.register.installmentDebts.read, Rights.register.moneyReceipts.read, Rights.register.unarrangedInstallments.read),
+        .grant(Rights.register.salesNetOfReturns.read, Rights.register.installmentDebts.read, Rights.register.moneyReceipts.read, Rights.register.unarrangedInstallments.read)
+        // Суммы рассрочек на формах продажи и рассрочки считает функция: без права формы их не покажут.
+        .grant(Rights.document.saleInstallment.functions.figures),
     role('sampleEditor')
         .title('Запись пробного документа')
         // Права на действие «Принять строки» нет: на этой роли проверяется политика, которая его требует.

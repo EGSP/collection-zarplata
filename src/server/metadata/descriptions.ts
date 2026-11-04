@@ -234,6 +234,19 @@ export interface ActionDescription {
 }
 
 /**
+ * Функция объекта: расчёт без изменения данных. Входные данные описываются так же, как у действия,
+ * и проверяются диспетчером перед вызовом обработчика. Журнал вызов функции не пишет.
+ */
+export interface FunctionDescription {
+    readonly name: string;
+    readonly title: string;
+    readonly input: ReadonlyArray<FieldDescription>;
+    readonly tableParts: ReadonlyArray<TablePartDescription>;
+    /** Тип аргумента стёрт по той же причине, что у обработчика действия. */
+    readonly handler: ((input: never) => unknown) | null;
+}
+
+/**
  * Место собственного элемента формы в группе: имя объявления элемента. Объект отличает элемент
  * от поля и табличной части, которые в раскладке названы строкой: имена элементов общие для всей
  * конфигурации и могут совпасть с именем поля объекта.
@@ -329,6 +342,8 @@ export interface ObjectDescription {
     readonly fields: ReadonlyArray<FieldDescription>;
     readonly tableParts: ReadonlyArray<TablePartDescription>;
     readonly actions: ReadonlyArray<ActionDescription>;
+    /** Функции объекта; у регистра сведений список всегда пуст. */
+    readonly functions: ReadonlyArray<FunctionDescription>;
     readonly form: FormDescription | null;
     /** Серверное правило открытия; конкретный тип записи стёрт после сборки описаний. */
     readonly opening: ((record: never) => ObjectReferenceValue | null) | null;

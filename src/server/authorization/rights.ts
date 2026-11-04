@@ -2,7 +2,7 @@
  * Права доступа, выведенные из метаданных.
  *
  * Право не объявляется вручную: его даёт сам объект конфигурации. У каждого объекта есть
- * стандартные права его вида, а каждое собственное действие получает отдельное право. Поэтому
+ * стандартные права его вида, а каждое собственное действие и каждая функция получают отдельное право. Поэтому
  * новый объект или новое действие сразу защищены, и забыть объявить право невозможно.
  * Так же страница конфигурации даёт право её открыть.
  *
@@ -21,7 +21,8 @@ import { isPageBuilder, pageKind, type PageBuilder } from '../ui/pages.js';
 
 /**
  * Право доступа. Ключ однозначно определяет право: `catalog.employees.write`,
- * `document.shift.post`, `catalog.employees.actions.dismiss`, `platform.journal.read`.
+ * `document.shift.post`, `catalog.employees.actions.dismiss`, `document.saleInstallment.functions.figures`,
+ * `platform.journal.read`.
  */
 export interface Right {
     readonly key: string;
@@ -69,6 +70,9 @@ export type StandardAction<Kind extends ObjectKind> = StandardActions[Kind];
  */
 const actionsSegment = 'actions';
 
+/** Часть ключа прав функций. Имена функций и действий независимы, поэтому сегменты у них разные. */
+const functionsSegment = 'functions';
+
 function right(...segments: ReadonlyArray<string>): Right {
     return Object.freeze({ key: segments.join('.') });
 }
@@ -92,20 +96,22 @@ export const platformRights = Object.freeze({
  * Стандартные права и собственные действия полного описания объекта. Источник стандартных
  * прав общий с диспетчером: новый вид разрешения автоматически появится и в дереве доступа.
  */
-export function describeObjectRights(description: Pick<ObjectDescription, 'kind' | 'name' | 'actions'>): ReadonlyArray<Right & { readonly title: string }> {
+export function describeObjectRights(description: Pick<ObjectDescription, 'kind' | 'name' | 'actions' | 'functions'>): ReadonlyArray<Right & { readonly title: string }> {
     const titles: Readonly<Record<string, string>> = { read: 'Чтение', write: 'Запись', post: 'Проведение и отмена проведения' };
     return [
         ...Object.keys(standardPermissions[description.kind]).map((permission) => ({ ...right(description.kind, description.name, permission), title: titles[permission] ?? permission })),
         ...description.actions.map((action) => ({ ...right(description.kind, description.name, actionsSegment, action.name), title: action.title })),
+        ...description.functions.map((declared) => ({ ...right(description.kind, description.name, functionsSegment, declared.name), title: `Функция «${declared.title}»` })),
     ];
 }
 
 /** Стандартные права объекта вида `Kind`. */
 type StandardRights<Kind extends ObjectKind> = { readonly [Permission in keyof (typeof standardPermissions)[Kind]]: Right };
 
-/** Права одного объекта: стандартные права вида и права собственных действий в `actions`. */
-export type ObjectRights<Kind extends ObjectKind, Actions extends string> = StandardRights<Kind> & {
+/** Права одного объекта: стандартные права вида, права собственных действий в `actions` и функций в `functions`. */
+export type ObjectRights<Kind extends ObjectKind, Actions extends string, Functions extends string = never> = StandardRights<Kind> & {
     readonly actions: { readonly [Action in Actions]: Right };
+    readonly functions: { readonly [Function in Functions]: Right };
 };
 
 /**
@@ -119,7 +125,7 @@ export interface PageRights {
 /** Права конфигурации: вид объекта → имя объекта → права, страницы по именам и отдельно права платформы. */
 export type ConfigurationRights<Builders extends ObjectBuilder, Pages extends PageBuilder = never> = {
     readonly [Kind in ObjectKind]: {
-        readonly [Builder in Extract<Builders, { readonly kind: Kind }> as Builder['name']]: ObjectRights<Kind, Builder['~actions']>;
+        readonly [Builder in Extract<Builders, { readonly kind: Kind }> as Builder['name']]: ObjectRights<Kind, Builder['~actions'], keyof Builder['~functions'] & string>;
     };
 } & {
     readonly page: { readonly [Page in Pages as Page['name']]: PageRights };
@@ -146,7 +152,12 @@ export function defineRights<const Modules extends ReadonlyArray<object>, const 
             if (!isObjectBuilder(value)) continue;
             const standard = Object.keys(standardPermissions[value.kind]).map((permission) => [permission, right(value.kind, value.name, permission)]);
             const actions = value['~state'].actions.map((action) => [action.name, right(value.kind, value.name, actionsSegment, action.name)]);
-            rights[value.kind][value.name] = Object.freeze({ ...Object.fromEntries(standard), actions: Object.freeze(Object.fromEntries(actions)) });
+            const functions = value['~state'].functions.map((declared) => [declared.name, right(value.kind, value.name, functionsSegment, declared.name)]);
+            rights[value.kind][value.name] = Object.freeze({
+                ...Object.fromEntries(standard),
+                actions: Object.freeze(Object.fromEntries(actions)),
+                functions: Object.freeze(Object.fromEntries(functions)),
+            });
         }
     }
     const pages: { [name: string]: PageRights } = {};
@@ -185,6 +196,14 @@ export function requiredRight(description: Pick<ObjectDescription, 'kind' | 'nam
         return right(description.kind, description.name, actionsSegment, action);
     }
     return undefined;
+}
+
+/**
+ * Право на вызов функции объекта. Возвращает `undefined`, если такой функции нет: диспетчер
+ * ответит, что функция не найдена.
+ */
+export function requiredFunctionRight(description: Pick<ObjectDescription, 'kind' | 'name' | 'functions'>, name: string): Right | undefined {
+    return description.functions.some((candidate) => candidate.name === name) ? right(description.kind, description.name, functionsSegment, name) : undefined;
 }
 
 /** Право чтения объекта. Без него объект пользователю недоступен: его нет и в описаниях для клиента. */

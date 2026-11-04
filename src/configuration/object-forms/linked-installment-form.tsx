@@ -1,7 +1,8 @@
 /** Общие части рассрочки в просмотре продажи и на экране совместного изменения. */
 import { Button, Divider, Flex, Form, Tag, theme, Typography, type FormInstance } from 'antd';
-import { useEffect, useRef, type ReactNode } from 'react';
-import { Column, FieldDisplay, FieldInput, FieldLabel, isEmptyFieldValue, Grid, Icons, Stack, TablePart, Text, useOpenRecord, type FormField, type FormTablePart, type FormValues } from '../../web/sdk';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { Column, FieldDisplay, FieldInput, FieldLabel, isEmptyFieldValue, Grid, Icons, Stack, TablePart, Text, useFunctionResult, useOpenRecord, type FormField, type FormTablePart, type FormValues } from '../../web/sdk';
+import type { InstallmentFigures } from '../documents/sale-installment.functions';
 import { Objects } from '../objects.generated';
 import { PaymentReceiverDefaults } from '../form-elements/payment-receiver-default';
 
@@ -35,12 +36,21 @@ export interface LinkedInstallment {
 /** Сумма заполненных взносов в копейках. */
 export const paidAmount = (payments: ReadonlyArray<InstallmentPayment>) => payments.reduce((total, payment) => total + (payment.amount ?? 0), 0);
 /**
- * Сумма погашений возвратами в копейках: часть долга, которую закрыли не взносы. Погашения
- * не хранятся в рассрочке: их пишет в регистр возврат, поэтому сумма выводится из сохранённого
- * остатка. У непроведённой рассрочки движений нет, и погашений тоже.
+ * Суммы сохранённых рассрочек из функции рассрочек `figures`: взносы, погашения возвратами и долг.
+ * Погашения не хранятся в рассрочке, их пишет в регистр возврат, поэтому форма не выводит их сама,
+ * а берёт у функции: так же их считают сводка за период и проверка сервера. Пока ответа нет
+ * или у пользователя нет права на функцию, карта пуста. Ответ перечитывается после любого действия.
  */
-export const refundedAmount = (installment: LinkedInstallment) =>
-    !installment.posted || installment.balance === undefined ? 0 : installment.amount - paidAmount(installment.payments) - installment.balance;
+export function useInstallmentFigures(installments: ReadonlyArray<{ readonly guid: string }>): ReadonlyMap<string, InstallmentFigures> {
+    const result = useFunctionResult({
+        object: Objects.document.saleInstallment,
+        name: 'figures',
+        payload: { date: null, installments: installments.map((installment) => ({ guid: installment.guid })) },
+        enabled: installments.length > 0,
+    });
+    // Карта строится заново только с новым ответом: по ней редактор пересчитывает распределение сумм.
+    return useMemo(() => new Map(result.data?.map((item) => [item.installment, item]) ?? []), [result.data]);
+}
 /** Заголовок присоединённой формы. */
 export const installmentTitle = (installment: LinkedInstallment) => `Рассрочка № ${installment.number} от ${new Date(installment.date).toLocaleDateString('ru-RU')}`;
 
@@ -74,6 +84,8 @@ interface LinkedInstallmentFormProperties {
     /** Сумма с учётом распределения; в просмотре равна записанной. */
     readonly amount: number;
     readonly paid: number;
+    /** Погашения возвратами из `useInstallmentFigures`: раскладка сама данных не читает. */
+    readonly refunded: number;
     readonly amountInput?: ReactNode;
     readonly difference?: ReactNode;
     readonly payments: ReactNode;
@@ -88,9 +100,8 @@ const money = { kind: 'money', target: null } as const;
  * передаёт свои значения и обработчики. Условия, состояние и итоги поэтому не расходятся.
  * Переход в отдельную рассрочку явно открывает оригинал, минуя правило возврата в продажу.
  */
-export function LinkedInstallmentForm({ installment, fields, editing = false, disabled = false, person, employee, onPersonChange, onEmployeeChange, amount, paid, amountInput, difference, payments, children }: LinkedInstallmentFormProperties) {
+export function LinkedInstallmentForm({ installment, fields, editing = false, disabled = false, person, employee, onPersonChange, onEmployeeChange, amount, paid, refunded, amountInput, difference, payments, children }: LinkedInstallmentFormProperties) {
     const openRecord = useOpenRecord();
-    const refunded = refundedAmount(installment);
     const reference = (name: string, value: unknown, onChange: ((value: unknown) => void) | undefined) => {
         const field = fields.find((candidate) => candidate.name === name);
         if (field === undefined) return null;

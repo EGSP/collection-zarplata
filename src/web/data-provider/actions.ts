@@ -9,6 +9,7 @@ import { keys, useCustom, useCustomMutation, type BaseRecord } from '@refinedev/
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import type { ApiError } from '../common/api';
+import type { FunctionMap } from '../../server/metadata/builders';
 import { resourceName, type PerformTarget } from './perform';
 
 /**
@@ -94,6 +95,47 @@ export interface ActionResult<Result> {
      * в этом клиенте: например, сервер отклонил запись, потому что другой пользователь изменил данные.
      */
     readonly refresh: () => Promise<void>;
+}
+
+/** Вызов функции объекта для `useFunctionResult`. */
+export interface FunctionQuery<Functions extends FunctionMap, Name extends keyof Functions & string> {
+    /** Объект конфигурации, которому принадлежит функция: ссылка на объект. */
+    readonly object: PerformTarget & { readonly '~functions': Functions };
+    readonly name: Name;
+    /** Входные данные функции; их тип выводится из её объявления. */
+    readonly payload: Functions[Name]['input'];
+    /** Вызывать ли функцию сейчас. Пока `false`, запрос не отправляется. */
+    readonly enabled?: boolean;
+}
+
+/**
+ * Результат функции объекта. Функция только считает, поэтому вызов устроен как чтение: ответ
+ * хранится в кеше запросов о данных и перечитывается после любого изменяющего действия.
+ * Тип результата выводится из объявления функции. Отказ, например нехватка права, оставляет
+ * `data` пустым без уведомления, как у `useActionResult`.
+ *
+ * ```tsx
+ * const figures = useFunctionResult({ object: Objects.document.saleInstallment, name: 'figures', payload: { date: null, installments } });
+ * ```
+ */
+export function useFunctionResult<Functions extends FunctionMap, const Name extends keyof Functions & string>(
+    { object, name, payload, enabled = true }: FunctionQuery<Functions, Name>,
+): ActionResult<Functions[Name]['output']> {
+    const { query } = useCustom<BaseRecord, ApiError>({
+        url: `${resourceName(object)}/${name}`,
+        method: 'post',
+        config: { payload: payload as object },
+        meta: { function: true },
+        queryOptions: { enabled },
+        errorNotification: false,
+    });
+    return {
+        data: query.data?.data as Functions[Name]['output'] | undefined,
+        loading: query.isFetching,
+        refresh: async () => {
+            await query.refetch();
+        },
+    };
 }
 
 /**

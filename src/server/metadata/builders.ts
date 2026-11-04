@@ -18,6 +18,10 @@
 import type { ObjectReferenceValue, PresentationPart } from './descriptions.js';
 import type { Effect } from 'effect';
 import { commitObject } from './commit.js';
+import type { ActionContext, FunctionDispatcher } from '../data/action-context.js';
+import type { CurrentUserRights } from '../authorization/current-user-rights.js';
+import type { ReadonlyDatabase } from '../database/database.effect.js';
+import type { Metadata } from './metadata.effect.js';
 import type { ActionConfirmation, ActionConfirmationTone, ActionPlacement, FieldRole, FormOverride, ObjectDescription, ObjectKind, PolicyDescription, RecordOpeningMode, RegisterConstraintDescription, RegisterMovements } from './descriptions.js';
 import {
     fieldFactory,
@@ -62,6 +66,15 @@ export interface ActionEntry {
     readonly confirmation: ActionConfirmation | null;
 }
 
+/** Объявленная функция объекта. `handler` равен `null`, пока не вызван `handle(...)`. */
+export interface FunctionEntry {
+    readonly name: string;
+    readonly title: string | null;
+    readonly input: ReadonlyArray<FieldEntry>;
+    readonly tableParts: ReadonlyArray<TablePartEntry>;
+    readonly handler: ((input: never) => unknown) | null;
+}
+
 /**
  * Объявленное ограничение итога регистра. `resource` и `minimum` равны `null`, пока не вызван
  * `minimum(...)`: такое ограничение отклоняет `commit()`.
@@ -91,6 +104,8 @@ export interface ObjectState {
     readonly fields: ReadonlyArray<FieldEntry>;
     readonly tableParts: ReadonlyArray<TablePartEntry>;
     readonly actions: ReadonlyArray<ActionEntry>;
+    /** Функции: расчёты без изменения данных; задаются у справочника, документа и регистра оборотов. */
+    readonly functions: ReadonlyArray<FunctionEntry>;
     readonly form: ReadonlyArray<FormOverride> | null;
     /** Серверное правило выбора формы существующей записи; null оставляет исходную запись. */
     readonly opening: ((record: never) => ObjectReferenceValue | null) | null;
@@ -312,10 +327,94 @@ export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartM
     }
 
     /** Обработчик действия; получает входные данные, проверенные по объявленным полям. */
-    handle(handler: ActionHandler<FieldsRecord<Input> & { readonly [Name in keyof Parts]: ReadonlyArray<FieldsRecord<Parts[Name]>> }>): ActionBuilder<Input, Parts> {
+    handle(handler: ActionHandler<InputRecord<Input, Parts>>): ActionBuilder<Input, Parts> {
         return new ActionBuilder(this.settings, this['~entries'], handler, this['~parts']);
     }
 }
+
+/** Проверенные входные данные действия или функции: поля и строки входных табличных частей. */
+export type InputRecord<Input extends FieldMap, Parts extends TablePartMap> =
+    Simplify<FieldsRecord<Input> & { readonly [Name in keyof Parts]: ReadonlyArray<FieldsRecord<Parts[Name]>> }>;
+
+/**
+ * Сервисы, которые получает обработчик функции. Среди них нет `Database` и `ActionDispatcher`:
+ * функция только считает, поэтому обращение к записи или к изменяющему действию не проходит
+ * проверку типов. Читает функция через `ReadonlyDatabase`, другие функции вызывает через
+ * `FunctionDispatcher` (`callFunction`), права проверяет через `CurrentUserRights`.
+ */
+export type FunctionRequirements = ReadonlyDatabase | Metadata | ActionContext | CurrentUserRights | FunctionDispatcher;
+
+/** Обработчик функции получает проверенные входные данные и возвращает Effect с результатом расчёта. */
+export type FunctionHandler<Input, Output> = (input: Input) => Effect.Effect<Output, unknown, FunctionRequirements>;
+
+/**
+ * Сигнатура объявленной функции: тип входных данных и результата. Билдер объекта накапливает
+ * сигнатуры по именам; по ним `callFunction` на сервере и `useFunctionResult` в клиенте
+ * проверяют входные данные и выводят тип результата.
+ */
+export interface FunctionSignature<Input = unknown, Output = unknown> {
+    readonly input: Input;
+    readonly output: Output;
+}
+
+/** Функции объекта: имя → сигнатура. */
+export type FunctionMap = { readonly [name: string]: FunctionSignature };
+
+/**
+ * Билдер функции объекта. Функция похожа на собственное действие входными данными и правом
+ * на вызов, но не меняет данные и не пишет журнал: её вызывают, чтобы получить расчёт.
+ */
+export class FunctionBuilder<Input extends FieldMap = {}, Parts extends TablePartMap = {}, Output = unknown> {
+    /** Только для вывода типов: во время выполнения свойств нет. */
+    declare readonly '~input': Input;
+    declare readonly '~tableParts': Parts;
+    declare readonly '~output': Output;
+    readonly '~title': string | null;
+    readonly '~entries': ReadonlyArray<FieldEntry>;
+    readonly '~parts': ReadonlyArray<TablePartEntry>;
+    readonly '~handler': ((input: never) => unknown) | null;
+
+    constructor(title: string | null = null, entries: ReadonlyArray<FieldEntry> = [], parts: ReadonlyArray<TablePartEntry> = [], handler: ((input: never) => unknown) | null = null) {
+        this['~title'] = title;
+        this['~entries'] = entries;
+        this['~parts'] = parts;
+        this['~handler'] = handler;
+    }
+
+    title(title: string): FunctionBuilder<Input, Parts, Output> {
+        return new FunctionBuilder(title, this['~entries'], this['~parts'], this['~handler']);
+    }
+
+    /**
+     * Поля входных данных, как у собственного действия. Заменяет ранее объявленные и сбрасывает
+     * обработчик: тип его аргумента выводится из полей.
+     */
+    input<Fields extends FieldMap, InputParts extends TablePartMap>(define: (input: ActionInputBuilder) => ActionInputBuilder<Fields, InputParts>): FunctionBuilder<Fields, InputParts> {
+        const input = define(new ActionInputBuilder());
+        return new FunctionBuilder(this['~title'], input['~entries'], input['~parts']);
+    }
+
+    /** Обработчик функции; тип результата выводится из возвращаемого Effect. */
+    handle<Result>(handler: FunctionHandler<InputRecord<Input, Parts>, Result>): FunctionBuilder<Input, Parts, Result> {
+        return new FunctionBuilder(this['~title'], this['~entries'], this['~parts'], handler);
+    }
+}
+
+/**
+ * Сигнатура функции по её билдеру. Нужна, когда функцию объявляют отдельно от объекта
+ * (`*.functions.ts`): тип сигнатуры выводится из объявления, а не пишется вручную.
+ *
+ * ```ts
+ * export type SaleInstallmentFunctions = { readonly figures: SignatureOf<ReturnType<typeof figuresFunction>> };
+ * ```
+ */
+export type SignatureOf<Builder> = Builder extends FunctionBuilder<infer Input, infer Parts, infer Output>
+    ? FunctionSignature<InputRecord<Input, Parts>, Output>
+    : never;
+
+/** Сигнатуры функций после объявления ещё одной. */
+type WithFunction<Functions extends FunctionMap, Name extends string, Input extends FieldMap, Parts extends TablePartMap, Output> =
+    Functions & { readonly [K in Name]: FunctionSignature<InputRecord<Input, Parts>, Output> };
 
 /**
  * Входные данные функции подбора: строка поиска и страница. `search` передаётся как ввёл
@@ -461,6 +560,8 @@ export interface ObjectBuilder<Kind extends ObjectKind = ObjectKind, Name extend
     readonly '~tableParts': TablePartMap;
     /** Только для вывода типов: имена собственных действий. По ним выводятся права на эти действия. */
     readonly '~actions': string;
+    /** Только для вывода типов: сигнатуры функций по именам. */
+    readonly '~functions': FunctionMap;
     readonly '~state': ObjectState;
 
     /**
@@ -485,65 +586,76 @@ export interface RecordObjectBuilder<
     Fields extends FieldMap,
     Parts extends TablePartMap,
     Actions extends string = never,
+    Functions extends FunctionMap = {},
 > extends ObjectBuilder<Kind, Name> {
     readonly '~fields': Fields;
     readonly '~tableParts': Parts;
     readonly '~actions': Actions;
+    readonly '~functions': Functions;
 
     /** Заголовок объекта в интерфейсе. Если он не задан, используется имя. */
-    title(title: string): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+    title(title: string): RecordBuilderOf<Kind, Name, Fields, Parts, Actions, Functions>;
 
     /** Реквизит объекта. Литеральное имя проверяется на повтор и совпадение со стандартным полем. */
     field<const FieldName extends string, Field extends AnyFieldBuilder>(
         name: AvailableFieldName<FieldName, Kind, Fields>,
         define: (field: FieldFactory) => Field,
-    ): RecordBuilderOf<Kind, Name, Fields & { readonly [K in FieldName]: Field }, Parts, Actions>;
+    ): RecordBuilderOf<Kind, Name, Fields & { readonly [K in FieldName]: Field }, Parts, Actions, Functions>;
 
     /** Табличная часть с уникальным литеральным именем; в записи представлена массивом строк. */
     tablePart<const PartName extends string, PartFields extends FieldMap>(
         name: PartName & AvailableName<NoInfer<PartName>, keyof Parts, 'имя табличной части повторяется'>,
         define: (part: TablePartBuilder) => TablePartBuilder<PartFields>,
-    ): RecordBuilderOf<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }, Actions>;
+    ): RecordBuilderOf<Kind, Name, Fields, Parts & { readonly [K in PartName]: PartFields }, Actions, Functions>;
 
     /** Собственное действие с уникальным литеральным именем; имя также определяет право на действие. */
     action<const ActionName extends string, Input extends FieldMap, InputParts extends TablePartMap>(
         name: ActionName & AvailableName<NoInfer<ActionName>, Actions, 'имя собственного действия повторяется'>,
         define: (action: ActionBuilder) => ActionBuilder<Input, InputParts>,
-    ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions | ActionName>;
+    ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions | ActionName, Functions>;
+
+    /**
+     * Функция с уникальным литеральным именем: расчёт, который вызывают по API и из кода сервера
+     * (`callFunction`). Имя определяет право на вызов.
+     */
+    function<const FunctionName extends string, Input extends FieldMap, InputParts extends TablePartMap, Output>(
+        name: FunctionName & AvailableName<NoInfer<FunctionName>, keyof Functions, 'имя функции повторяется'>,
+        define: (builder: FunctionBuilder) => FunctionBuilder<Input, InputParts, Output>,
+    ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions, WithFunction<Functions, FunctionName, Input, InputParts, Output>>;
 
     /** Части собственного представления; ссылки разрешает сервер при чтении. */
-    presentation(parts: ReadonlyArray<PresentationPart>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+    presentation(parts: ReadonlyArray<PresentationPart>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions, Functions>;
     /** Табличные части, раскрываемые под строкой списка. */
-    listTableParts(names: ReadonlyArray<keyof Parts & string>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+    listTableParts(names: ReadonlyArray<keyof Parts & string>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions, Functions>;
 
     /** Переопределение формы. Повторный вызов заменяет предыдущее. */
     form(
         define: (
             form: FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>,
         ) => FormBuilder<FieldNames<Kind, Fields> | keyof Parts & string>,
-    ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+    ): RecordBuilderOf<Kind, Name, Fields, Parts, Actions, Functions>;
 
     /** Политика объекта. Политики из нескольких вызовов выполняются по порядку. */
-    policy(policy: Policy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+    policy(policy: Policy<ObjectRecord<Kind, Fields, Parts>>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions, Functions>;
 
     /**
      * Выбирает запись для открытия формы. Получает сохранённые поля и табличные части;
      * null оставляет исходную запись. Не меняет значение ссылки и не применяется при создании.
      * Функция синхронна: платформа сама читает записи и проверяет права всей цепочки.
      */
-    opening(handler: (record: ObjectRecord<Kind, Fields, Parts>) => ObjectReferenceValue | null): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+    opening(handler: (record: ObjectRecord<Kind, Fields, Parts>) => ObjectReferenceValue | null): RecordBuilderOf<Kind, Name, Fields, Parts, Actions, Functions>;
 
     /**
      * Подбор записей объекта: у каждого поля ссылки на объект появляется кнопка, которая открывает
      * окно с поиском и таблицей. Колонки и функцию поиска задаёт `define`; клиент только показывает
      * строки, которые вернула функция. Повторный вызов заменяет подбор.
      */
-    lookup<Columns extends FieldMap>(define: (lookup: LookupBuilder) => LookupBuilder<Columns>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions>;
+    lookup<Columns extends FieldMap>(define: (lookup: LookupBuilder) => LookupBuilder<Columns>): RecordBuilderOf<Kind, Name, Fields, Parts, Actions, Functions>;
 }
 
 /** Билдер справочника; его создаёт `catalog(name)`. */
-export interface CatalogBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string = never>
-    extends RecordObjectBuilder<'catalog', Name, Fields, Parts, Actions> {
+export interface CatalogBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string = never, Functions extends FunctionMap = {}>
+    extends RecordObjectBuilder<'catalog', Name, Fields, Parts, Actions, Functions> {
     /**
      * Представление записи по ссылке: запись показывается не наименованием, а представлением
      * записи, на которую ссылается поле `field`. Так справочник называется значением, которое
@@ -552,16 +664,16 @@ export interface CatalogBuilder<Name extends string, Fields extends FieldMap, Pa
      * представление по ссылке; это проверяет `commit()`. Наименование остаётся обычным
      * обязательным полем. Повторный вызов заменяет поле.
      */
-    presentation(field: keyof Fields & string): CatalogBuilder<Name, Fields, Parts, Actions>;
-    presentation(parts: ReadonlyArray<PresentationPart>): CatalogBuilder<Name, Fields, Parts, Actions>;
+    presentation(field: keyof Fields & string): CatalogBuilder<Name, Fields, Parts, Actions, Functions>;
+    presentation(parts: ReadonlyArray<PresentationPart>): CatalogBuilder<Name, Fields, Parts, Actions, Functions>;
 }
 
 /**
  * Билдер того же вида, что и исходный. Методы общего интерфейса возвращают его, чтобы после
  * `.field(...)` у документа остался метод `.posting(...)`, которого нет у справочника.
  */
-type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string> =
-    Kind extends 'document' ? DocumentBuilder<Name, Fields, Parts, Actions> : CatalogBuilder<Name, Fields, Parts, Actions>;
+type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string, Functions extends FunctionMap> =
+    Kind extends 'document' ? DocumentBuilder<Name, Fields, Parts, Actions, Functions> : CatalogBuilder<Name, Fields, Parts, Actions, Functions>;
 
 /**
  * Обработчик проведения получает сохранённую запись документа с табличными частями и возвращает
@@ -572,14 +684,14 @@ type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, F
 export type PostingHandler<Record> = (record: Record) => Effect.Effect<ReadonlyArray<RegisterMovements>, unknown, unknown>;
 
 /** Билдер документа; его создаёт `document(name)`. */
-export interface DocumentBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string = never>
-    extends RecordObjectBuilder<'document', Name, Fields, Parts, Actions> {
+export interface DocumentBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string = never, Functions extends FunctionMap = {}>
+    extends RecordObjectBuilder<'document', Name, Fields, Parts, Actions, Functions> {
     /**
      * Обработчик проведения. Платформа удаляет прежние движения документа во всех регистрах
      * и записывает строки, которые вернул обработчик, поэтому повторное проведение их не дублирует.
      * Повторный вызов заменяет обработчик.
      */
-    posting(handler: PostingHandler<ObjectRecord<'document', Fields, Parts>>): DocumentBuilder<Name, Fields, Parts, Actions>;
+    posting(handler: PostingHandler<ObjectRecord<'document', Fields, Parts>>): DocumentBuilder<Name, Fields, Parts, Actions, Functions>;
 }
 
 /** Ресурс регистра — число или деньги: только такие значения можно суммировать при расчёте оборотов. */
@@ -593,6 +705,8 @@ export interface InformationRegisterBuilder<Name extends string, Fields extends 
     readonly '~fields': Fields;
     readonly '~tableParts': {};
     readonly '~actions': never;
+    /** У регистра сведений нет функций. */
+    readonly '~functions': {};
 
     /** Заголовок списка сведений. */
     title(title: string): InformationRegisterBuilder<Name, Fields>;
@@ -662,27 +776,28 @@ export class RegisterConstraintBuilder<Fields extends FieldMap, Dimensions exten
  * хранит имена измерений отдельно от `Fields`: по типу поля измерение от ресурса не отличить,
  * а итоги и ограничения принимают в одних местах только измерения, в других только ресурсы.
  */
-export interface RegisterBuilder<Name extends string, Fields extends FieldMap, Dimensions extends string = never> extends ObjectBuilder<'register', Name> {
+export interface RegisterBuilder<Name extends string, Fields extends FieldMap, Dimensions extends string = never, Functions extends FunctionMap = {}> extends ObjectBuilder<'register', Name> {
     readonly '~fields': Fields;
     readonly '~tableParts': {};
     /** У регистра нет собственных действий. */
     readonly '~actions': never;
+    readonly '~functions': Functions;
     /** Только для вывода типов: имена измерений. */
     readonly '~dimensions': Dimensions;
 
-    title(title: string): RegisterBuilder<Name, Fields, Dimensions>;
+    title(title: string): RegisterBuilder<Name, Fields, Dimensions, Functions>;
 
     /** Измерение: разрез, по которому отбирают и группируют строки. */
     dimension<const FieldName extends string, Field extends AnyFieldBuilder>(
         name: AvailableFieldName<FieldName, 'register', Fields>,
         define: (field: FieldFactory) => Field,
-    ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }, Dimensions | FieldName>;
+    ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }, Dimensions | FieldName, Functions>;
 
     /** Ресурс: число или деньги, которые суммируются. */
     resource<const FieldName extends string, Field extends ResourceFieldBuilder>(
         name: AvailableFieldName<FieldName, 'register', Fields>,
         define: (field: FieldFactory) => Field,
-    ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }, Dimensions>;
+    ): RegisterBuilder<Name, Fields & { readonly [K in FieldName]: Field }, Dimensions, Functions>;
 
     /**
      * Ограничение итога: сумма ресурса по сочетанию значений измерений не может стать меньше
@@ -696,7 +811,13 @@ export interface RegisterBuilder<Name extends string, Fields extends FieldMap, D
     constraint<By extends Dimensions>(
         name: string,
         define: (constraint: RegisterConstraintBuilder<Fields, Dimensions>) => RegisterConstraintBuilder<Fields, Dimensions, By>,
-    ): RegisterBuilder<Name, Fields, Dimensions>;
+    ): RegisterBuilder<Name, Fields, Dimensions, Functions>;
+
+    /** Функция регистра: расчёт по его движениям, как у справочника и документа. */
+    function<const FunctionName extends string, Input extends FieldMap, InputParts extends TablePartMap, Output>(
+        name: FunctionName & AvailableName<NoInfer<FunctionName>, keyof Functions, 'имя функции повторяется'>,
+        define: (builder: FunctionBuilder) => FunctionBuilder<Input, InputParts, Output>,
+    ): RegisterBuilder<Name, Fields, Dimensions, WithFunction<Functions, FunctionName, Input, InputParts, Output>>;
 }
 
 /**
@@ -710,8 +831,8 @@ export type MovementOf<Fields extends FieldMap> = Simplify<FieldsRecord<Fields> 
  * Связывает строки движений с регистром для обработчика проведения. Тип строки выводится из
  * билдера регистра, поэтому TypeScript отклоняет неизвестные измерения и ресурсы.
  */
-export function movements<Name extends string, Fields extends FieldMap, Dimensions extends string>(
-    register: RegisterBuilder<Name, Fields, Dimensions>,
+export function movements<Name extends string, Fields extends FieldMap, Dimensions extends string, Functions extends FunctionMap>(
+    register: RegisterBuilder<Name, Fields, Dimensions, Functions>,
     rows: ReadonlyArray<MovementOf<Fields>>,
 ): RegisterMovements {
     return { register: register.name, rows };
@@ -726,6 +847,7 @@ class ObjectBuilderImplementation {
     declare readonly '~fields': FieldMap;
     declare readonly '~tableParts': TablePartMap;
     declare readonly '~actions': string;
+    declare readonly '~functions': FunctionMap;
     readonly '~state': ObjectState;
 
     constructor(state: ObjectState) {
@@ -770,6 +892,12 @@ class ObjectBuilderImplementation {
             placement: action['~placement'], confirmation: action['~confirmation'],
         };
         return this.with({ actions: [...this['~state'].actions, entry] });
+    }
+
+    function(name: string, define: (builder: FunctionBuilder) => FunctionBuilder<FieldMap, TablePartMap, unknown>): this {
+        const declared = define(new FunctionBuilder());
+        const entry: FunctionEntry = { name, title: declared['~title'], input: declared['~entries'], tableParts: declared['~parts'], handler: declared['~handler'] };
+        return this.with({ functions: [...this['~state'].functions, entry] });
     }
 
     form(define: (form: FormBuilder<string>) => FormBuilder<string>): this {
@@ -843,7 +971,7 @@ export function isObjectBuilder(value: unknown): value is ObjectBuilder {
 }
 
 function emptyState(kind: ObjectKind, name: string): ObjectState {
-    return { kind, name, title: null, fields: [], tableParts: [], actions: [], form: null, opening: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, constraints: [], lookup: null, standardFieldsAdded: false };
+    return { kind, name, title: null, fields: [], tableParts: [], actions: [], functions: [], form: null, opening: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, constraints: [], lookup: null, standardFieldsAdded: false };
 }
 
 // Функции ниже приводят реализацию к интерфейсу через unknown: точные типы полей существуют

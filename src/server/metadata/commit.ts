@@ -16,6 +16,7 @@ import { Effect } from 'effect';
 import type { FieldEntry, ObjectBuilder, ObjectState } from './builders.js';
 import type {
     ActionDescription,
+    FunctionDescription,
     DelegatedPresentation,
     FieldDescription,
     FieldKind,
@@ -492,7 +493,7 @@ function validateObject(
             if (field.role === 'dimension' && !field.required) problems.add(`поле ${field.name}`, 'измерение должно быть обязательным');
             if (field.kind === 'recorder' || field.kind === 'guid') problems.add(`поле ${field.name}`, 'служебный вид поля недоступен для сведений');
         }
-        if (state.form !== null || state.tableParts.length > 0 || state.actions.length > 0) problems.add(null, 'у регистра сведений нет формы, табличных частей и собственных действий');
+        if (state.form !== null || state.tableParts.length > 0 || state.actions.length > 0 || state.functions.length > 0) problems.add(null, 'у регистра сведений нет формы, табличных частей, собственных действий и функций');
     }
 
     // Стандартные поля учитываются и до withStandardFields(), чтобы не дублировать ошибку в проверке формы.
@@ -541,6 +542,33 @@ function validateObject(
             handler: action.handler,
             placement: action.placement,
             confirmation: action.confirmation,
+        };
+    });
+
+    // Функции проверяются как действия: входные данные описываются теми же полями и табличными частями.
+    // Имена функций и действий независимы: у них разные права и разные поля операции эндпоинта.
+    const functionNames = new Set<string>();
+    const functions = state.functions.map((declared): FunctionDescription => {
+        const location = `функция ${declared.name}`;
+        const nameProblem = checkName(declared.name);
+        if (nameProblem !== null) problems.add(location, nameProblem);
+        if (functionNames.has(declared.name)) problems.add(location, `имя функции «${declared.name}» повторяется`);
+        functionNames.add(declared.name);
+        if (declared.handler === null) problems.add(location, 'не задан обработчик: вызовите handle(...)');
+        const names = new Set(declared.input.map((field) => field.name));
+        for (const part of declared.tableParts) {
+            const problem = checkName(part.name);
+            if (problem !== null) problems.add(location, problem);
+            if (names.has(part.name)) problems.add(location, 'Имя входных данных повторяется: ' + part.name);
+            if (part.fields.length === 0) problems.add(location, 'Во входной табличной части нет колонок');
+            names.add(part.name);
+        }
+        return {
+            name: declared.name,
+            title: declared.title ?? declared.name,
+            input: describeFields(declared.input, `${location}, `, problems, configuration),
+            tableParts: declared.tableParts.map((part) => ({ name: part.name, title: part.title ?? part.name, fields: describeFields(part.fields, location + ', табличная часть ' + part.name + ', ', problems, configuration) })),
+            handler: declared.handler,
         };
     });
 
@@ -615,6 +643,7 @@ function validateObject(
     checkFormulas(fields, tableParts);
     tableParts.forEach((part) => checkFormulas(part.fields, []));
     actions.forEach((action) => { checkFormulas(action.input, action.tableParts); action.tableParts.forEach((part) => checkFormulas(part.fields, [])); });
+    functions.forEach((declared) => { checkFormulas(declared.input, declared.tableParts); declared.tableParts.forEach((part) => checkFormulas(part.fields, [])); });
 
     const description: ObjectDescription = {
         kind: state.kind,
@@ -623,6 +652,7 @@ function validateObject(
         fields,
         tableParts,
         actions,
+        functions,
         form: state.form === null ? null : { overrides: state.form },
         opening: state.opening,
         policies: state.policies,

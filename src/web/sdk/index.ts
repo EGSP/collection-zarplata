@@ -55,7 +55,7 @@ export type { ActedObject, FieldName, ListedObject, ObjectReference, ReadObject,
 
 // Данные: чтение списка и записи, выполнение действий.
 export { ApiError } from '../common/api';
-export { useAction, useActionResult, type ActionCall, type ActionQuery, type ActionResult } from '../data-provider/actions';
+export { useAction, useActionResult, useFunctionResult, type ActionCall, type ActionQuery, type ActionResult, type FunctionQuery } from '../data-provider/actions';
 export type { ListCondition } from '../data-provider/data-provider';
 export { recordGuid, type RecordData } from '../data-provider/records';
 export { useRecord, useRecords, type RecordQuery, type RecordsQuery } from './platform/record';

@@ -28,7 +28,7 @@ import {
     type FormValues,
     type RecordFormState,
 } from '../../web/sdk';
-import { InstallmentDivider, InstallmentPayments, Labelled, LinkedInstallmentForm, installmentTitle, paidAmount, refundedAmount, type InstallmentPayment, type LinkedInstallment } from './linked-installment-form';
+import { InstallmentDivider, InstallmentPayments, Labelled, LinkedInstallmentForm, installmentTitle, paidAmount, useInstallmentFigures, type InstallmentPayment, type LinkedInstallment } from './linked-installment-form';
 import { LinkedInstallmentActions } from './linked-sale-installments';
 import { Objects } from '../objects.generated';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
@@ -77,10 +77,10 @@ const distributable = (installment: LinkedInstallment) => installment.posted;
  * Распределяет изменение суммы рассрочек по проведённым рассрочкам, начиная с последней.
  * Увеличение целиком достаётся последней рассрочке: её покупатель оформил позже остальных.
  * Уменьшение снимается с последних рассрочек, пока сумма каждой не дойдёт до её взносов
- * (`paymentsOf`, с правками экрана) вместе с погашениями возвратами и не меньше 1 ₽. Возвращает новые суммы; нераспределённый
- * остаток покажет проверка.
+ * (`paymentsOf`, с правками экрана) вместе с погашениями возвратами (`refundedOf`) и не меньше 1 ₽. Возвращает новые суммы;
+ * нераспределённый остаток покажет проверка.
  */
-function distribute(installments: ReadonlyArray<LinkedInstallment>, change: number, paymentsOf: (installment: LinkedInstallment) => ReadonlyArray<InstallmentPayment>): Map<string, number> {
+function distribute(installments: ReadonlyArray<LinkedInstallment>, change: number, paymentsOf: (installment: LinkedInstallment) => ReadonlyArray<InstallmentPayment>, refundedOf: (installment: LinkedInstallment) => number): Map<string, number> {
     const amounts = new Map(installments.map((installment) => [installment.guid, installment.amount]));
     const open = installments.filter(distributable);
     const last = open.at(-1);
@@ -88,7 +88,7 @@ function distribute(installments: ReadonlyArray<LinkedInstallment>, change: numb
     let left = -change;
     for (const installment of [...open].reverse()) {
         if (left <= 0) break;
-        const reducible = Math.max(0, installment.amount - Math.max(paidAmount(paymentsOf(installment)) + refundedAmount(installment), 1));
+        const reducible = Math.max(0, installment.amount - Math.max(paidAmount(paymentsOf(installment)) + refundedOf(installment), 1));
         const taken = Math.min(reducible, left);
         amounts.set(installment.guid, installment.amount - taken);
         left -= taken;
@@ -195,7 +195,10 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     // Оплату «Рассрочка» после изменения покрывают рассрочки целиком, в том числе сумму, не покрытую до изменения.
     const target = line;
     const paymentsOf = (installment: LinkedInstallment) => editedPayments.get(installment.guid) ?? installment.payments;
-    const automatic = useMemo(() => distribute(installments, target - arrangedBefore, paymentsOf), [data, target, editedPayments]);
+    // Погашения возвратами считает функция рассрочек; сервер проверяет изменения по той же функции.
+    const figures = useInstallmentFigures(installments);
+    const refundedOf = (installment: LinkedInstallment) => figures.get(installment.guid)?.refunded ?? 0;
+    const automatic = useMemo(() => distribute(installments, target - arrangedBefore, paymentsOf, refundedOf), [data, target, editedPayments, figures]);
     const amountOf = (installment: LinkedInstallment): number => manual?.get(installment.guid) ?? (manual === null ? automatic.get(installment.guid) ?? installment.amount : installment.amount);
     const distributed = installments.filter((installment) => installment.posted).reduce((total, installment) => total + amountOf(installment), 0);
     const editableAmounts = !termsLocked && installments.filter(distributable).length > 1;
@@ -221,7 +224,7 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     }
     for (const installment of installments) {
         const paid = paidAmount(paymentsOf(installment));
-        const refunded = refundedAmount(installment);
+        const refunded = refundedOf(installment);
         if (amountOf(installment) < paid + refunded) {
             problems.push(refunded === 0
                 ? `${installmentTitle(installment)}: сумма ${rubles(amountOf(installment))} меньше взносов ${rubles(paid)}.`
@@ -331,7 +334,7 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
                     employee={employees.has(installment.guid) ? employees.get(installment.guid) : installment.responsibleEmployee}
                     onPersonChange={(value) => setPersons((current) => new Map(current).set(installment.guid, value))}
                     onEmployeeChange={(value) => setEmployees((current) => new Map(current).set(installment.guid, value))}
-                    amount={next} paid={paidAmount(paymentsOf(installment))}
+                    amount={next} paid={paidAmount(paymentsOf(installment))} refunded={refundedOf(installment)}
                     amountInput={editableAmounts && distributable(installment) && amountField !== undefined ? (
                         // Ширину поля задаёт колонка суммы в раскладке рассрочки.
                         <FieldInput field={amountField} value={next} disabled={saving}

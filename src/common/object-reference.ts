@@ -3,23 +3,25 @@
  * поэтому ссылка несёт только вид, имя и типы, а не загружает SDK или файл объекта.
  */
 import type { StandardAction } from '../server/authorization/rights.js';
-import type { BuildersOf, ListRecordOf, ObjectBuilder, RecordOf } from '../server/metadata/builders.js';
+import type { BuildersOf, FunctionMap, ListRecordOf, ObjectBuilder, RecordOf } from '../server/metadata/builders.js';
 import type { ObjectKind } from '../server/metadata/descriptions.js';
 
 /** Ссылка на объект; свойства с `~` существуют только в типах. */
 export interface ObjectReference<Kind extends ObjectKind = ObjectKind, Name extends string = string,
     Row extends Record<string, unknown> = Record<string, unknown>,
-    RecordValue extends Record<string, unknown> = Record<string, unknown>, Action extends string = string> {
+    RecordValue extends Record<string, unknown> = Record<string, unknown>, Action extends string = string, Functions extends FunctionMap = FunctionMap> {
     readonly kind: Kind;
     readonly name: Name;
     readonly '~row': Row;
     readonly '~record': RecordValue;
     readonly '~action': Action;
+    /** Сигнатуры функций объекта: по ним клиент проверяет входные данные и выводит тип результата. */
+    readonly '~functions': Functions;
 }
 
-/** Ссылка с полями и действиями, выведенными из билдера объекта. */
+/** Ссылка с полями, действиями и функциями, выведенными из билдера объекта. */
 export type ObjectReferenceOf<Builder extends ObjectBuilder> = ObjectReference<Builder['kind'], Builder['name'],
-    ListRecordOf<Builder>, RecordOf<Builder>, StandardAction<Builder['kind']> | Builder['~actions']>;
+    ListRecordOf<Builder>, RecordOf<Builder>, StandardAction<Builder['kind']> | Builder['~actions'], Builder['~functions']>;
 
 /** Ссылки конфигурации: вид объекта, затем имя объекта. */
 export type ObjectReferences<Modules extends ReadonlyArray<object>> = {
