@@ -32,7 +32,7 @@ export const accessEditorAction = Effect.fn('authorization.editor')(function* (a
         return [node('', object.title), node('fields', 'Поля'), ...(object.access?.groups ?? []).map(group => node(`groups.${group.name}`, group.title ?? group.name)),
             ...object.fields.filter(field => !internal.has(field.name)).map(field => node(`fields.${field.name}`, field.title)),
             ...object.tableParts.filter(part => !internal.has(part.name)).flatMap(part => [node(`fields.${part.name}`, part.title), ...part.fields.filter(field => !internal.has(`${part.name}.${field.name}`)).map(field => node(`fields.${part.name}.${field.name}`, `${part.title}: ${field.title}`))]),
-            node('actions', 'Действия', true), ...(object.kind === 'document' ? [node('actions.post', 'Проведение', true)] : []), ...object.actions.map(action => node(`actions.${action.name}`, action.title, true)),
+            node('actions', 'Действия', true), ...(object.kind === 'document' ? [node('actions.post', 'Проведение', true)] : []), ...(object.kind === 'catalog' ? [node('actions.import', 'Импорт', true)] : []), ...object.actions.map(action => node(`actions.${action.name}`, action.title, true)),
             node('functions', 'Функции', true), ...object.functions.map(declared => node(`functions.${declared.name}`, declared.title, true))];
     });
     if (action === 'saveSettings') {

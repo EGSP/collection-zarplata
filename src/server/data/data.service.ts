@@ -11,7 +11,7 @@ import { accessTreeAction } from '../authorization/access-tree.js';
 import { backupAction, backupsTarget } from '../backup/backup.action.js';
 import { BackupService } from '../backup/backup.service.js';
 import { Effect } from 'effect';
-import { platformRights, requiredFunctionRight, requiredRight } from '../authorization/rights.js';
+import { platformRights, requiredFunctionRight, requiredRight, rightAccessPath } from '../authorization/rights.js';
 import { CurrentUserRights } from '../authorization/current-user-rights.js';
 import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
 import { newGuid } from '../common/guid.js';
@@ -33,7 +33,7 @@ import { filterValue, guidValue, loadRecord, objectValue, pageOptions, sqlOperat
 import type { ConfigurationRequirements } from '../metadata/builders.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { enforcePolicies, type PolicyInvocation } from './policies.js';
-import { importCatalog } from './import.js';
+import { importAccess, importCatalog } from './import.js';
 import { getInformation, mutateInformation } from './information-register.js';
 import { totalsAction } from './register-totals.js';
 import { lookupAction } from './lookup.js';
@@ -193,7 +193,7 @@ export class DataService {
             const allowed = (right: { readonly key: string }) => {
                 if (own.allows(right)) return true;
                 const [, , ...segments] = right.key.split('.');
-                const path = segments[0] === 'read' || segments[0] === 'write' ? 'fields' : segments[0] === 'post' ? 'actions.post' : segments.join('.');
+                const path = rightAccessPath(segments);
                 const extra = resolveAccess(access.extensions, operation.target as ObjectDescription, path).level;
                 if (segments[0] === 'read') return extra === 'read' || extra === 'edit';
                 if (segments[0] === 'write') return extra === 'edit' || access.extensions.some(extension => extension.entries.some(entry => entry.target.kind === operation.target.kind && entry.target.name === operation.target.name && entry.path.startsWith('fields.') && entry.level === 'edit'));
@@ -247,7 +247,8 @@ export class DataService {
             if (right !== undefined && !allowed(right)) return yield* accessDenied(access, description, right.key.split('.').slice(2).join('.'), 'allow', 'deny');
             if (description.actions.some(candidate => candidate.name === operation.action) && [...description.fields.map(field => field.name), ...description.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => dataLevel(access, description, name, true) === 'deny')) access.disclosure.sensitive = true;
             if (['markDeleted', 'unmarkDeleted'].includes(operation.action) && dataLevel(access, description, 'deletedAt') !== 'edit') return yield* accessDenied(access, description, 'fields.deletedAt', 'edit', dataLevel(access, description, 'deletedAt'));
-            const extension = description.actions.find(candidate => candidate.name === operation.action)?.access ?? emptyAccess;
+            // Расширение прав на время вызова: собственное действие объявляет его в метаданных, импорт справочника — в `import.ts`.
+            const extension = description.kind === 'catalog' && operation.action === 'import' ? importAccess(description) : description.actions.find(candidate => candidate.name === operation.action)?.access ?? emptyAccess;
             if (['save', 'post', 'unpost', 'delete', 'markDeleted', 'unmarkDeleted'].includes(operation.action) && [...description.fields.map(field => field.name), ...description.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => dataLevel(access, description, name, true) === 'deny')) access.disclosure.sensitive = true;
             const result = yield* this.dispatch(description, operation.action, operation.payload).pipe(Effect.catchIf(error => access.disclosure.sensitive && !(error instanceof RightsDeniedError), () => Effect.fail(accessDenied(access, description, 'result', 'read', 'deny'))), Effect.provideService(ActionContext, context), Effect.provideService(AccessExecution, { ...access, extensions: [...access.extensions, extension] }));
             if (direct && (description.actions.some(candidate => candidate.name === operation.action) || operation.action === 'lookup' || operation.action === 'totals')) return access.disclosure.sensitive ? { completed: true } : result;

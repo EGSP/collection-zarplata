@@ -7,7 +7,7 @@ import { roles as configurationRoles } from '../../configuration/roles.js';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
 import { RightsDeniedError } from './authorization.errors.js';
-import type { Right } from './rights.js';
+import { rightAccessPath, type Right } from './rights.js';
 import { commitRoles, type RoleDescription } from './roles.js';
 import { userRoleNames } from './user-roles.js';
 
@@ -56,15 +56,21 @@ export class RightsGuardPlatform {
     rightsFromRoles(names: ReadonlyArray<string>, settings: readonly AccessSetting[] = [], userGuid: string | null = null): UserRights {
         const assigned = new Set(names);
         const roles = this.roles.filter((role) => assigned.has(role.name));
-        const defaults = configurationModules.flatMap(module => Object.values(module.exports).filter(isObjectBuilder).map(object => object['~state'].access));
+        const objects = configurationModules.flatMap(module => Object.values(module.exports).filter(isObjectBuilder));
+        const defaults = objects.map(object => object['~state'].access);
         const definitions: AccessDefinition[] = [...defaults, ...roles.map(role => {
             const legacy = [...role.rights].flatMap(key => {
                 const [kind, name, permission, ...rest] = key.split('.');
                 if (!['catalog', 'document', 'register', 'informationRegister'].includes(kind!)) return [];
-                return [{ target: { kind: kind as AccessTarget['kind'], name: name! }, path: permission === 'read' || permission === 'write' ? 'fields' : permission === 'post' ? 'actions.post' : [permission, ...rest].join('.'), level: permission === 'read' ? 'read' as const : permission === 'write' ? 'edit' as const : 'allow' as const }];
+                return [{ target: { kind: kind as AccessTarget['kind'], name: name! }, path: rightAccessPath([permission!, ...rest]), level: permission === 'read' ? 'read' as const : permission === 'write' ? 'edit' as const : 'allow' as const }];
             });
+            // Полный доступ роли записан явно у каждого объекта, а не только признаком `full`:
+            // признак действует, лишь пока ни одна роль пользователя не задала узел, и роль
+            // «Только чтение» с `level('read')` отнимала бы у администратора запись. Роли
+            // складываются, поэтому дополнительная роль не уменьшает права.
+            const all = role.all ? objects.map(object => ({ target: { kind: object.kind, name: object.name }, path: '', level: 'full' as const })) : [];
             const overrides = settings.filter(setting => setting.subjectKind === 'role' && setting.subject === role.name);
-            return { groups: role.access.groups, entries: [...role.access.entries, ...legacy].filter(entry => !overrides.some(setting => setting.kind === entry.target.kind && setting.name === entry.target.name && setting.path === entry.path)).concat(overrides.map(settingEntry)) };
+            return { groups: role.access.groups, entries: [...all, ...role.access.entries, ...legacy].filter(entry => !overrides.some(setting => setting.kind === entry.target.kind && setting.name === entry.target.name && setting.path === entry.path)).concat(overrides.map(settingEntry)) };
         }), { groups: [], entries: settings.filter(setting => setting.subjectKind === 'user' && setting.subject === userGuid).map(settingEntry) }];
         const full = roles.some(role => role.all);
         const decision = (target: AccessTarget, path: string) => resolveAccess(definitions, target, path, full);
@@ -72,8 +78,7 @@ export class RightsGuardPlatform {
             const [kind, name, ...segments] = right.key.split('.');
             if (!['catalog', 'document', 'register', 'informationRegister'].includes(kind!)) return roles.some(role => role.all || role.rights.has(right.key));
             const target = { kind: kind as AccessTarget['kind'], name: name! };
-            const path = segments[0] === 'read' || segments[0] === 'write' ? 'fields' : segments[0] === 'post' ? 'actions.post' : segments.join('.');
-            const result = decision(target, path);
+            const result = decision(target, rightAccessPath(segments));
             if (segments[0] === 'read' || segments[0] === 'write') {
                 const object = configurationModules.flatMap(module => Object.values(module.exports).filter(isObjectBuilder)).find(object => object.kind === kind && object.name === name);
                 const state = object?.withStandardFields()['~state'];

@@ -49,6 +49,8 @@ export class ObjectAccessSchema<Builder extends ObjectBuilder, GroupNames extend
     }
     group(name: GroupNames, level: DataAccess): ObjectAccessSchema<Builder, GroupNames> { return this.set(`groups.${name}`, level); }
     post(level: Builder['kind'] extends 'document' ? CallAccess : never): ObjectAccessSchema<Builder, GroupNames> { return this.set('actions.post', level); }
+    /** Импорт справочника из внешней системы: права на запись справочника и «Внешних связей» импорт объявляет сам. */
+    import(level: Builder['kind'] extends 'catalog' ? CallAccess : never): ObjectAccessSchema<Builder, GroupNames> { return this.set('actions.import', level); }
     actions(level: CallAccess): ObjectAccessSchema<Builder, GroupNames> { return this.set('actions', level); }
     functions(level: CallAccess): ObjectAccessSchema<Builder, GroupNames> { return this.set('functions', level); }
     action(name: Builder['kind'] extends 'catalog' | 'document' ? Builder['~actions'] : never, level: CallAccess): ObjectAccessSchema<Builder, GroupNames> { return this.set(`actions.${name}`, level); }

@@ -32,6 +32,8 @@ export interface Right {
  * Стандартные права видов объектов и действия единого эндпоинта, которые каждое право разрешает.
  * Пометка удаления входит в право записи: это изменение записи. Проведение и его отмена
  * выделены в отдельное право, чтобы запись документа можно было разрешить без проведения.
+ * Импорт справочника — тоже отдельное право: он пишет не только справочник, но и «Внешние
+ * связи», и нужные для этого права объявляет сам (`importAccess` в `data/import.ts`).
  */
 const standardPermissions = {
     informationRegister: {
@@ -41,7 +43,8 @@ const standardPermissions = {
     catalog: {
         // Подбор только читает записи, поэтому его разрешает право чтения.
         read: ['list', 'get', 'lookup'],
-        write: ['save', 'markDeleted', 'unmarkDeleted', 'import'],
+        write: ['save', 'markDeleted', 'unmarkDeleted'],
+        import: ['import'],
     },
     document: {
         read: ['list', 'get', 'lookup'],
@@ -97,7 +100,7 @@ export const platformRights = Object.freeze({
  * прав общий с диспетчером: новый вид разрешения автоматически появится и в дереве доступа.
  */
 export function describeObjectRights(description: Pick<ObjectDescription, 'kind' | 'name' | 'actions' | 'functions'>): ReadonlyArray<Right & { readonly title: string }> {
-    const titles: Readonly<Record<string, string>> = { read: 'Чтение', write: 'Запись', post: 'Проведение и отмена проведения' };
+    const titles: Readonly<Record<string, string>> = { read: 'Чтение', write: 'Запись', post: 'Проведение и отмена проведения', import: 'Импорт' };
     return [
         ...Object.keys(standardPermissions[description.kind]).map((permission) => ({ ...right(description.kind, description.name, permission), title: titles[permission] ?? permission })),
         ...description.actions.map((action) => ({ ...right(description.kind, description.name, actionsSegment, action.name), title: action.title })),
@@ -204,6 +207,19 @@ export function requiredRight(description: Pick<ObjectDescription, 'kind' | 'nam
  */
 export function requiredFunctionRight(description: Pick<ObjectDescription, 'kind' | 'name' | 'functions'>, name: string): Right | undefined {
     return description.functions.some((candidate) => candidate.name === name) ? right(description.kind, description.name, functionsSegment, name) : undefined;
+}
+
+/**
+ * Узел схемы доступа, который решает право объекта: чтение и запись — данные (`fields`),
+ * проведение и импорт — вызовы стандартных действий (`actions.post`, `actions.import`),
+ * собственные действия и функции — свои узлы. По этому соответствию права из `Rights`
+ * переводятся в схему доступа и проверяются по ней.
+ */
+export function rightAccessPath(segments: ReadonlyArray<string>): string {
+    const [permission] = segments;
+    if (permission === 'read' || permission === 'write') return 'fields';
+    if (permission === 'post' || permission === 'import') return `${actionsSegment}.${permission}`;
+    return segments.join('.');
 }
 
 /** Право чтения объекта. Без него объект пользователю недоступен: его нет и в описаниях для клиента. */
