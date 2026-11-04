@@ -1,16 +1,48 @@
-import { Alert, Button, Flex, Typography } from 'antd';
+﻿import { Alert, Button, Flex, Typography } from 'antd';
 import { useState } from 'react';
-import { FieldDisplay, Icons, Layer, ListSearch, Panel, spacing, Stack, Text, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
+import { FieldDisplay, Icons, Layer, ListSearch, spacing, Stack, Text, useObjectView, useOpenRecord, useRecordList, useReferencePresentation, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /**
- * Блок «Рассрочки по продажам» на рабочем месте продавца: проведённые незакрытые рассрочки,
- * сгруппированные по покупателям, и поиск по ФИО покупателя. Без права читать рассрочки блока нет: проверка стоит здесь,
- * потому что страница рабочего места выводит блок сама, без перечня требуемых объектов.
+ * Вкладка «Рассрочки» на рабочем месте продавца: проведённые незакрытые рассрочки, сгруппированные
+ * по покупателям, и поиск по ФИО покупателя. Без права читать рассрочки вкладки нет: проверка стоит
+ * здесь, потому что страница рабочего места выводит вкладки сама, без перечня требуемых объектов.
  */
 export default function OpenSaleInstallments() {
     const view = useObjectView(Objects.document.saleInstallment);
     return view === undefined ? null : <AvailableSaleInstallments />;
+}
+
+/**
+ * Незакрытые рассрочки: без даты закрытия и пометки удаления, проведённые. Непроведённая рассрочка —
+ * черновик, долга по ней в регистре расчётов ещё нет. Условия общие у блока и подписи вкладки.
+ */
+const openInstallments = {
+    permanentFilter: [
+        { field: 'closedAt', operator: 'equals', value: null },
+        { field: 'deletedAt', operator: 'equals', value: null },
+        { field: 'posted', operator: 'equals', value: true },
+    ],
+    sort: [{ field: 'date', direction: 'ascending' }],
+    pageSize: 100,
+} as const;
+
+/** Общий остаток незакрытых рассрочек для подписи вкладки. */
+export interface InstallmentDebt {
+    /** Сумма остатков в копейках. */
+    readonly amount: number;
+    /** Рассрочек больше первой страницы: сумма неполная, подпись говорит «не меньше». */
+    readonly partial: boolean;
+}
+
+/**
+ * Общий остаток незакрытых рассрочек без учёта поиска во вкладке: подпись вкладки говорит о всех
+ * долгах, а не о найденных. Без поиска блок читает тот же список с теми же условиями, и кеш
+ * запросов отдаёт обоим один ответ. Вызывать только при доступном описании рассрочек.
+ */
+export function useInstallmentDebt(): InstallmentDebt {
+    const list = useRecordList(Objects.document.saleInstallment, openInstallments);
+    return { amount: list.records.reduce((sum, row) => sum + row.balance, 0), partial: list.total > list.records.length };
 }
 
 /** Рассрочка в блоке: продажа и остаток долга. */
@@ -61,13 +93,16 @@ function Debtor({ person, rows, persons, sales, level }: { readonly person: stri
     const Toggle = expanded ? Icons.collapse : Icons.expand;
     const content = (
         <Flex vertical>
-            <Button type="text" block onClick={() => setExpanded(!expanded)}>
+            {/* Покупатель — крупная кнопка, рассрочки под ним — обычные: выразительный вид ленты
+                рабочего места с текстом 16 px и 14 px, как строки и заголовки дней ленты продаж и возвратов. */}
+            <Button type="text" size="large" block onClick={() => setExpanded(!expanded)}>
                 {/* Кнопка оборачивает содержимое своим элементом, поэтому строку растягивает внутренний Flex: сумма стоит у правого края. */}
                 <Flex justify="space-between" align="center" gap="small" style={{ width: '100%', minWidth: 0 }}>
                     <Flex gap="small" align="center" style={{ minWidth: 0 }}>
                         <Toggle />
                         {/* Без права читать физические лица сервер их описание не отдаёт. */}
-                        <Typography.Text ellipsis style={{ minWidth: 0 }}>
+                        {/* Размер шрифта берётся у кнопки: свой размер Typography мельче крупной кнопки. */}
+                        <Typography.Text ellipsis style={{ minWidth: 0, fontSize: 'inherit' }}>
                             {person === null ? 'Без физического лица' : persons === undefined ? 'Нет доступа' : <Presentation view={persons} guid={person} />}
                         </Typography.Text>
                     </Flex>
@@ -75,11 +110,11 @@ function Debtor({ person, rows, persons, sales, level }: { readonly person: stri
                 </Flex>
             </Button>
             {expanded && rows.map((row) => (
-                <Button key={row.guid} type="text" size="small" block style={{ paddingInlineStart: spacing[7] }}
+                <Button key={row.guid} type="text" block style={{ paddingInlineStart: spacing[7] }}
                     onClick={(event) => void openRecord(Objects.document.saleInstallment, row.guid, 'tab', { original: event.shiftKey })}>
                     <Flex justify="space-between" align="center" gap="small" style={{ width: '100%', minWidth: 0 }}>
                         {/* Серый текст на ярко-оранжевом фоне теряет контраст, поэтому там продажа выводится основным цветом. */}
-                        <Typography.Text {...(level === 2 ? {} : { type: 'secondary' as const })} ellipsis style={{ minWidth: 0 }}>{sales === undefined ? 'Рассрочка' : <Presentation view={sales} guid={row.sale} />}</Typography.Text>
+                        <Typography.Text {...(level === 2 ? {} : { type: 'secondary' as const })} ellipsis style={{ minWidth: 0, fontSize: 'inherit' }}>{sales === undefined ? 'Рассрочка' : <Presentation view={sales} guid={row.sale} />}</Typography.Text>
                         <span style={{ flexShrink: 0 }}><Money value={row.balance} /></span>
                     </Flex>
                 </Button>
@@ -103,17 +138,7 @@ function Debtor({ person, rows, persons, sales, level }: { readonly person: stri
 function AvailableSaleInstallments() {
     const persons = useObjectView(Objects.catalog.physicalPersons);
     const sales = useObjectView(Objects.document.sale);
-    // Незакрытой считается рассрочка без даты закрытия; помеченная на удаление в блок не входит.
-    // Непроведённая тоже не входит: это черновик, долга по ней в регистре расчётов ещё нет.
-    const list = useRecordList(Objects.document.saleInstallment, {
-        permanentFilter: [
-            { field: 'closedAt', operator: 'equals', value: null },
-            { field: 'deletedAt', operator: 'equals', value: null },
-            { field: 'posted', operator: 'equals', value: true },
-        ],
-        sort: [{ field: 'date', direction: 'ascending' }],
-        pageSize: 100,
-    });
+    const list = useRecordList(Objects.document.saleInstallment, openInstallments);
     // Текст поиска, уже переданный списку. Поле поиска применяет ввод с задержкой, а очистку сразу.
     const [search, setSearch] = useState('');
     const applySearch = (text: string) => {
@@ -127,10 +152,8 @@ function AvailableSaleInstallments() {
     const minimum = Math.min(...debts);
     const maximum = Math.max(...debts);
     return (
-        // Ширину карточки задаёт колонка страницы: рабочее место даёт ей больше места, чем отвесам,
-        // потому что в строке стоят ФИО и сумма.
-        <Panel title="Рассрочки по продажам">
-            <Stack gap={3}>
+        // Заголовок блока — вкладка «Рассрочки» на рабочем месте, поэтому своей панели у блока нет.
+        <Stack gap={3}>
                 <ListSearch value={search} onSearch={applySearch} placeholder="Поиск по ФИО покупателя" />
                 {list.error !== null ? (
                     <Alert type="error" showIcon title="Не удалось прочитать документы" description={list.error.message} />
@@ -144,7 +167,6 @@ function AvailableSaleInstallments() {
                         {list.total > list.records.length && <Typography.Text type="secondary">Показаны первые {list.records.length} из {list.total}</Typography.Text>}
                     </Flex>
                 )}
-            </Stack>
-        </Panel>
+        </Stack>
     );
 }

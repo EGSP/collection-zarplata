@@ -14,40 +14,44 @@ function goodsCount(count: number): string {
 }
 
 /**
- * Блок «Отвесы» на рабочем месте продавца: незакрытые отвесы с ФИО покупателя и числом его товаров
- * «В отвесе», а в заголовке число таких товаров во всех отвесах. Считаются товары, а не документы:
- * в одном отвесе бывает несколько товаров, и часть из них уже продана или вывешена. Остаток
- * не выводится: стоимость товаров отвеса не вводится, её заполняют в продаже.
+ * Незакрытые отвесы: отвес не закрыт, пока в нём есть товары «В отвесе», их число хранит
+ * вычисляемое поле шапки. Условия общие у блока и подписи вкладки, поэтому кеш запросов
+ * отдаёт обоим один ответ.
+ */
+const openWeighings = {
+    permanentFilter: [
+        { field: 'heldCount', operator: 'greater', value: 0 },
+        { field: 'deletedAt', operator: 'equals', value: null },
+    ],
+    sort: [{ field: 'date', direction: 'ascending' }],
+    pageSize: 100,
+} as const;
+
+/**
+ * Вкладка «Отвесы» на рабочем месте продавца: незакрытые отвесы с ФИО покупателя и числом его
+ * товаров «В отвесе». Считаются товары, а не документы: в одном отвесе бывает несколько товаров,
+ * и часть из них уже продана или вывешена. Остаток не выводится: стоимость товаров отвеса
+ * не вводится, её заполняют в продаже.
  *
- * Без права читать отвесы блока нет: проверка стоит здесь, потому что страница рабочего места
- * выводит блок сама, без перечня требуемых объектов.
+ * Без права читать отвесы вкладки нет: проверка стоит здесь, потому что страница рабочего места
+ * выводит вкладки сама, без перечня требуемых объектов.
  */
 export default function OpenWeighings() {
     const view = useObjectView(Objects.document.weighing);
     return view === undefined ? null : <AvailableWeighings />;
 }
 
+/**
+ * Число незакрытых отвесов для подписи вкладки: число документов на всех страницах, а не товаров.
+ * Вызывать только при доступном описании отвесов.
+ */
+export function useOpenWeighingCount(): number {
+    return useRecordList(Objects.document.weighing, openWeighings).total;
+}
+
 /** Чтение монтируется только при доступном описании объекта. */
 function AvailableWeighings() {
-    const weighings = Objects.document.weighing;
-    // Отвес не закрыт, пока в нём есть товары «В отвесе»; их число хранит вычисляемое поле шапки.
-    const list = useRecordList(weighings, {
-        permanentFilter: [
-            { field: 'heldCount', operator: 'greater', value: 0 },
-            { field: 'deletedAt', operator: 'equals', value: null },
-        ],
-        sort: [{ field: 'date', direction: 'ascending' }],
-        pageSize: 100,
-    });
-    // Итог складывается по прочитанной странице. Если отвесов больше страницы, итог неполный,
-    // и заголовок говорит «не меньше»: точную сумму по всем отвесам клиент без запроса итогов не знает.
-    const held = list.records.reduce((sum, row) => sum + row.heldCount, 0);
-    const partial = list.total > list.records.length;
-    const title = (
-        <>
-            Отвесы{held > 0 && <Typography.Text type="secondary"> {partial ? 'не меньше ' : ''}{goodsCount(held)}</Typography.Text>}
-        </>
-    );
-    return <DebtList title={title} object={weighings} rows={list.records} total={list.total} loading={list.loading} error={list.error} empty="Незакрытых отвесов нет"
-        value={(row) => <Typography.Text type="secondary">{goodsCount(row.heldCount)}</Typography.Text>} />;
+    const list = useRecordList(Objects.document.weighing, openWeighings);
+    return <DebtList object={Objects.document.weighing} rows={list.records} total={list.total} loading={list.loading} error={list.error} empty="Незакрытых отвесов нет"
+        value={(row) => <Typography.Text type="secondary" style={{ fontSize: 'inherit' }}>{goodsCount(row.heldCount)}</Typography.Text>} />;
 }

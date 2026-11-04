@@ -1,11 +1,11 @@
-import { Alert, Button, Divider, Flex, Result, Spin, theme, Typography } from 'antd';
-import type { ComponentType } from 'react';
+﻿import { Alert, Button, Flex, Result, Spin, Tabs, Typography } from 'antd';
+import type { ComponentType, ReactNode } from 'react';
 import { ActionButton, ActionTile, Column, FieldDisplay, Grid, Icons, Page, Panel, RecordLink, Stack, useObjectView, useOpenRecord, type ColumnCount, type PerformTarget } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { employeeCount, useCurrentShift, type OpenShiftState } from '../shell-components/current-shift-state';
-import OpenSaleInstallments from '../shell-components/open-sale-installments';
-import OpenWeighings from '../shell-components/open-weighings';
-import RecentSales from '../shell-components/recent-sales';
+import OpenSaleInstallments, { useInstallmentDebt } from '../shell-components/open-sale-installments';
+import OpenWeighings, { useOpenWeighingCount } from '../shell-components/open-weighings';
+import SellerFeed, { useSellerFeedAvailable } from '../shell-components/seller-feed';
 
 /** Может ли пользователь создавать записи объекта: сервер оставляет действие `save` только при праве записи. */
 function useCreatable(object: PerformTarget): boolean {
@@ -13,15 +13,18 @@ function useCreatable(object: PerformTarget): boolean {
 }
 
 /**
- * Ширины областей рабочего места в колонках сетки. Тайлы действий стоят по два в строке
- * на среднем контейнере и по четыре начиная с `lg`, как плитки главного экрана. Из справочных
- * карточек продажи и рассрочки шире отвесов: в их строках стоят товары, ФИО и суммы.
+ * Ширины областей рабочего места в колонках сетки (Carbon 2x Grid). Начиная с `lg` страница делится
+ * на область действий в четверть ширины и ленту в три четверти: на всю ширину широкого экрана
+ * колонки ленты расходились, и время, товары и сумму продажи было трудно связать взглядом.
+ * Уже `lg` области стоят друг под другом: действия сверху, по две плитки в строке на `md`.
+ *
+ * Плитки стоят во вложенной сетке области действий и занимают по четыре колонки: на `md` это
+ * половина строки, а начиная с `lg` — вся область, и плитки идут столбиком.
  */
 const columns = {
+    actions: { lg: 4 },
+    feed: { lg: 12 },
     actionTile: { md: 4 },
-    recentSales: { lg: 6 },
-    installments: { md: 4, lg: 6 },
-    weighings: { md: 4 },
 } satisfies { readonly [area: string]: ColumnCount };
 
 /** Панель открытия смены по центру страницы: шесть колонок со сдвигом к середине строки. */
@@ -118,29 +121,66 @@ function ClosedShift() {
 }
 
 /**
- * Активное состояние: смена открыта. Сверху шапка смены и тайлы действий, под разделительной
- * линией информационный блок: фид последних продаж, незакрытые рассрочки по продажам и отвесы.
- * Фид показывает продавцу, что уже оформлено.
+ * Подпись вкладки со значением в скобках после названия: сумма или число, которые продавцу полезно
+ * видеть, не открывая вкладку. Значение стоит в одной строке с названием, а не второй строкой,
+ * как `secondaryLabel` у Carbon: полоса вкладок остаётся в одну строку и не отнимает высоту у ленты.
+ */
+function TabLabel({ title, value }: { readonly title: string; readonly value: ReactNode }) {
+    return <>{title} ({value})</>;
+}
+
+/** Подпись вкладки «Рассрочки»: общий остаток незакрытых рассрочек, без учёта поиска во вкладке. */
+function InstallmentsLabel() {
+    const debt = useInstallmentDebt();
+    return <TabLabel title="Рассрочки" value={<>{debt.partial ? 'не меньше ' : ''}<FieldDisplay field={{ kind: 'money', target: null }} value={debt.amount} /></>} />;
+}
+
+/** Подпись вкладки «Отвесы»: число незакрытых отвесов. */
+function WeighingsLabel() {
+    return <TabLabel title="Отвесы" value={useOpenWeighingCount()} />;
+}
+
+/**
+ * Лента рабочего места: продажи и возвраты, незакрытые рассрочки и отвесы во вкладках одной панели.
+ * Их продавец смотрит по очереди, поэтому три узкие карточки рядом заменены вкладками.
+ * Вкладки и строки крупные: ленту читают на ходу, с расстояния.
+ *
+ * Вкладка есть только при нужном праве: у продаж и возвратов — на функцию ленты, у рассрочек
+ * и отвесов — на чтение объекта. Подписи читают списки, и без права сервер ответил бы отказом. Содержимое вкладки остаётся смонтированным
+ * после первого показа, поэтому поиск и страница сохраняются при переключении.
+ */
+function WorkplaceJournal() {
+    const feed = useSellerFeedAvailable();
+    const installments = useObjectView(Objects.document.saleInstallment) !== undefined;
+    const weighings = useObjectView(Objects.document.weighing) !== undefined;
+    const items = [
+        ...(feed ? [{ key: 'feed', label: 'Продажи', children: <SellerFeed /> }] : []),
+        ...(installments ? [{ key: 'installments', label: <InstallmentsLabel />, children: <OpenSaleInstallments /> }] : []),
+        ...(weighings ? [{ key: 'weighings', label: <WeighingsLabel />, children: <OpenWeighings /> }] : []),
+    ];
+    return items.length === 0 ? null : <Panel flushTop><Tabs size="large" items={items} /></Panel>;
+}
+
+/**
+ * Активное состояние: смена открыта. Под шапкой смены две области (`columns`): слева тайлы
+ * действий, справа лента с продажами, незакрытыми рассрочками по продажам и отвесами.
  * Рассрочку продавец оформляет из продажи, поэтому отдельного тайла у неё нет.
  */
 function OpenShiftWorkplace({ shift }: { readonly shift: OpenShiftState }) {
-    const { token } = theme.useToken();
     return (
         <Stack gap={5}>
             <ShiftHeader shift={shift} />
             <Grid>
-                <DocumentActionTile action="Продать" primary icon={Icons.sell} object={Objects.document.sale} />
-                <DocumentActionTile action="Отложить товар" icon={Icons.weigh} object={Objects.document.weighing} />
-                <DocumentActionTile action="Оформить возврат" icon={Icons.refund} object={Objects.document.refund} />
-            </Grid>
-            {/* Линия делит экран на действия и справки. Цвет рамки, а не разделителя: на сером фоне
-                страницы стандартная линия Ant Design почти не видна. */}
-            <Divider style={{ margin: 0, borderBlockStartWidth: 2, borderColor: token.colorBorder }} />
-            {/* Карточки стоят по верхнему краю: высота каждой зависит от числа строк в ней. */}
-            <Grid>
-                <Column span={columns.recentSales}><RecentSales /></Column>
-                <Column span={columns.installments}><OpenSaleInstallments /></Column>
-                <Column span={columns.weighings}><OpenWeighings /></Column>
+                <Column span={columns.actions}>
+                    <Grid subgrid>
+                        <DocumentActionTile action="Продать" primary icon={Icons.sell} object={Objects.document.sale} />
+                        <DocumentActionTile action="Отложить товар" icon={Icons.weigh} object={Objects.document.weighing} />
+                        <DocumentActionTile action="Оформить возврат" icon={Icons.refund} object={Objects.document.refund} />
+                    </Grid>
+                </Column>
+                <Column span={columns.feed}>
+                    <WorkplaceJournal />
+                </Column>
             </Grid>
         </Stack>
     );

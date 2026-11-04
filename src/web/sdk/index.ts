@@ -111,6 +111,8 @@ export {
 // Раскладка: сетка, колонка, стек и шкала отступов по правилам Carbon.
 export { Grid, Column, type GridProperties, type ColumnProperties, type ColumnCount } from './ds/grid';
 export { Stack, type StackProperties } from './ds/stack';
+// Тени у краёв области прокрутки: для собственных прокручиваемых областей экранов, например ленты.
+export { useOverflowShadows } from './ds/overflow-shadows';
 export { spacing, breakpoints, breakpointWidths, gridColumns, type SpacingStep, type Breakpoint, type GridGutter, type PageModel } from './ds/layout';
 export { BreakpointContainer, useBreakpoint, breakpointAtLeast, type BreakpointContainerProperties } from './ds/breakpoints';
 
@@ -150,6 +152,8 @@ export { ActionConfirmationDialog, useActionConfirmation, type ActionConfirmatio
 // Списки.
 export { ListFilters, type ListFiltersProperties } from './platform/list-filters';
 export { ListSearch, type ListSearchProperties } from './platform/list-search';
+// Лента документов: строки-плашки по группам с прокруткой, поиском и пагинацией.
+export { Feed, FeedCell, FeedItem, feedItemHeight, type FeedCellProperties, type FeedGroup, type FeedItemProperties, type FeedProperties, type FeedScroll } from './platform/feed';
 export { RecordTable, type RecordTableProperties } from './platform/record-table';
 
 // Клиентские группы и управление действиями стандартного списка.

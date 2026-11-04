@@ -116,6 +116,12 @@ export interface PanelProperties {
     readonly title?: ReactNode;
     /** Элементы справа в шапке, например кнопка «Создать». */
     readonly extra?: ReactNode;
+    /**
+     * Содержимое начинается от верхнего края панели, без внутреннего отступа сверху. Нужно панели
+     * без заголовка, которая начинается с полосы вкладок: у вкладок свой отступ над подписями,
+     * и вместе с отступом панели над ними оставалось пустое место.
+     */
+    readonly flushTop?: boolean | undefined;
     /** Внутренний отступ по умолчанию, как у карточки Ant Design размера `small`. */
     readonly children?: ReactNode;
 }
@@ -125,12 +131,12 @@ export interface PanelProperties {
  * Фон берётся из уровня, поэтому панель внутри панели серая, а не белая, как раньше карточка
  * в карточке. Шапку, рамку и отступы рисует сама карточка: их оформление остаётся за Ant Design.
  */
-export function Panel({ title, extra, children }: PanelProperties) {
+export function Panel({ title, extra, flushTop = false, children }: PanelProperties) {
     const { token } = theme.useToken();
     const colors = levelColors(clampLevel(useLayer().level + 1), token);
     return (
         <LayerContext.Provider value={colors}>
-            <Card size="small" title={title} extra={extra} style={{ background: colors.background }}>
+            <Card size="small" title={title} extra={extra} style={{ background: colors.background }} {...(flushTop ? { styles: { body: { paddingTop: 0 } } } : {})}>
                 {children}
             </Card>
         </LayerContext.Provider>

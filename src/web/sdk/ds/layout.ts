@@ -97,7 +97,9 @@ function layoutStyleSheet(): string {
     return [
         `.${gridContainer} { container: ${containerName} / inline-size; }`,
         `.${grid} { display: grid; column-gap: var(--layout-gutter); row-gap: var(--layout-row-gap); }`,
-        `.${subgrid} { display: grid; grid-template-columns: subgrid; column-gap: var(--layout-gutter); row-gap: var(--layout-row-gap); }`,
+        // Строки вложенной сетки прижаты к верху: сетка растягивается по высоте строки родителя,
+        // например рядом с длинной лентой, и без этого раздвигала бы свои строки на всю эту высоту.
+        `.${subgrid} { display: grid; grid-template-columns: subgrid; align-content: start; column-gap: var(--layout-gutter); row-gap: var(--layout-row-gap); }`,
         // Нулевая минимальная ширина не даёт длинному содержимому раздвинуть колонку шире её доли.
         `.${column} { min-width: 0; }`,
         `.${column}:has(> .${subgrid}) { display: contents; }`,
