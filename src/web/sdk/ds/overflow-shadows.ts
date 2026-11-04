@@ -29,6 +29,10 @@ export function useOverflowShadows(frame: RefObject<HTMLDivElement | null>, scro
             const end = position + visible < total - 1;
             outer.toggleAttribute('data-overflow-start', start);
             outer.toggleAttribute('data-overflow-end', end);
+            // Толщина полос прокрутки: тени стоят над содержимым, а не над полосами. Иначе тень
+            // ложилась на полосу у правого или нижнего края и выглядела тенью самой полосы.
+            outer.style.setProperty('--overflow-scrollbar-inline', `${area.offsetWidth - area.clientWidth}px`);
+            outer.style.setProperty('--overflow-scrollbar-block', `${area.offsetHeight - area.clientHeight}px`);
         };
         update();
         area.addEventListener('scroll', update, { passive: true });
@@ -66,19 +70,25 @@ export function overflowShadowBackground(background: string, color: string): str
 }
 
 // Накладки находятся вне прокручиваемого тела: заливки строк таблицы не перекрывают тень.
+// Слой накладок выше закреплённых строк области прокрутки, например заголовка дня в ленте
+// (`z-index` до 2): тень под закреплённой строкой видна, а не прячется за её фоном.
 // Цвет приходит от текущей темы через хук, геометрия и правила показа общие.
+// Области, которой нужны тени по обеим осям, ставят две вложенные рамки вокруг одного элемента
+// прокрутки: каждая рамка рисует тени своей оси. Переменная `--overflow-shadow-start` сдвигает
+// верхнюю тень вниз, например под закреплённый заголовок таблицы: тень на заголовке выглядела бы
+// так, будто скрыт сам заголовок.
 if (typeof document !== 'undefined' && document.getElementById('overflow-shadow-styles') === null) {
     const element = document.createElement('style');
     element.id = 'overflow-shadow-styles';
     const color = 'var(--overflow-shadow-color)';
     element.textContent = `
-        .overflow-shadows::before, .overflow-shadows::after { content: ""; position: absolute; pointer-events: none; opacity: 0; z-index: 1; }
-        .overflow-shadows[data-overflow-axis="horizontal"]::before, .overflow-shadows[data-overflow-axis="horizontal"]::after { inset-block: 0; width: ${overflowShadowSize}px; }
+        .overflow-shadows::before, .overflow-shadows::after { content: ""; position: absolute; pointer-events: none; opacity: 0; z-index: 3; }
+        .overflow-shadows[data-overflow-axis="horizontal"]::before, .overflow-shadows[data-overflow-axis="horizontal"]::after { top: 0; bottom: var(--overflow-scrollbar-block, 0px); width: ${overflowShadowSize}px; }
         .overflow-shadows[data-overflow-axis="horizontal"]::before { left: 0; background: ${shadowGradient('right', color)}; }
-        .overflow-shadows[data-overflow-axis="horizontal"]::after { right: 0; background: ${shadowGradient('left', color)}; }
-        .overflow-shadows[data-overflow-axis="vertical"]::before, .overflow-shadows[data-overflow-axis="vertical"]::after { inset-inline: 0; height: ${overflowShadowSize}px; }
-        .overflow-shadows[data-overflow-axis="vertical"]::before { top: 0; background: ${shadowGradient('bottom', color)}; }
-        .overflow-shadows[data-overflow-axis="vertical"]::after { bottom: 0; background: ${shadowGradient('top', color)}; }
+        .overflow-shadows[data-overflow-axis="horizontal"]::after { right: var(--overflow-scrollbar-inline, 0px); background: ${shadowGradient('left', color)}; }
+        .overflow-shadows[data-overflow-axis="vertical"]::before, .overflow-shadows[data-overflow-axis="vertical"]::after { left: 0; right: var(--overflow-scrollbar-inline, 0px); height: ${overflowShadowSize}px; }
+        .overflow-shadows[data-overflow-axis="vertical"]::before { top: var(--overflow-shadow-start, 0px); background: ${shadowGradient('bottom', color)}; }
+        .overflow-shadows[data-overflow-axis="vertical"]::after { bottom: var(--overflow-scrollbar-block, 0px); background: ${shadowGradient('top', color)}; }
         .overflow-shadows[data-overflow-start]::before, .overflow-shadows[data-overflow-end]::after { opacity: 1; }
     `;
     document.head.append(element);

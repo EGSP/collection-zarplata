@@ -19,6 +19,7 @@ import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError, DataValidationError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
+import { formatDateTime, formatMoney, normalizeSearchText } from '../../server/ui/value-format.js';
 import { document, movements, objectReference, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { InstallmentRates } from '../catalogs/installment-rates.catalog.js';
 import { Goods } from '../goods.js';
@@ -45,6 +46,139 @@ const rejected = (message: string) => new DataPolicyError({ message });
 
 /** Рассрочка по продаже: основание движений погашения и цель вложенной записи, которая снимает закрытие. */
 const installmentTarget = { kind: 'document', name: 'saleInstallment' } as const;
+
+/** Способ расчёта строки ленты, когда в продаже или возврате их несколько: так же пишет продажа. */
+const complexMethod = 'Сложная';
+
+/** Вид документа словами: поиск ленты находит возвраты по слову «возврат», продажи — по слову «продажа». */
+const kindTitles = { sale: 'Продажа', refund: 'Возврат' } as const;
+
+/** Товар строки ленты: код необязателен, ведущие нули сохраняются как текст. */
+interface FeedGoods {
+    readonly code: string | null;
+    readonly name: string;
+}
+
+/** Продажа-основание возврата в строке ленты: номер и дата, по которым продавец её узнаёт. */
+interface FeedSale {
+    readonly guid: string;
+    readonly number: string;
+    readonly date: string;
+}
+
+/**
+ * Строка ленты продаж и возвратов. `kind` выбирает компонент строки на клиенте. `method` —
+ * способ оплаты продажи или способ выдачи возврата, `amount` — сумма продажи или итог
+ * возвращённых товаров в копейках. `sales` — продажи-основания возврата; у продажи список пуст.
+ */
+interface FeedRow {
+    readonly kind: 'sale' | 'refund';
+    readonly guid: string;
+    readonly number: string;
+    readonly date: string;
+    readonly method: string;
+    readonly goods: ReadonlyArray<FeedGoods>;
+    readonly amount: number;
+    readonly sales: ReadonlyArray<FeedSale>;
+}
+
+/**
+ * Лента продаж и возвратов для рабочего места продавца: проведённые документы без пометки удаления,
+ * новые сверху, страницами. Продажи и возвраты стоят в одной последовательности по дате, поэтому
+ * страницы нарезаются здесь: две ленты по отдельности, склеенные на клиенте, давали бы на второй
+ * странице разные дни.
+ *
+ * Функция объявлена у возврата: из двух документов только он может импортировать другой,
+ * а импорт возврата в продажу замкнул бы файлы в круг.
+ *
+ * Без поиска читаются только первые `offset + pageSize` документов каждого вида: этого достаточно,
+ * чтобы собрать страницу общей ленты. Поиск устроен как подбор продажи: строка делится на слова,
+ * и документ подходит, если каждое слово есть в его виде («продажа», «возврат»), дате и времени,
+ * способе, кодах и названиях товаров, сумме, номере или номере продажи-основания возврата. Слова ищутся в тексте на сервере, а не запросом LIKE: LIKE в Turso
+ * различает регистр кириллицы. Поэтому при поиске читаются все проведённые документы.
+ */
+const sellerFeed = (search: string, page: number, pageSize: number) => Effect.gen(function* () {
+    const database = yield* ReadonlyDatabase;
+    const offset = (page - 1) * pageSize;
+    const words = normalizeSearchText('string', search).split(/\s+/u).filter((word) => word !== '');
+    const where = [{ column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }] as const;
+    const orderBy = [{ column: 'date', direction: 'DESC' }, { column: 'number', direction: 'DESC' }] as const;
+    const limit = words.length === 0 ? { limit: offset + pageSize } : {};
+    const sales = yield* database.all(query(Sale).select({ columns: ['guid', 'number', 'date', 'paymentMode', 'amount'], where, orderBy, ...limit }));
+    const refunds = yield* database.all(query(refund).select({ columns: ['guid', 'number', 'date'], where, orderBy, ...limit }));
+
+    // Табличные части читаются только у прочитанных документов, по порядку строк.
+    const saleGoods = sales.length === 0 ? [] : yield* database.all(query(Sale).tablePart('goods').select({
+        columns: ['ownerGuid', 'code', 'name'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: sales.map((row) => row.guid) }],
+        orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
+    }));
+    const refundGuids = refunds.map((row) => row.guid);
+    const refundGoods = refunds.length === 0 ? [] : yield* database.all(query(refund).tablePart('goods').select({
+        columns: ['ownerGuid', 'code', 'name', 'total'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: refundGuids }],
+        orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
+    }));
+    const settlements = refunds.length === 0 ? [] : yield* database.all(query(refund).tablePart('settlements').select({
+        columns: ['ownerGuid', 'method'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: refundGuids }],
+    }));
+    const bases = refunds.length === 0 ? [] : yield* database.all(query(refund).tablePart('bases').select({
+        columns: ['ownerGuid', 'sale'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: refundGuids }],
+        orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
+    }));
+    // Номера и даты продаж-оснований: продажа может быть старше страницы ленты, поэтому читается отдельно.
+    const basisSales = bases.length === 0 ? [] : yield* database.all(query(Sale).select({
+        columns: ['guid', 'number', 'date'],
+        where: [{ column: 'guid', operator: 'IN', value: [...new Set(bases.map((line) => line.sale))] }],
+    }));
+    const saleByGuid = new Map(basisSales.map((row) => [row.guid, { guid: row.guid, number: row.number, date: row.date }]));
+    const salesOf = new Map<string, FeedSale[]>();
+    for (const line of bases) {
+        const basis = saleByGuid.get(line.sale);
+        if (basis !== undefined) salesOf.set(line.ownerGuid, [...salesOf.get(line.ownerGuid) ?? [], basis]);
+    }
+    const goodsOf = new Map<string, FeedGoods[]>();
+    const add = (owner: string, line: { readonly code: unknown; readonly name: string }) => {
+        goodsOf.set(owner, [...goodsOf.get(owner) ?? [], { code: typeof line.code === 'string' && line.code.trim() !== '' ? line.code : null, name: line.name }]);
+    };
+    for (const line of saleGoods) add(line.ownerGuid, line);
+    // Сумма возврата — итог возвращённых товаров: сколько стоил возврат, а не как с покупателем рассчитались.
+    const amountOf = new Map<string, number>();
+    for (const line of refundGoods) {
+        add(line.ownerGuid, line);
+        amountOf.set(line.ownerGuid, (amountOf.get(line.ownerGuid) ?? 0) + line.total);
+    }
+    const methodsOf = new Map<string, Set<string>>();
+    for (const line of settlements) methodsOf.set(line.ownerGuid, (methodsOf.get(line.ownerGuid) ?? new Set<string>()).add(line.method));
+
+    const rows: FeedRow[] = [
+        ...sales.map((row): FeedRow => ({ kind: 'sale', guid: row.guid, number: row.number, date: row.date, method: row.paymentMode, goods: goodsOf.get(row.guid) ?? [], amount: row.amount, sales: [] })),
+        ...refunds.map((row): FeedRow => {
+            const methods = [...methodsOf.get(row.guid) ?? []];
+            return { kind: 'refund', guid: row.guid, number: row.number, date: row.date, method: methods.length === 1 ? methods[0]! : methods.length === 0 ? '' : complexMethod, goods: goodsOf.get(row.guid) ?? [], amount: amountOf.get(row.guid) ?? 0, sales: salesOf.get(row.guid) ?? [] };
+        }),
+    ];
+    // Даты хранятся строками ISO одного вида, поэтому сравниваются как текст.
+    rows.sort((left, right) => right.date.localeCompare(left.date) || right.number.localeCompare(left.number));
+
+    if (words.length === 0) {
+        const saleCount = yield* database.get(query(Sale).count({ where }));
+        const refundCount = yield* database.get(query(refund).count({ where }));
+        return { total: (saleCount?.total ?? 0) + (refundCount?.total ?? 0), rows: rows.slice(offset, offset + pageSize) };
+    }
+    const matched = rows.filter((row) => {
+        // Сумма добавлена и без пробелов разрядов: «13256» и «13 256» находят один документ.
+        const money = formatMoney(row.amount);
+        const goods = row.goods.flatMap((line) => line.code === null ? [line.name] : [line.code, line.name]);
+        // Возврат находится и по номеру своей продажи-основания.
+        const sales = row.sales.map((sale) => String(Number(sale.number)));
+        const text = normalizeSearchText('string', [kindTitles[row.kind], formatDateTime(row.date), row.method, ...goods, money, money.replace(/\s/gu, ''), String(Number(row.number)), ...sales].join(' '));
+        return words.every((word) => text.includes(word));
+    });
+    return { total: matched.length, rows: matched.slice(offset, offset + pageSize) };
+});
 
 /**
  * Описание без политик, проведения и действий: они читают запись возврата, а ссылка на `Refund`
@@ -439,4 +573,12 @@ export const Refund = refundWithPolicies
                 where: [{ column: 'guid', operator: 'IN', value: owners }, { column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }],
                 orderBy: [{ column: 'date', direction: 'ASC' }, { column: 'number', direction: 'ASC' }],
             }));
-        })));
+        })))
+    // Лента рабочего места продавца (`sellerFeed` выше): продажи и возвраты одной последовательностью.
+    .function('sellerFeed', (builder) => builder
+        .title('Лента продаж и возвратов')
+        .input((input) => input
+            .field('search', (field) => field.string().title('Поиск'))
+            .field('page', (field) => field.number().title('Страница').minimum(1).required())
+            .field('pageSize', (field) => field.number().title('Строк на странице').minimum(1).maximum(100).required()))
+        .handle((input) => sellerFeed(input.search ?? '', input.page, input.pageSize)));

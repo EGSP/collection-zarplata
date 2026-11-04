@@ -55,7 +55,8 @@ export const roles = [
         .access(accessSchema()
             .object(Sale, access => access.level('edit').post('allow').action('cancel', 'allow').action('changesState', 'allow').action('saveChanges', 'allow').action('sellWithInstallment', 'allow'))
             .object(Weighing, access => access.level('edit').post('allow').action('applySale', 'allow'))
-            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow'))
+            // Ленту продаж и возвратов на рабочем месте читает функция возврата `sellerFeed`.
+            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow'))
             .object(SaleInstallment, access => access.level('edit').post('allow').action('pay', 'allow').action('settleByBank', 'allow').function('figures', 'allow')))
         // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
         .access(accessSchema()
@@ -103,7 +104,9 @@ export const roles = [
             .object(UnarrangedInstallments, access => access.level('read')))
         // Суммы рассрочек на формах продажи и рассрочки считает функция: без права формы их не покажут.
         .access(accessSchema()
-            .object(SaleInstallment, access => access.function('figures', 'allow'))),
+            .object(SaleInstallment, access => access.function('figures', 'allow'))
+            // Ленту продаж и возвратов на рабочем месте читает функция возврата.
+            .object(Refund, access => access.function('sellerFeed', 'allow'))),
     role('sampleEditor')
         .title('Запись пробного документа')
         // Права на действие «Принять строки» нет: на этой роли проверяется политика, которая его требует.

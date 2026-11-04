@@ -6,7 +6,7 @@
  * устаревают, и их нужно сбросить: иначе список показывал бы запись в прежнем состоянии.
  */
 import { keys, useCustom, useCustomMutation, type BaseRecord } from '@refinedev/core';
-import { useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import type { ApiError } from '../common/api';
 import type { FunctionMap } from '../../server/metadata/builders';
@@ -108,6 +108,12 @@ export interface FunctionQuery<Functions extends FunctionMap, Name extends keyof
     readonly payload: Functions[Name]['input'];
     /** Вызывать ли функцию сейчас. Пока `false`, запрос не отправляется. */
     readonly enabled?: boolean;
+    /**
+     * Пока читается результат с другими входными данными, отдавать прежний. Нужен постраничным
+     * результатам, например ленте продаж: при листании и поиске строки не мигают пустотой. По умолчанию
+     * выключен: результат для другой записи нельзя показывать под её именем даже на время загрузки.
+     */
+    readonly keepPrevious?: boolean;
 }
 
 /**
@@ -121,14 +127,14 @@ export interface FunctionQuery<Functions extends FunctionMap, Name extends keyof
  * ```
  */
 export function useFunctionResult<Functions extends FunctionMap, const Name extends keyof Functions & string>(
-    { object, name, payload, enabled = true }: FunctionQuery<Functions, Name>,
+    { object, name, payload, enabled = true, keepPrevious = false }: FunctionQuery<Functions, Name>,
 ): ActionResult<Functions[Name]['output']> {
     const { query } = useCustom<BaseRecord, ApiError>({
         url: `${resourceName(object)}/${name}`,
         method: 'post',
         config: { payload: payload as object },
         meta: { function: true },
-        queryOptions: { enabled },
+        queryOptions: { enabled, ...(keepPrevious ? { placeholderData: keepPreviousData } : {}) },
         errorNotification: false,
     });
     return {
