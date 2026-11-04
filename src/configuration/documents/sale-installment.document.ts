@@ -12,7 +12,7 @@
  */
 import { Effect } from 'effect';
 import { DataPolicyError } from '../../server/data/data.errors.js';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { query } from '../../server/database/sql.builder.js';
 import { movements, objectReference, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { installmentDocument } from '../installments.js';
@@ -36,7 +36,7 @@ const saleInstallment = installmentDocument('saleInstallment', 'Рассрочк
 (record) => [movements(UnarrangedInstallments, [{ sale: record.sale, amount: 0 - record.amount }])],
 // Основание рассрочки — продажа: закрытая рассрочка помечается на удаление, когда продажу отменили.
 (record) => Effect.gen(function* () {
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const sale = yield* database.get(query(Sale).select({ columns: ['deletedAt'], where: [{ column: 'guid', operator: '=', value: record.sale }], limit: 1 }));
     return (sale?.deletedAt ?? null) !== null;
 }));
@@ -59,7 +59,7 @@ const oneInstallmentPerSalePolicy: Policy<RecordOf<typeof saleInstallment>> = {
     name: 'one-installment-per-sale',
     save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
         if (existingRecord !== null && existingRecord.sale === proposedRecord.sale) return;
-        const database = yield* Database;
+        const database = yield* ReadonlyDatabase;
         const sale = yield* database.get(query(Sale).select({
             columns: ['number', 'date', 'deletedAt'],
             where: [{ column: 'guid', operator: '=', value: proposedRecord.sale }],

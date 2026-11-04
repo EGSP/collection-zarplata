@@ -11,7 +11,7 @@ import { Effect } from 'effect';
 import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { document, formula, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
@@ -59,7 +59,7 @@ const rejected = (message: string) => new DataPolicyError({ message });
 const weighingRulesPolicy: Policy<WeighingRecord> = {
     name: 'weighing-rules',
     save: ({ proposedRecord }) => Effect.gen(function* () {
-        const database = yield* Database;
+        const database = yield* ReadonlyDatabase;
         for (const [index, line] of proposedRecord.goods.entries()) {
             const place = `Строка ${index + 1}`;
             // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.

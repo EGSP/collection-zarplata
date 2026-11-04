@@ -8,7 +8,7 @@
  */
 import { Effect } from 'effect';
 import { callFunction } from '../server/data/action-context.js';
-import { Database } from '../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../server/database/database.effect.js';
 import { query } from '../server/database/sql.builder.js';
 import { SaleInstallment } from './documents/sale-installment.document.js';
 import { Sale } from './documents/sale.document.js';
@@ -144,7 +144,7 @@ const moment = (value: string): number => new Date(value).getTime();
  * по ней же их показывают формы продажи и рассрочки.
  */
 export const periodSummary = (from: string, to: string) => Effect.gen(function* () {
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const inPeriod = (date: string) => dayOf(date) >= from && dayOf(date) <= to;
     // Граница дня записана наименьшей строкой этого дня, которую принимает поле даты со временем.
     const dayStart = (day: string) => `${day}T00:00+00:00`;

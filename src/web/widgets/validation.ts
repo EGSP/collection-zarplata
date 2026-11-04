@@ -17,6 +17,8 @@ import { formatMoney, formatNumber } from './format';
  * необязательное поле подходит всегда.
  */
 export function validationMessage(field: FormField, value: unknown): string | null {
+    // Недоступное обязательное значение сохраняет или заполняет сервер, а не пользователь формы.
+    if (field.access === 'deny' || field.access === 'read') return null;
     const { rules } = field;
     if (value === null || value === undefined || value === '') return rules.required ? 'Заполните поле' : null;
     if (field.kind === 'composite' && isCompositeValue(value)) {

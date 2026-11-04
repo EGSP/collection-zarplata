@@ -20,7 +20,7 @@ export class PerformExceptionFilter implements ExceptionFilter {
         } else if (error instanceof DataValidationError) {
             void reply.status(HttpStatus.BAD_REQUEST).send({ error: error.message, fields: error.fields });
         } else if (error instanceof RightsDeniedError) {
-            void reply.status(HttpStatus.FORBIDDEN).send({ error: error.message, right: error.right });
+            void reply.status(HttpStatus.FORBIDDEN).send({ error: error.message, right: error.right, code: error.code, target: error.target, path: error.path, required: error.required, actual: error.actual, chain: error.chain });
         } else if (error instanceof DataNotFoundError) {
             void reply.status(HttpStatus.NOT_FOUND).send({ error: error.message });
         } else if (error instanceof DataPolicyError) {

@@ -85,7 +85,7 @@ function right(...segments: ReadonlyArray<string>): Right {
  * всю базу, поэтому их просмотр и создание тоже отдельные права.
  */
 export const platformRights = Object.freeze({
-    authorization: Object.freeze({ read: right('platform', 'authorization', 'read') }),
+    authorization: Object.freeze({ read: right('platform', 'authorization', 'read'), write: right('platform', 'authorization', 'write') }),
     users: Object.freeze({ read: right('platform', 'users', 'read'), write: right('platform', 'users', 'write') }),
     journal: Object.freeze({ read: right('platform', 'journal', 'read') }),
     documents: Object.freeze({ repost: right('platform', 'documents', 'repost') }),

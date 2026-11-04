@@ -1,3 +1,4 @@
+import { AccessSettings } from './access-settings';
 import { Alert, Card, Collapse, Empty, Flex, Input, Space, Spin, Tag, Tree, Typography } from 'antd';
 import type { TreeProps } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
@@ -68,6 +69,7 @@ export default function AccessRightsPage() {
     }, [filtered]);
 
     return <Page title="Права доступа">
+        <AccessSettings />
         <Grid>
             <Column span={treeSpan}>
                 <Card size="small">

@@ -27,6 +27,7 @@ export interface TablePartInputProperties<Row extends Record<string, unknown> = 
 
 /** Проверяет все строки по описаниям колонок, даже если компонент выводит одно поле. */
 export function tablePartValidationMessages(part: FormTablePart, value: unknown): ReadonlyArray<string> {
+    if (part.access === 'deny') return [];
     if (!Array.isArray(value)) return ['Значение табличной части должно быть массивом строк'];
     return value.flatMap((row: unknown, index) => {
         if (typeof row !== 'object' || row === null || Array.isArray(row)) return [`Строка ${index + 1}: ожидается запись`];

@@ -269,6 +269,7 @@ export function TableCell({ tabNavigation, name, field, type, input: CustomInput
  * компонент прямо в него.
  */
 export function CellValue({ field, type, value }: { readonly field: FormField; readonly type: CellType; readonly value?: unknown }) {
+    if (field.access === 'deny') return <span>Нет доступа</span>;
     return type === 'free' ? <FieldDisplay field={field} value={value} /> : <>{formatCell(type, value)}</>;
 }
 

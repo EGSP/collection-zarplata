@@ -539,6 +539,7 @@ function validateObject(
             title: action.title ?? action.name,
             input: describeFields(action.input, `${location}, `, problems, configuration),
             tableParts: action.tableParts.map((part) => ({ name: part.name, title: part.title ?? part.name, fields: describeFields(part.fields, location + ', табличная часть ' + part.name + ', ', problems, configuration) })),
+            access: action.access,
             handler: action.handler,
             placement: action.placement,
             confirmation: action.confirmation,
@@ -568,6 +569,7 @@ function validateObject(
             title: declared.title ?? declared.name,
             input: describeFields(declared.input, `${location}, `, problems, configuration),
             tableParts: declared.tableParts.map((part) => ({ name: part.name, title: part.title ?? part.name, fields: describeFields(part.fields, location + ', табличная часть ' + part.name + ', ', problems, configuration) })),
+            access: declared.access,
             handler: declared.handler,
         };
     });
@@ -655,6 +657,7 @@ function validateObject(
         functions,
         form: state.form === null ? null : { overrides: state.form },
         opening: state.opening,
+        access: state.access,
         policies: state.policies,
         presentation: describePresentation(state, fields, problems),
         posting: state.posting,

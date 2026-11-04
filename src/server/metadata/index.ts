@@ -17,6 +17,7 @@ export {
     RegisterConstraintBuilder,
     TablePartBuilder,
     type ActionHandler,
+    type ConfigurationRequirements,
     type FunctionHandler,
     type FunctionMap,
     type FunctionRequirements,

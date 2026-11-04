@@ -8,7 +8,7 @@
  */
 import { Effect } from 'effect';
 import { query } from '../../server/database/sql.builder.js';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import type { DatabaseError } from '../../server/database/database.errors.js';
 import { register, type ObjectTarget } from '../../server/metadata/index.js';
 import { Sale } from '../documents/sale.document.js';
@@ -19,8 +19,8 @@ import { numberAndDate, rubles } from '../money.js';
  * действие продажи читает итог этого регистра, и без указания тип регистра выводился бы через
  * тип продажи и обратно.
  */
-const saleTitle = (guid: string): Effect.Effect<string, DatabaseError, Database> => Effect.gen(function* () {
-    const database = yield* Database;
+const saleTitle = (guid: string): Effect.Effect<string, DatabaseError, ReadonlyDatabase> => Effect.gen(function* () {
+    const database = yield* ReadonlyDatabase;
     const sale = yield* database.get(query(Sale).select({
         columns: ['number', 'date'],
         where: [{ column: 'guid', operator: '=', value: guid }],

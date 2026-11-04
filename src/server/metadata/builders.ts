@@ -15,10 +15,12 @@
  * Свойства с префиксом `~` служебные. Их читают `commit()` и выводы типов, а в подсказках
  * редактора они стоят в конце списка и не мешают методам описания.
  */
+import type { AccessDefinition, ObjectAccessSchema } from '../authorization/access-schema.js';
+import { emptyAccess } from '../authorization/access-schema.js';
 import type { ObjectReferenceValue, PresentationPart } from './descriptions.js';
 import type { Effect } from 'effect';
 import { commitObject } from './commit.js';
-import type { ActionContext, FunctionDispatcher } from '../data/action-context.js';
+import type { ActionContext, ActionDispatcher, FunctionDispatcher } from '../data/action-context.js';
 import type { CurrentUserRights } from '../authorization/current-user-rights.js';
 import type { ReadonlyDatabase } from '../database/database.effect.js';
 import type { Metadata } from './metadata.effect.js';
@@ -57,6 +59,7 @@ export interface TablePartEntry {
 
 /** Объявленное собственное действие. `handler` равен `null`, пока не вызван `handle(...)`. */
 export interface ActionEntry {
+    readonly access: AccessDefinition;
     readonly name: string;
     readonly title: string | null;
     readonly input: ReadonlyArray<FieldEntry>;
@@ -68,6 +71,7 @@ export interface ActionEntry {
 
 /** Объявленная функция объекта. `handler` равен `null`, пока не вызван `handle(...)`. */
 export interface FunctionEntry {
+    readonly access: AccessDefinition;
     readonly name: string;
     readonly title: string | null;
     readonly input: ReadonlyArray<FieldEntry>;
@@ -98,6 +102,7 @@ export interface LookupEntry {
 
 /** Всё, что накопила цепочка вызовов билдера объекта. Из этого состояния `commit()` собирает описание. */
 export interface ObjectState {
+    readonly access: AccessDefinition;
     readonly kind: ObjectKind;
     readonly name: string;
     readonly title: string | null;
@@ -236,13 +241,16 @@ export class ActionInputBuilder<Fields extends FieldMap = {}, Parts extends Tabl
     }
 }
 
+/** Общие сервисы изменяющих обработчиков: SQL только для чтения, запись через действия. */
+export type ConfigurationRequirements = ReadonlyDatabase | Metadata | ActionContext | ActionDispatcher | FunctionDispatcher | CurrentUserRights;
+
 /**
  * Обработчик собственного действия получает проверенные входные данные и возвращает Effect.
  * Его ошибки прерывают всю транзакцию запроса. Через окружение ему доступны контекст действия,
- * диспетчер вложенных вызовов и чтение базы данных. Запись через Database запрещена;
+ * диспетчер вложенных вызовов и ReadonlyDatabase. Полной базы нет в типе окружения;
  * для изменения объектов обработчик вызывает ActionDispatcher.
  */
-export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, unknown>;
+export type ActionHandler<Input> = (input: Input) => Effect.Effect<unknown, unknown, ConfigurationRequirements>;
 
 /** Настройки окна подтверждения в объявлении действия; незаданные берутся по умолчанию. */
 export interface ActionConfirmationOptions {
@@ -256,12 +264,13 @@ export interface ActionConfirmationOptions {
 
 /** Объявленное о действии помимо входных данных и обработчика: заголовок, место показа, подтверждение. */
 interface ActionSettings {
+    readonly access: AccessDefinition;
     readonly title: string | null;
     readonly placement: ActionPlacement;
     readonly confirmation: ActionConfirmation | null;
 }
 
-const defaultActionSettings: ActionSettings = { title: null, placement: 'buttons', confirmation: null };
+const defaultActionSettings: ActionSettings = { access: emptyAccess, title: null, placement: 'buttons', confirmation: null };
 
 /** Билдер собственного действия; обработчик вызывается диспетчером после проверки данных. */
 export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartMap = {}> {
@@ -270,12 +279,14 @@ export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartM
     readonly '~title': string | null;
     readonly '~placement': ActionPlacement;
     readonly '~confirmation': ActionConfirmation | null;
+    readonly '~access': AccessDefinition;
     readonly '~entries': ReadonlyArray<FieldEntry>;
     readonly '~handler': ((input: never) => unknown) | null;
 
     readonly '~parts': ReadonlyArray<TablePartEntry>;
     declare readonly '~tableParts': Parts;
     constructor(settings: ActionSettings = defaultActionSettings, entries: ReadonlyArray<FieldEntry> = [], handler: ((input: never) => unknown) | null = null, parts: ReadonlyArray<TablePartEntry> = []) {
+        this['~access'] = settings.access;
         this['~parts'] = parts;
         this['~title'] = settings.title;
         this['~placement'] = settings.placement;
@@ -286,7 +297,7 @@ export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartM
 
     /** Настройки этого билдера: каждый метод переносит их в новый билдер. */
     private get settings(): ActionSettings {
-        return { title: this['~title'], placement: this['~placement'], confirmation: this['~confirmation'] };
+        return { access: this['~access'], title: this['~title'], placement: this['~placement'], confirmation: this['~confirmation'] };
     }
 
     title(title: string): ActionBuilder<Input, Parts> {
@@ -324,6 +335,11 @@ export class ActionBuilder<Input extends FieldMap = {}, Parts extends TablePartM
     input<Fields extends FieldMap, InputParts extends TablePartMap>(define: (input: ActionInputBuilder) => ActionInputBuilder<Fields, InputParts>): ActionBuilder<Fields, InputParts> {
         const input = define(new ActionInputBuilder());
         return new ActionBuilder(this.settings, input['~entries'], null, input['~parts']);
+    }
+
+    /** Дополнительные полномочия действуют только в серверном исполнении этого обработчика. */
+    access(schema: AccessDefinition): ActionBuilder<Input, Parts> {
+        return new ActionBuilder({ ...this.settings, access: schema }, this['~entries'], this['~handler'], this['~parts']);
     }
 
     /** Обработчик действия; получает входные данные, проверенные по объявленным полям. */
@@ -374,7 +390,7 @@ export class FunctionBuilder<Input extends FieldMap = {}, Parts extends TablePar
     readonly '~parts': ReadonlyArray<TablePartEntry>;
     readonly '~handler': ((input: never) => unknown) | null;
 
-    constructor(title: string | null = null, entries: ReadonlyArray<FieldEntry> = [], parts: ReadonlyArray<TablePartEntry> = [], handler: ((input: never) => unknown) | null = null) {
+    constructor(title: string | null = null, entries: ReadonlyArray<FieldEntry> = [], parts: ReadonlyArray<TablePartEntry> = [], handler: ((input: never) => unknown) | null = null, readonly accessDefinition: AccessDefinition = emptyAccess) {
         this['~title'] = title;
         this['~entries'] = entries;
         this['~parts'] = parts;
@@ -382,7 +398,7 @@ export class FunctionBuilder<Input extends FieldMap = {}, Parts extends TablePar
     }
 
     title(title: string): FunctionBuilder<Input, Parts, Output> {
-        return new FunctionBuilder(title, this['~entries'], this['~parts'], this['~handler']);
+        return new FunctionBuilder(title, this['~entries'], this['~parts'], this['~handler'], this.accessDefinition);
     }
 
     /**
@@ -391,12 +407,17 @@ export class FunctionBuilder<Input extends FieldMap = {}, Parts extends TablePar
      */
     input<Fields extends FieldMap, InputParts extends TablePartMap>(define: (input: ActionInputBuilder) => ActionInputBuilder<Fields, InputParts>): FunctionBuilder<Fields, InputParts> {
         const input = define(new ActionInputBuilder());
-        return new FunctionBuilder(this['~title'], input['~entries'], input['~parts']);
+        return new FunctionBuilder(this['~title'], input['~entries'], input['~parts'], null, this.accessDefinition);
+    }
+
+    /** Фиксированное расширение чтения; наличие записи по-прежнему ограничено FunctionRequirements. */
+    access(schema: AccessDefinition): FunctionBuilder<Input, Parts, Output> {
+        return new FunctionBuilder(this['~title'], this['~entries'], this['~parts'], this['~handler'], schema);
     }
 
     /** Обработчик функции; тип результата выводится из возвращаемого Effect. */
     handle<Result>(handler: FunctionHandler<InputRecord<Input, Parts>, Result>): FunctionBuilder<Input, Parts, Result> {
-        return new FunctionBuilder(this['~title'], this['~entries'], this['~parts'], handler);
+        return new FunctionBuilder(this['~title'], this['~entries'], this['~parts'], handler, this.accessDefinition);
     }
 }
 
@@ -439,9 +460,10 @@ export interface LookupResult<Columns extends FieldMap> {
 
 /**
  * Функция подбора. Она не зависит от формы и клиента: получает только строку поиска и страницу.
- * Через окружение ей доступны чтение базы данных и метаданные; запись через Database запрещена.
+ * Через окружение ей доступны только ReadonlyDatabase и Metadata; запись и вызов действий
+ * не входят в тип окружения подбора.
  */
-export type LookupSearch<Columns extends FieldMap> = (input: LookupInput) => Effect.Effect<LookupResult<Columns>, unknown, unknown>;
+export type LookupSearch<Columns extends FieldMap> = (input: LookupInput) => Effect.Effect<LookupResult<Columns>, unknown, ReadonlyDatabase | Metadata>;
 
 /**
  * Билдер подбора: колонки таблицы в окне подбора и функция, которая ищет строки. Колонки
@@ -538,13 +560,13 @@ export interface DeletionPolicyInput<Record> {
  */
 export interface Policy<Record> {
     readonly name: string;
-    readonly save?: (input: SavePolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
-    readonly post?: (input: PostingPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
-    readonly unpost?: (input: PostingPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
-    readonly markDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
-    readonly unmarkDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly save?: (input: SavePolicyInput<Record>) => Effect.Effect<void, unknown, ConfigurationRequirements>;
+    readonly post?: (input: PostingPolicyInput<Record>) => Effect.Effect<void, unknown, ConfigurationRequirements>;
+    readonly unpost?: (input: PostingPolicyInput<Record>) => Effect.Effect<void, unknown, ConfigurationRequirements>;
+    readonly markDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, ConfigurationRequirements>;
+    readonly unmarkDeleted?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, ConfigurationRequirements>;
     /** Проверка перед физическим удалением сведений; получает существующую запись. */
-    readonly delete?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, unknown>;
+    readonly delete?: (input: DeletionPolicyInput<Record>) => Effect.Effect<void, unknown, ConfigurationRequirements>;
 }
 
 /**
@@ -569,6 +591,8 @@ export interface ObjectBuilder<Kind extends ObjectKind = ObjectKind, Name extend
      * перед `commit()`; повторный вызов ничего не меняет.
      */
     withStandardFields(): this;
+    /** Подключает группы и исходную схему объекта; роли задают собственные уровни. */
+    withAccess<Groups extends string>(schema: ObjectAccessSchema<this, Groups>): this & { readonly '~accessGroups': Groups };
 
     /**
      * Проверяет описание и собирает неизменяемое описание объекта. `configuration` — билдеры всех
@@ -681,7 +705,7 @@ type RecordBuilderOf<Kind extends 'catalog' | 'document', Name extends string, F
  * действия, диспетчер вложенных вызовов и чтение базы данных. Ошибка обработчика отменяет проведение
  * вместе со всей транзакцией запроса.
  */
-export type PostingHandler<Record> = (record: Record) => Effect.Effect<ReadonlyArray<RegisterMovements>, unknown, unknown>;
+export type PostingHandler<Record> = (record: Record) => Effect.Effect<ReadonlyArray<RegisterMovements>, unknown, ConfigurationRequirements>;
 
 /** Билдер документа; его создаёт `document(name)`. */
 export interface DocumentBuilder<Name extends string, Fields extends FieldMap, Parts extends TablePartMap, Actions extends string = never, Functions extends FunctionMap = {}>
@@ -766,7 +790,7 @@ export class RegisterConstraintBuilder<Fields extends FieldMap, Dimensions exten
      * например представление документа из измерения; изменять базу она не может. Без этого
      * вызова платформа называет в отказе регистр, ресурс, итог и допустимое значение.
      */
-    message(message: (violation: ConstraintViolation<Fields, Dimensions, By>) => Effect.Effect<string, unknown, unknown>): RegisterConstraintBuilder<Fields, Dimensions, By> {
+    message(message: (violation: ConstraintViolation<Fields, Dimensions, By>) => Effect.Effect<string, unknown, ConfigurationRequirements>): RegisterConstraintBuilder<Fields, Dimensions, By> {
         return new RegisterConstraintBuilder({ ...this['~entry'], message });
     }
 }
@@ -887,7 +911,7 @@ class ObjectBuilderImplementation {
 
     action(name: string, define: (action: ActionBuilder) => ActionBuilder<FieldMap, TablePartMap>): this {
         const action = define(new ActionBuilder());
-        const entry: ActionEntry = {
+        const entry: ActionEntry = { access: action['~access'],
             name, title: action['~title'], input: action['~entries'], tableParts: action['~parts'], handler: action['~handler'],
             placement: action['~placement'], confirmation: action['~confirmation'],
         };
@@ -896,7 +920,7 @@ class ObjectBuilderImplementation {
 
     function(name: string, define: (builder: FunctionBuilder) => FunctionBuilder<FieldMap, TablePartMap, unknown>): this {
         const declared = define(new FunctionBuilder());
-        const entry: FunctionEntry = { name, title: declared['~title'], input: declared['~entries'], tableParts: declared['~parts'], handler: declared['~handler'] };
+        const entry: FunctionEntry = { access: declared.accessDefinition, name, title: declared['~title'], input: declared['~entries'], tableParts: declared['~parts'], handler: declared['~handler'] };
         return this.with({ functions: [...this['~state'].functions, entry] });
     }
 
@@ -940,6 +964,10 @@ class ObjectBuilderImplementation {
         return this.with({ constraints: [...this['~state'].constraints, constraint['~entry']] });
     }
 
+    withAccess<Groups extends string>(schema: ObjectAccessSchema<this, Groups>): this & { readonly '~accessGroups': Groups } {
+        return this.with({ access: schema }) as this & { readonly '~accessGroups': Groups };
+    }
+
     withStandardFields(): this {
         if (this['~state'].standardFieldsAdded) return this;
         const standard: ReadonlyArray<FieldEntry> = Object.entries(standardFields[this.kind]).map(([name, builder]) => ({
@@ -971,7 +999,7 @@ export function isObjectBuilder(value: unknown): value is ObjectBuilder {
 }
 
 function emptyState(kind: ObjectKind, name: string): ObjectState {
-    return { kind, name, title: null, fields: [], tableParts: [], actions: [], functions: [], form: null, opening: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, constraints: [], lookup: null, standardFieldsAdded: false };
+    return { kind, name, access: emptyAccess, title: null, fields: [], tableParts: [], actions: [], functions: [], form: null, opening: null, policies: [], presentation: null, presentationParts: [], listTableParts: [], posting: null, constraints: [], lookup: null, standardFieldsAdded: false };
 }
 
 // Функции ниже приводят реализацию к интерфейсу через unknown: точные типы полей существуют

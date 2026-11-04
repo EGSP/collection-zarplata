@@ -9,7 +9,7 @@
  */
 import { Effect } from 'effect';
 import { query } from '../../server/database/sql.builder.js';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { register, type ObjectTarget } from '../../server/metadata/index.js';
 import { Sale } from '../documents/sale.document.js';
 import { Shift } from '../documents/shift.document.js';
@@ -32,7 +32,7 @@ export const SalesNetOfReturns = register('salesNetOfReturns')
         .by(['sale'])
         .minimum('amount', 0)
         .message(({ dimensions, totals }) => Effect.gen(function* () {
-            const database = yield* Database;
+            const database = yield* ReadonlyDatabase;
             const sale = yield* database.get(query(Sale).select({
                 columns: ['number', 'date'],
                 where: [{ column: 'guid', operator: '=', value: dimensions.sale }],

@@ -1,3 +1,4 @@
+import type { UserRights } from '../authorization/rights-guard.platform.js';
 /**
  * Построение описаний форм и списков из описаний объектов конфигурации.
  *
@@ -225,8 +226,19 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
  * только разрешённые команды. Право изменения определяет та же функция, что и в диспетчере;
  * просмотр журнала проверяется по праву платформы. Форма без `save` доступна только для просмотра.
  */
-export function restrictObjectView(object: ObjectDescription, view: ObjectView, allows: (right: Right) => boolean): ObjectView | null {
+export function restrictObjectView(object: ObjectDescription, view: ObjectView, allows: (right: Right) => boolean, rights?: UserRights): ObjectView | null {
     if (!allows(readRight(object))) return null;
+    const internal = new Set(object.access?.entries.filter(entry => entry.path.startsWith('internal.')).map(entry => entry.path.slice(9)) ?? []);
+    const level = (name: string) => rights?.decision(object, `fields.${name}`).level ?? 'edit';
+    const hiddenInputs = [...object.fields.map(field => field.name), ...object.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => level(name) === 'deny');
+    const restrictField = (field: FormField, prefix = ''): FormField => ({ ...field, ...(hiddenInputs || level(prefix + field.name) !== 'edit' ? { computed: null } : {}), access: level(prefix + field.name) as 'deny' | 'read' | 'edit', readOnly: field.readOnly || level(prefix + field.name) !== 'edit', ...(level(prefix + field.name) === 'deny' ? { initial: null, computed: null, inputElement: null } : {}) });
+    const parts = (parts: readonly import('./descriptions.js').FormTablePart[]) => parts.filter(part => !internal.has(part.name)).map(part => ({ ...part, access: (part.columns.some(field => level(`${part.name}.${field.name}`) === 'edit') ? 'edit' : part.columns.some(field => level(`${part.name}.${field.name}`) === 'read') ? 'read' : 'deny') as 'deny' | 'read' | 'edit', columns: part.columns.filter(field => !internal.has(`${part.name}.${field.name}`)).map(field => restrictField(field, `${part.name}.`)) }));
+    const safeNames = new Set(object.fields.filter(field => !internal.has(field.name)).map(field => field.name));
+    view = { ...view, presentation: object.fields.some(field => level(field.name) === 'deny') ? null : view.presentation,
+        lookup: view.lookup === null ? null : { columns: view.lookup.columns.filter(field => !internal.has(field.name)) },
+        tableParts: parts(view.tableParts ?? []),
+        list: { ...view.list, columns: view.list.columns.filter(column => safeNames.has(column.field)).map(column => ({ ...column, access: level(column.field) as 'deny' | 'read' | 'edit' })), filters: view.list.filters.filter(field => safeNames.has(field.field) && level(field.field) !== 'deny'), sortable: view.list.sortable.filter(name => level(name) !== 'deny'), defaultSort: view.list.defaultSort.filter(sort => level(sort.field) !== 'deny') },
+        form: view.form === null ? null : { ...view.form, fields: view.form.fields.filter(field => !internal.has(field.name)).map(field => restrictField(field)), tableParts: parts(view.form.tableParts), calculations: { fields: (view.form.calculations?.fields ?? view.form.fields).filter(field => !internal.has(field.name) && level(field.name) !== 'deny').map(field => restrictField(field)), tableParts: parts(view.form.calculations?.tableParts ?? view.form.tableParts) }, groups: view.form.groups.map(group => ({ ...group, elements: group.elements.filter(element => typeof element !== 'string' || !internal.has(element)) })), traversal: view.form.traversal.filter(name => level(name) === 'edit') } };
     // Функции остаются только разрешённые: клиент не предлагает вызов, который сервер отклонит.
     const functions = view.functions.filter((declared) => {
         const right = requiredFunctionRight(object, declared.name);

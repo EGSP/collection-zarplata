@@ -11,7 +11,7 @@
  * Поэтому правило, которое проверила платформа, и число, которое прочитал клиент, не расходятся.
  */
 import { Effect } from 'effect';
-import { Database } from '../database/database.effect.js';
+import { ReadonlyDatabase } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
 import { query, type QueryFilter } from '../database/sql.builder.js';
 import type { RegisterBuilder, ResourceTotals } from '../metadata/builders.js';
@@ -59,9 +59,9 @@ export function readTotals(
     register: ObjectDescription,
     by: ReadonlyArray<string>,
     where: ReadonlyArray<QueryFilter> = [],
-): Effect.Effect<ReadonlyArray<RecordValue>, DatabaseError, Database> {
+): Effect.Effect<ReadonlyArray<RecordValue>, DatabaseError, ReadonlyDatabase> {
     return Effect.gen(function* () {
-        const database = yield* Database;
+        const database = yield* ReadonlyDatabase;
         const resources = registerResources(register);
         const rows = yield* database.all<RecordValue>(query(register).sums({
             groupBy: by,
@@ -107,7 +107,7 @@ export type TotalsRow<Fields extends FieldMap, Dimensions extends string, By ext
 export function totals<Name extends string, Fields extends FieldMap, Dimensions extends string, const By extends ReadonlyArray<Dimensions>>(
     register: RegisterBuilder<Name, Fields, Dimensions>,
     options: TotalsOptions<Fields, Dimensions, By>,
-): Effect.Effect<ReadonlyArray<TotalsRow<Fields, Dimensions, By>>, DatabaseError, Database | Metadata> {
+): Effect.Effect<ReadonlyArray<TotalsRow<Fields, Dimensions, By>>, DatabaseError, ReadonlyDatabase | Metadata> {
     return Effect.gen(function* () {
         const metadata = yield* Metadata;
         const description = metadata.find('register', register.name);
@@ -132,7 +132,7 @@ export function totals<Name extends string, Fields extends FieldMap, Dimensions 
  * `period`. Оба свойства необязательны. Неизвестное или повторённое измерение, недопустимый
  * способ сравнения и значение неверного типа возвращают 400.
  */
-export function totalsAction(register: ObjectDescription, payload: unknown): Effect.Effect<{ readonly items: ReadonlyArray<RecordValue> }, DataValidationError | DatabaseError, Database> {
+export function totalsAction(register: ObjectDescription, payload: unknown): Effect.Effect<{ readonly items: ReadonlyArray<RecordValue> }, DataValidationError | DatabaseError, ReadonlyDatabase> {
     return Effect.gen(function* () {
         const options = objectValue(payload, 'payload');
         const dimensions = registerDimensions(register);

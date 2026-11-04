@@ -17,14 +17,14 @@ import { query, type QueryFilter } from '../database/sql.builder.js';
 import type { ObjectDescription, RegisterConstraintDescription } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { formatSearchValue } from '../ui/value-format.js';
-import type { ActionContext, ActionDispatcher } from './action-context.js';
 import { DataPolicyError } from './data.errors.js';
 import type { RecordValue } from './records.js';
+import type { ConfigurationRequirements } from '../metadata/builders.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { readTotals, registerResources } from './register-totals.js';
 
 /** Сервисы, доступные функции текста отказа: те же, что у политики записи. */
-type ConstraintRequirements = Database | Metadata | ActionContext | ActionDispatcher;
+type ConstraintRequirements = Database | ConfigurationRequirements;
 
 /** Логические значения измерений движений документа в одном регистре с ограничениями. */
 export interface RegisterMovementKeys {
@@ -94,7 +94,7 @@ export function enforceConstraints(movements: ReadonlyArray<RegisterMovementKeys
                     // После сборки описания типы измерений и ресурсов стёрты; их проверил билдер регистра.
                     const result = constraint.message({ dimensions, totals } as never);
                     if (!Effect.isEffect(result)) return yield* Effect.die(new Error(`Текст ограничения «${constraint.name}» должен вернуть Effect`));
-                    const message = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ConstraintRequirements>, Database, readOnlyDatabase(database));
+                    const message = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ConfigurationRequirements>, Database, readOnlyDatabase(database));
                     if (typeof message !== 'string') return yield* Effect.die(new Error(`Текст ограничения «${constraint.name}» должен быть строкой`));
                     return yield* new DataPolicyError({ message });
                 }

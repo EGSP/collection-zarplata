@@ -14,6 +14,8 @@ export type SqlValue = string | number | bigint | boolean | null | Uint8Array;
 
 /** Готовый запрос: `sql` содержит только SQL и маркеры `?`, значения лежат в `parameters`. */
 export interface SqlQuery {
+    /** Происхождение чтения для контроля доступа обработчика; клиент его не задаёт. */
+    readonly access?: { readonly kind: ObjectDescription['kind']; readonly name: string; readonly fields: readonly string[] };
     readonly sql: string;
     readonly parameters: readonly SqlValue[];
 }
@@ -420,6 +422,14 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
         return sql;
     }
 
+    private access(names: readonly string[], filters: readonly QueryFilter<Row>[] = [], orders: readonly SqlOrder[] = []): NonNullable<SqlQuery['access']> {
+        const [kind, name, part] = this.table.split('_');
+        const namesOf = (filters: readonly QueryFilter<Row>[]): string[] => filters.flatMap(filter => 'any' in filter ? namesOf(filter.any) : 'all' in filter ? namesOf(filter.all) : [filter.column]);
+        const filterNames = namesOf(filters);
+        // Ключ владельца части относится к guid объекта; номер строки является структурным порядком, а не реквизитом.
+        return { kind: kind as ObjectDescription['kind'], name: name!, fields: [...new Set([...names, ...filterNames, ...orders.map(order => order.column)])].filter(field => part === undefined || field !== 'lineNumber').map(field => part === undefined ? field : field === 'ownerGuid' ? 'guid' : `${part}.${field}`) };
+    }
+
     private decoder<Selected extends Record<string, unknown>>(names: readonly string[]): (row: Record<string, unknown>) => Selected {
         return (row) => Object.fromEntries(names.map((name) => [name, this.field(name).storage.decode(row)])) as Selected;
     }
@@ -433,7 +443,7 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
         const columns = this.selectList(names);
         const parameters: SqlValue[] = [];
         return { sql: `SELECT ${columns.join(', ')} FROM ${sqlIdentifier(this.table)}${this.where(options.where, parameters)}${this.tail(options, parameters)}`,
-            parameters, decodeRow: this.decoder(names) };
+            access: this.access(names, options.where, options.orderBy), parameters, decodeRow: this.decoder(names) };
     }
 
     /** Подсчитывает строки по тому же отбору, что select, без сортировки и страницы. */
@@ -441,7 +451,7 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
         checkQueryProperties(options, ['where']);
         const parameters: SqlValue[] = [];
         return { sql: `SELECT COUNT(*) AS total FROM ${sqlIdentifier(this.table)}${this.where(options.where, parameters)}`,
-            parameters, decodeRow: (row) => ({ total: Number(row['total']) }) };
+            access: this.access([], options.where), parameters, decodeRow: (row) => ({ total: Number(row['total']) }) };
     }
 
     /** Суммирует числовые поля; без группировки пустой набор даёт одну строку с нулями. */
@@ -466,7 +476,7 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
         return { sql: `SELECT ${[...groups, ...sums].join(', ')} FROM ${sqlIdentifier(this.table)}${this.where(options.where, parameters)}`
             + (groups.length === 0 ? '' : ` GROUP BY ${groups.join(', ')}`)
             + this.tail({ ...options, orderBy: options.orderBy ?? options.groupBy.map((column) => ({ column, direction: 'ASC' as const })) }, parameters),
-            parameters, decodeRow: (row) => ({ ...decodeGroups(row), ...Object.fromEntries(options.sums.map((name) => [name, Number(row[name])])) }) as Pick<Row, Groups[number]> & { [Name in Sums[number]]: number } };
+            access: this.access([...options.groupBy, ...options.sums], options.where, options.orderBy), parameters, decodeRow: (row) => ({ ...decodeGroups(row), ...Object.fromEntries(options.sums.map((name) => [name, Number(row[name])])) }) as Pick<Row, Groups[number]> & { [Name in Sums[number]]: number } };
     }
 
     /** Наибольший номер документа как число; CAST сохраняет порядок после переполнения ширины номера. */
@@ -474,7 +484,7 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
         const field = this.field(column);
         if (!['string', 'number', 'money'].includes(field.description.kind)) throw new Error('Числовой максимум требует строку или число');
         return { sql: `SELECT MAX(CAST(${this.columnNames([column])[0]} AS INTEGER)) AS maximum FROM ${sqlIdentifier(this.table)}`,
-            parameters: [], decodeRow: (row) => ({ maximum: row['maximum'] === null ? null : Number(row['maximum']) }) };
+            access: this.access([column]), parameters: [], decodeRow: (row) => ({ maximum: row['maximum'] === null ? null : Number(row['maximum']) }) };
     }
 
     private values(values: Partial<Row>, creating: boolean): Record<string, SqlValue> {

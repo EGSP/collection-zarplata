@@ -56,6 +56,7 @@ export function FieldInput(properties: InputProperties<unknown>) {
 
 /** Отображение значения поля любого вида. О типе значения см. `FieldInput`. */
 export function FieldDisplay(properties: DisplayProperties<unknown>) {
+    if ('access' in properties.field && properties.field.access === 'deny') return <span>Нет доступа</span>;
     const Display = widgets[properties.field.kind].display as ComponentType<DisplayProperties<unknown>>;
     return <Display {...properties} />;
 }
