@@ -5,7 +5,7 @@ import { platformUsers } from './descriptions.js';
 /** Хранение PIN и ролей обслуживают собственные формы; окна открывает общая платформа. */
 export function userObjectView(canWrite: boolean): ObjectView {
     return {
-        ...platformUsers, title: 'Пользователи', presentation: null, lookup: null,
+        ...platformUsers, title: 'Пользователи', presentation: null, lookup: null, functions: [],
         form: {
             fields: [], tableParts: [], groups: [], traversal: [], creationMode: 'tab',
             actions: canWrite ? [{ name: 'save', title: 'Записать', standard: true, input: [] }] : [],
@@ -16,4 +16,3 @@ export function userObjectView(canWrite: boolean): ObjectView {
         },
     };
 }
-
