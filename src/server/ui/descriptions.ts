@@ -115,6 +115,18 @@ export interface FormAction {
 }
 
 /**
+ * Функция объекта в описании для клиента: имя, заголовок и входные данные. Результат функции
+ * клиент получает операцией `{ target, function, payload }`; в описании остаются только функции,
+ * на которые у пользователя есть право.
+ */
+export interface FunctionView {
+    readonly name: string;
+    readonly title: string;
+    readonly input: ReadonlyArray<FormField>;
+    readonly tableParts: ReadonlyArray<FormTablePart>;
+}
+
+/**
  * Описание формы объекта. Форма есть у справочников и документов; строки регистров записывают
  * только документы при проведении, поэтому формы регистра нет.
  */
@@ -263,6 +275,8 @@ export interface ObjectView {
      * `lookup`. `null`, если объект подбора не объявил: тогда у поля ссылки нет кнопки подбора.
      */
     readonly lookup: LookupView | null;
+    /** Функции объекта, доступные пользователю. */
+    readonly functions: ReadonlyArray<FunctionView>;
 }
 
 /** Колонки окна подбора; значение колонки показывается виджетом её вида. */

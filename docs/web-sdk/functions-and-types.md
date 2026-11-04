@@ -53,6 +53,7 @@ covers:
 |---|---|
 | `ObjectView`, `FormView`, `ListView`, `FormField`, `FormAction` и связанные | Описания объектов с сервера |
 | `ActionPlacement`, `ActionConfirmation`, `ActionConfirmationTone` | Место показа действия (`buttons`, `more`, `hidden`) и настройка его окна подтверждения (`delay`, `title`, `message`, `tone`) |
+| `useFunctionResult` | Хук результата [функции объекта](hooks.md#выполнение-действий); экспортируется из SDK вместе с `ActionResult` |
 | `ActionResult`, `ActionConfirmationState`, `ActionConfirmationDialogProperties` | Результат [`useActionResult`](hooks.md#выполнение-действий) с `refresh`, результат `useActionConfirmation` и свойства [окна подтверждения](components.md#подтверждение-действия) |
 | `ObjectReference`, `FieldName`, `RecordCondition`, `RecordSort` и связанные | [Ссылки на объекты](../web-sdk.md#типизация-объектов) с точными типами записи и действий |
 | `BreakpointContainerProperties` | Свойства `BreakpointContainer`: `of="window"`, `of="fixed"` с `point` или `of="element"` с `style` |

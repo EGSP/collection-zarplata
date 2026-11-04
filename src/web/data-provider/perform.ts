@@ -15,12 +15,12 @@ export interface PerformTarget {
     readonly name: string;
 }
 
-/** Операция единого эндпоинта. `payload` можно не указывать, если у действия нет входных данных. */
-export interface PerformOperation {
-    readonly target: PerformTarget;
-    readonly action: string;
-    readonly payload?: unknown;
-}
+/**
+ * Операция единого эндпоинта: действие (`action`) либо функция объекта (`function`).
+ * `payload` можно не указывать, если входных данных нет.
+ */
+export type PerformOperation = { readonly target: PerformTarget; readonly payload?: unknown }
+    & ({ readonly action: string; readonly function?: never } | { readonly function: string; readonly action?: never });
 
 /**
  * Выполняет одну операцию от имени вошедшего пользователя и возвращает её результат.

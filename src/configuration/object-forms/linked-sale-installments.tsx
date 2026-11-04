@@ -3,7 +3,7 @@ import { Alert, Flex, Typography } from 'antd';
 import { useState } from 'react';
 import { ActionDialog, Button, Icons, useAction, useActionResult, useObjectView, useRecords, type FormValues, type ObjectView } from '../../web/sdk';
 import { Objects } from '../objects.generated';
-import { InstallmentPayments, LinkedInstallmentForm, paidAmount, refundedAmount, type LinkedInstallment } from './linked-installment-form';
+import { InstallmentPayments, LinkedInstallmentForm, paidAmount, useInstallmentFigures, type LinkedInstallment } from './linked-installment-form';
 import { InstallmentPaymentDialog } from './installment-payment-dialog';
 
 interface InstallmentListPage {
@@ -47,11 +47,12 @@ const closingDate = (installment: LinkedInstallment) => installment.payments.red
  * Таблица просмотра перечитывается из кеша после действия; локальной копии записи здесь нет.
  */
 function InstallmentView({ installment, view, loading }: { readonly installment: LinkedInstallment; readonly view: ObjectView; readonly loading: boolean }) {
+    const figures = useInstallmentFigures([installment]);
     const form = view.form;
     if (form === null) return null;
     const paymentsPart = form.tableParts.find((part) => part.name === 'payments');
     return <LinkedInstallmentForm installment={installment} fields={form.fields} person={installment.person} employee={installment.responsibleEmployee}
-        amount={installment.amount} paid={paidAmount(installment.payments)} payments={paymentsPart === undefined ? null : <InstallmentPayments key={JSON.stringify(installment.payments)} part={paymentsPart} payments={installment.payments} disabled />}>
+        amount={installment.amount} paid={paidAmount(installment.payments)} refunded={figures.get(installment.guid)?.refunded ?? 0} payments={paymentsPart === undefined ? null : <InstallmentPayments key={JSON.stringify(installment.payments)} part={paymentsPart} payments={installment.payments} disabled />}>
         <LinkedInstallmentActions installment={installment} view={view} disabled={loading} />
     </LinkedInstallmentForm>;
 }
@@ -64,12 +65,13 @@ function InstallmentView({ installment, view, loading }: { readonly installment:
 export function LinkedInstallmentActions({ installment, view, disabled = false }: { readonly installment: LinkedInstallment; readonly view: ObjectView; readonly disabled?: boolean }) {
     const [dialog, setDialog] = useState<'pay' | 'close' | null>(null);
     const execute = useAction();
+    // Долг сохранённой рассрочки с учётом погашений возвратами считает функция рассрочек.
+    const debt = useInstallmentFigures([installment]).get(installment.guid)?.debt;
     const form = view.form;
     if (form === null || installment.type !== 'Собственная') return null;
-    const paid = paidAmount(installment.payments);
-    // Возврат в счёт долга гасит его наравне со взносами.
-    const balance = installment.amount - paid - refundedAmount(installment);
-    const actionable = !disabled && installment.posted && installment.closedAt === null && (installment.deletedAt ?? null) === null;
+    // Пока долг не прочитан, обе кнопки недоступны: иначе «Закрыть» на миг показалась бы доступной.
+    const actionable = !disabled && debt !== undefined && installment.posted && installment.closedAt === null && (installment.deletedAt ?? null) === null;
+    const balance = debt ?? 0;
     const pay = form.actions.find((action) => action.name === 'pay');
     const close = form.actions.find((action) => action.name === 'close');
     const action = dialog === 'pay' ? pay : dialog === 'close' ? close : undefined;

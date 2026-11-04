@@ -7,6 +7,7 @@
  * как в политике закрытого периода и в расчёте зарплаты.
  */
 import { Effect } from 'effect';
+import { callFunction } from '../server/data/action-context.js';
 import { Database } from '../server/database/database.effect.js';
 import { query } from '../server/database/sql.builder.js';
 import { SaleInstallment } from './documents/sale-installment.document.js';
@@ -36,9 +37,9 @@ export interface SummaryGoodsRow {
     readonly size: string | null;
     readonly total: number;
     readonly payments: PaymentTotals;
-    /** Доля взносов по рассрочкам продажи, внесённых по конец периода, приходящаяся на товар. */
+    /** Доля взносов по рассрочкам продажи, внесённых по конец периода, приходящаяся на товар. Погашения возвратами сюда не входят. */
     readonly installmentPaid: number;
-    /** Рассрочка продажи на конец периода не закрыта или ещё не оформлена: в рассрочку есть непогашенная часть. */
+    /** На конец периода у рассрочки продажи есть долг или рассрочка оформлена не на всю сумму в рассрочку. */
     readonly installmentOpen: boolean;
 }
 
@@ -77,6 +78,10 @@ export interface SummaryDebt {
     readonly installment: string;
     readonly sale: string;
     readonly date: string;
+    /**
+     * Сумма рассрочки за вычетом погашений возвратами на конец периода. Исходная сумма рядом
+     * с долгом читалась бы как частично внесённая, хотя часть долга погасил возврат, а не деньги.
+     */
     readonly amount: number;
     readonly debt: number;
 }
@@ -124,13 +129,19 @@ const moment = (value: string): number => new Date(value).getTime();
  *   между товарами пропорционально их итогам; итоги блока — суммы этих долей. Совокупные итоги
  *   складывают оба блока: это все проведённые продажи периода. Для части в рассрочку считается
  *   и внесённая часть: взносы по рассрочкам продажи по конец периода, включая оплату банком,
- *   делятся между товарами пропорционально их долям рассрочки. Рассрочка считается незакрытой,
- *   если на конец периода у продажи есть незакрытая или неоформленная рассрочка.
+ *   делятся между товарами пропорционально их долям рассрочки. Погашения возвратами во внесённую
+ *   часть не входят: они не приносят денег. Рассрочка считается незакрытой, если на конец периода
+ *   у рассрочки продажи есть долг или сумма в рассрочку оформлена не целиком. Дата закрытия
+ *   не учитывается: возврат, открывший рассрочку позже, стирает её.
  * - Взносы: взносы проведённых рассрочек с датой в периоде.
  * - Отвесы: строки, которые сейчас в состоянии «В отвесе», у отвесов с датой не позже конца
  *   периода. Отвес не хранит историю состояний строк, поэтому берётся текущее.
  * - Должники: проведённые рассрочки, оформленные не позже конца периода, с долгом на его конец:
- *   сумма рассрочки за вычетом взносов, внесённых по этот день.
+ *   сумма рассрочки за вычетом взносов и погашений возвратами по этот день. Сумму рассрочки
+ *   должник видит уже за вычетом погашений возвратами: её разница с долгом — только взносы.
+ *
+ * Взносы, погашения и долг рассрочек на конец периода считает функция рассрочек `figures`:
+ * по ней же их показывают формы продажи и рассрочки.
  */
 export const periodSummary = (from: string, to: string) => Effect.gen(function* () {
     const database = yield* Database;
@@ -154,15 +165,18 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         columns: ['ownerGuid', 'method', 'amount'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: saleGuids }],
     }));
-    // Рассрочки продаж периода с взносами: по ним считается внесённая часть суммы в рассрочку.
-    const saleInstallments = saleGuids.length === 0 ? [] : (yield* database.all(query(SaleInstallment).select({
-        columns: ['guid', 'date', 'sale', 'amount', 'closedAt'],
-        where: [...active, { column: 'sale', operator: 'IN', value: saleGuids }],
+    // Рассрочки, оформленные не позже конца периода, и их суммы на его конец: по ним считаются
+    // внесённая часть продаж периода, взносы периода и долги.
+    const installments = (yield* database.all(query(SaleInstallment).select({
+        columns: ['guid', 'date', 'sale', 'person', 'amount'],
+        where: [...active, { column: 'date', operator: '<', value: end }],
     }))).filter((installment) => dayOf(installment.date) <= to);
-    const saleInstallmentPayments = saleInstallments.length === 0 ? [] : yield* database.all(query(SaleInstallment).tablePart('payments').select({
-        columns: ['ownerGuid', 'date', 'amount'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: saleInstallments.map((installment) => installment.guid) }],
-    }));
+    const figures = new Map((yield* callFunction(SaleInstallment, 'figures', {
+        date: to,
+        installments: installments.map((installment) => ({ guid: installment.guid })),
+    })).map((item) => [item.installment, item]));
+    const figuresOf = (guid: string) => figures.get(guid)!;
+    const saleInstallments = installments.filter((installment) => saleGuids.includes(installment.sale));
     const posted: SummaryGoodsRow[] = [];
     const notPosted: SummaryGoodsRow[] = [];
     for (const sale of sales) {
@@ -174,13 +188,11 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         const installmentShares = byMethod(installmentMethod);
         const installmentTotal = installmentShares.reduce((sum, share) => sum + share, 0);
         const ownInstallments = saleInstallments.filter((installment) => installment.sale === sale.guid);
-        const paid = saleInstallmentPayments
-            .filter((payment) => ownInstallments.some((installment) => installment.guid === payment.ownerGuid) && dayOf(payment.date) <= to)
-            .reduce((sum, payment) => sum + payment.amount, 0);
+        const paid = ownInstallments.reduce((sum, installment) => sum + figuresOf(installment.guid).paid, 0);
         const arranged = ownInstallments.reduce((sum, installment) => sum + installment.amount, 0);
-        // Незакрыта рассрочка, закрытая позже периода, и сумма в рассрочку, на которую рассрочку ещё не оформили.
+        // Незакрыта рассрочка с долгом на конец периода и сумма в рассрочку, на которую рассрочку ещё не оформили.
         const open = installmentTotal > 0 && (arranged < installmentTotal
-            || ownInstallments.some((installment) => installment.closedAt === null || dayOf(installment.closedAt) > to));
+            || ownInstallments.some((installment) => figuresOf(installment.guid).debt > 0));
         // Взносы делятся между товарами по их долям рассрочки и не превышают суммы в рассрочку.
         const paidShares = allocate(Math.min(paid, installmentTotal), installmentShares);
         lines.forEach((line, index) => {
@@ -200,11 +212,7 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         installmentPaid: rows.reduce((sum, row) => sum + row.installmentPaid, 0),
     });
 
-    // Рассрочки, оформленные не позже конца периода: по ним считаются взносы периода и долги.
-    const installments = (yield* database.all(query(SaleInstallment).select({
-        columns: ['guid', 'date', 'sale', 'person', 'amount'],
-        where: [...active, { column: 'date', operator: '<', value: end }],
-    }))).filter((installment) => dayOf(installment.date) <= to);
+    // Взносы периода перечисляются строками, поэтому читаются из рассрочек, а не из итогов.
     const installmentPayments = installments.length === 0 ? [] : yield* database.all(query(SaleInstallment).tablePart('payments').select({
         columns: ['ownerGuid', 'date', 'method', 'amount'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: installments.map((installment) => installment.guid) }],
@@ -223,16 +231,13 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         installment: 0,
     };
 
-    // Долг рассрочки на конец периода: взносы после него ещё не внесены.
+    // Долг рассрочки на конец периода: взносы и погашения после него ещё не учтены.
     const debtors = new Map<string, SummaryDebt[]>();
     for (const installment of installments) {
         if (installment.person === null) continue;
-        const paid = installmentPayments
-            .filter((payment) => payment.ownerGuid === installment.guid && dayOf(payment.date) <= to)
-            .reduce((sum, payment) => sum + payment.amount, 0);
-        const debt = installment.amount - paid;
+        const { amount, refunded, debt } = figuresOf(installment.guid);
         if (debt <= 0) continue;
-        debtors.set(installment.person, [...debtors.get(installment.person) ?? [], { installment: installment.guid, sale: installment.sale, date: installment.date, amount: installment.amount, debt }]);
+        debtors.set(installment.person, [...debtors.get(installment.person) ?? [], { installment: installment.guid, sale: installment.sale, date: installment.date, amount: amount - refunded, debt }]);
     }
     const debtorRows: SummaryDebtor[] = [...debtors].map(([person, debts]) => ({
         person, debt: debts.reduce((sum, item) => sum + item.debt, 0), installments: debts.sort((first, second) => moment(first.date) - moment(second.date)),

@@ -8,6 +8,7 @@ export {
     catalog,
     document,
     FormBuilder,
+    FunctionBuilder,
     isObjectBuilder,
     movements,
     register,
@@ -16,6 +17,12 @@ export {
     RegisterConstraintBuilder,
     TablePartBuilder,
     type ActionHandler,
+    type FunctionHandler,
+    type FunctionMap,
+    type FunctionRequirements,
+    type FunctionSignature,
+    type InputRecord,
+    type SignatureOf,
     type MovementOf,
     type CatalogBuilder,
     type DocumentBuilder,
@@ -46,6 +53,6 @@ export { Metadata } from './metadata.effect.js';
 export { defineObjectForm, isObjectFormDefinition, ObjectFormDefinition, type ObjectFormKind } from './object-forms.js';
 export { MetadataError, type MetadataProblem } from './metadata.errors.js';
 export { loadConfiguration, type ConfigurationModule } from './registry.js';
-export { actionInputSchema, fieldSchema, fieldsSchema, inputSchema } from './schema.js';
+export { actionInputSchema, fieldSchema, fieldsSchema, functionInputSchema, inputSchema } from './schema.js';
 export { standardFields, type StandardFields } from './standard-fields.js';
 export { objectReference } from './references.js';

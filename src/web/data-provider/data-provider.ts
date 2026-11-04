@@ -149,6 +149,11 @@ async function act<Result>(resource: string, action: string, payload: unknown): 
     return { data: await perform<Result>({ target: resourceTarget(resource), action, payload }) };
 }
 
+/** Вызывает функцию объекта: операция называет функцию вместо действия. */
+async function call<Result>(resource: string, name: string, payload: unknown): Promise<{ data: Result }> {
+    return { data: await perform<Result>({ target: resourceTarget(resource), function: name, payload }) };
+}
+
 /**
  * Data provider приложения. Имя ресурса — вид и имя объекта через точку (`catalog.sample`).
  * Методы завершаются `ApiError` с текстом сервера, а при вызове, который серверу передать
@@ -211,13 +216,17 @@ export const dataProvider: DataProvider = {
     /**
      * Выполняет любое действие. `url` — ресурс и действие через косую черту
      * (`document.sample/post`, `platform.journal/history`), `payload` — входные данные действия.
-     * Метод HTTP значения не имеет: единый эндпоинт принимает только `POST`.
+     * Метод HTTP значения не имеет: единый эндпоинт принимает только `POST`. С `meta.function`
+     * после косой черты стоит имя функции, и вызывается она: так результат функции хранится
+     * в том же кеше запросов о данных и сбрасывается после изменяющих действий.
      */
-    custom: async ({ url, payload }) => {
+    custom: async ({ url, payload, meta }) => {
         const separator = url.lastIndexOf('/');
         if (separator < 1 || separator === url.length - 1) {
             throw new Error(`Адрес действия «${url}» должен состоять из ресурса и действия через косую черту, например document.sample/post`);
         }
-        return act(url.slice(0, separator), url.slice(separator + 1), payload);
+        const resource = url.slice(0, separator);
+        const name = url.slice(separator + 1);
+        return meta?.['function'] === true ? call(resource, name, payload) : act(resource, name, payload);
     },
 };

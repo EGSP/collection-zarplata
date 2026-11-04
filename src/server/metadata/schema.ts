@@ -6,7 +6,7 @@
  * что они доходят до пользователя; сообщения Effect по умолчанию английские.
  */
 import { Schema } from 'effect';
-import type { FieldDescription, FieldKind, ObjectDescription } from './descriptions.js';
+import type { ActionDescription, FieldDescription, FieldKind, ObjectDescription } from './descriptions.js';
 
 const datePattern = /^(\d{4})-(\d{2})-(\d{2})$/;
 /** Часовой пояс обязателен: время без пояса разные машины прочитают по-разному. */
@@ -182,11 +182,22 @@ export function inputSchema(description: ObjectDescription): Schema.Struct<Schem
     return Schema.Struct({ ...fieldsSchema(fields).fields, ...Object.fromEntries(tableParts) });
 }
 
-/** Схема входных данных собственного действия. */
-export function actionInputSchema(description: ObjectDescription, action: string): Schema.Struct<Schema.Struct.Fields> | null {
-    const found = description.actions.find((candidate) => candidate.name === action);
-    return found === undefined ? null : Schema.Struct({
+/** Схема входных данных действия или функции: поля и строки входных табличных частей. */
+function parametersSchema(found: Pick<ActionDescription, 'input' | 'tableParts'>): Schema.Struct<Schema.Struct.Fields> {
+    return Schema.Struct({
         ...fieldsSchema(found.input).fields,
         ...Object.fromEntries(found.tableParts.map((part) => [part.name, Schema.Array(fieldsSchema(part.fields)).annotateKey({ messageMissingKey: 'табличная часть не передана' })])),
     });
+}
+
+/** Схема входных данных собственного действия. */
+export function actionInputSchema(description: ObjectDescription, action: string): Schema.Struct<Schema.Struct.Fields> | null {
+    const found = description.actions.find((candidate) => candidate.name === action);
+    return found === undefined ? null : parametersSchema(found);
+}
+
+/** Схема входных данных функции объекта. */
+export function functionInputSchema(description: ObjectDescription, name: string): Schema.Struct<Schema.Struct.Fields> | null {
+    const found = description.functions.find((candidate) => candidate.name === name);
+    return found === undefined ? null : parametersSchema(found);
 }

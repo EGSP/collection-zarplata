@@ -7,7 +7,7 @@
  * Проверку переопределений (существование имён, однозначность групп) уже выполнил `commit()`,
  * поэтому построение не завершается ошибкой.
  */
-import { platformRights, readRight, requiredRight, type Right } from '../authorization/rights.js';
+import { platformRights, readRight, requiredFunctionRight, requiredRight, type Right } from '../authorization/rights.js';
 import type { FieldDescription, FormOverride, ObjectDescription, RecordOpeningMode } from '../metadata/descriptions.js';
 import { formHiddenStandardFields } from '../metadata/standard-fields.js';
 import {
@@ -210,6 +210,12 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
         form: object.kind === 'catalog' || object.kind === 'document' ? buildForm({ ...object, kind: object.kind }) : null,
         list: buildList(object),
         lookup: object.lookup === null ? null : { columns: object.lookup.columns.map((field) => formField(field)) },
+        functions: object.functions.map((declared) => ({
+            name: declared.name,
+            title: declared.title,
+            input: declared.input.map((field) => formField(field)),
+            tableParts: declared.tableParts.map((part) => ({ name: part.name, title: part.title, columns: part.fields.map((field) => formField(field)) })),
+        })),
     };
 }
 
@@ -221,11 +227,16 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
  */
 export function restrictObjectView(object: ObjectDescription, view: ObjectView, allows: (right: Right) => boolean): ObjectView | null {
     if (!allows(readRight(object))) return null;
-    if (view.form === null) return view;
+    // Функции остаются только разрешённые: клиент не предлагает вызов, который сервер отклонит.
+    const functions = view.functions.filter((declared) => {
+        const right = requiredFunctionRight(object, declared.name);
+        return right !== undefined && allows(right);
+    });
+    if (view.form === null) return { ...view, functions };
     const actions = view.form.actions.filter((action) => {
         if (action.opens === 'journal') return allows(platformRights.journal.read);
         const right = requiredRight(object, action.name);
         return right !== undefined && allows(right);
     });
-    return { ...view, form: { ...view.form, actions } };
+    return { ...view, functions, form: { ...view.form, actions } };
 }
