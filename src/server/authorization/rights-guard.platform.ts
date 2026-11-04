@@ -1,3 +1,4 @@
+import { platformObjectBuilders } from '../metadata/platform-objects.js';
 import { configurationModules } from '../../configuration/configuration.generated.js';
 import { isObjectBuilder } from '../metadata/builders.js';
 import { resolveAccess, type AccessDefinition, type AccessTarget, type AccessDecision } from './access-schema.js';
@@ -56,7 +57,7 @@ export class RightsGuardPlatform {
     rightsFromRoles(names: ReadonlyArray<string>, settings: readonly AccessSetting[] = [], userGuid: string | null = null): UserRights {
         const assigned = new Set(names);
         const roles = this.roles.filter((role) => assigned.has(role.name));
-        const objects = configurationModules.flatMap(module => Object.values(module.exports).filter(isObjectBuilder));
+        const objects = [...platformObjectBuilders, ...configurationModules.flatMap(module => Object.values(module.exports).filter(isObjectBuilder))];
         const defaults = objects.map(object => object['~state'].access);
         const definitions: AccessDefinition[] = [...defaults, ...roles.map(role => {
             const legacy = [...role.rights].flatMap(key => {
@@ -80,7 +81,7 @@ export class RightsGuardPlatform {
             const target = { kind: kind as AccessTarget['kind'], name: name! };
             const result = decision(target, rightAccessPath(segments));
             if (segments[0] === 'read' || segments[0] === 'write') {
-                const object = configurationModules.flatMap(module => Object.values(module.exports).filter(isObjectBuilder)).find(object => object.kind === kind && object.name === name);
+                const object = objects.find(object => object.kind === kind && object.name === name);
                 const state = object?.withStandardFields()['~state'];
                 const names = state === undefined ? [] : [...state.fields.map(field => field.name), ...state.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))];
                 return names.some(name => { const level = decision(target, `fields.${name}`).level; return segments[0] === 'write' ? level === 'edit' : level === 'edit' || level === 'read'; });

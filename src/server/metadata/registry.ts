@@ -81,10 +81,11 @@ export function loadConfiguration(
     modules: ReadonlyArray<ConfigurationModule>,
     formElementModules: ReadonlyArray<ConfigurationModule> = [],
     objectFormModules: ReadonlyArray<ConfigurationModule> = [],
+    platformObjects: ReadonlyArray<ObjectBuilder> = [],
 ): Effect.Effect<ReadonlyArray<ObjectDescription>, MetadataError> {
     return Effect.suspend(() => {
         const problems: Array<MetadataProblem> = [];
-        const builders = modules.flatMap((module) => builderOf(module, problems) ?? []);
+        const builders = [...platformObjects, ...modules.flatMap((module) => builderOf(module, problems) ?? [])];
         const components = declaredFormComponents(formElementModules, problems);
         declaredObjectForms(objectFormModules, builders, problems);
         if (problems.length > 0) return Effect.fail(new MetadataError({ problems }));

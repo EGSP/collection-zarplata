@@ -67,7 +67,7 @@ export function useAction(): <Action extends string = string, Result = unknown>(
                 ...(failureMessage === undefined ? {} : { errorNotification: (error) => ({ type: 'error', message: failureMessage, description: error?.message ?? '' }) }),
             });
             void invalidateData();
-            if (object.kind === 'platform' && (object.name === 'authorization' || object.name === 'users')) void queryClient.invalidateQueries({ queryKey: ['metadata'] });
+            if (object.kind === 'platform' && object.name === 'authorization' || object.kind === 'catalog' && object.name === 'users') void queryClient.invalidateQueries({ queryKey: ['metadata'] });
             return response.data as Result;
         },
         [mutateAsync, invalidateData, queryClient],
@@ -114,6 +114,8 @@ export interface FunctionQuery<Functions extends FunctionMap, Name extends keyof
      * выключен: результат для другой записи нельзя показывать под её именем даже на время загрузки.
      */
     readonly keepPrevious?: boolean;
+    /** Периодическое перечитывание, например для списка активных сессий. */
+    readonly refreshInterval?: number | false;
 }
 
 /**
@@ -127,14 +129,14 @@ export interface FunctionQuery<Functions extends FunctionMap, Name extends keyof
  * ```
  */
 export function useFunctionResult<Functions extends FunctionMap, const Name extends keyof Functions & string>(
-    { object, name, payload, enabled = true, keepPrevious = false }: FunctionQuery<Functions, Name>,
+    { object, name, payload, enabled = true, keepPrevious = false, refreshInterval = false }: FunctionQuery<Functions, Name>,
 ): ActionResult<Functions[Name]['output']> {
     const { query } = useCustom<BaseRecord, ApiError>({
         url: `${resourceName(object)}/${name}`,
         method: 'post',
         config: { payload: payload as object },
         meta: { function: true },
-        queryOptions: { enabled, ...(keepPrevious ? { placeholderData: keepPreviousData } : {}) },
+        queryOptions: { enabled, refetchInterval: refreshInterval, ...(keepPrevious ? { placeholderData: keepPreviousData } : {}) },
         errorNotification: false,
     });
     return {

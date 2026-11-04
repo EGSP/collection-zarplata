@@ -89,7 +89,6 @@ function right(...segments: ReadonlyArray<string>): Right {
  */
 export const platformRights = Object.freeze({
     authorization: Object.freeze({ read: right('platform', 'authorization', 'read'), write: right('platform', 'authorization', 'write') }),
-    users: Object.freeze({ read: right('platform', 'users', 'read'), write: right('platform', 'users', 'write') }),
     journal: Object.freeze({ read: right('platform', 'journal', 'read') }),
     documents: Object.freeze({ repost: right('platform', 'documents', 'repost') }),
     backups: Object.freeze({ read: right('platform', 'backups', 'read'), write: right('platform', 'backups', 'write') }),

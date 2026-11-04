@@ -1,3 +1,4 @@
+import { Effect } from 'effect';
 import { Inject, Injectable, type OnApplicationBootstrap } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service.js';
 import { MetadataService } from '../metadata/metadata.service.js';
@@ -16,5 +17,9 @@ export class SchemaService implements OnApplicationBootstrap {
     async onApplicationBootstrap(): Promise<void> {
         // Бизнес-логика получает значения версий от провайдера без зависимости от Nest.
         await synchronizeSchema(this.database.effect, describeSchema(this.metadata.objects), this.versions);
+        // Встроенные объекты публикуют проекции после создания служебных таблиц, до первичных данных.
+        await Effect.runPromise(this.database.effect.transaction(Effect.forEach(
+            this.metadata.objects.flatMap(object => object.storage?.schema ?? []), statement => this.database.effect.run(statement),
+        )));
     }
 }

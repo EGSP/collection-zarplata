@@ -204,3 +204,7 @@ state.run(sell, (saved) => ({ sale: saved['guid'], person }));
 
 
 `useActionResult` не выдаёт подтверждение `{ completed: true }` вместо запрошенных данных: в этом случае `data` остаётся `undefined`. Это сохраняет поведение экрана при запрете публичного результата обработчика.
+
+### Периодическое чтение функции
+
+`useFunctionResult` принимает `refreshInterval: number | false`, по умолчанию `false`. Интервал в миллисекундах задаёт период перечитывания, как у `useActionResult`; функция продолжает получать проверку прав и сброс кеша после записи. Вкладка сессий пользователей вызывает `PlatformObjects.catalog.users`, функцию `sessions` с `payload: { guid }` и интервалом 15000.

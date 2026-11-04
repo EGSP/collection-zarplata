@@ -163,3 +163,6 @@ export { ShellGroupContent, ShellGroupsProvider } from './platform/shell-group-c
 
 /** Контракт замены табличной части и проверка строк без отрисовки таблицы. */
 export { tablePartValidationMessages, type TablePartInputProperties } from './platform/table-part-input';
+
+// Встроенные объекты имеют тот же контракт ссылок, что объекты конфигурации.
+export { PlatformObjects } from '../../common/platform-objects';

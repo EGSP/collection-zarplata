@@ -6,7 +6,7 @@
  * подсистем не показываются, но открываются по адресу, а запись объекта ещё и по ссылке из другой записи.
  */
 import { shell } from '../server/ui/shell.js';
-import { platformUsers as Users } from '../server/users/descriptions.js';
+import { Users } from '../server/users/object.js';
 import { AccessRights } from './pages/access-rights.page.js';
 import { Backups } from './pages/backups.page.js';
 import { Discounts } from './catalogs/discounts.catalog.js';

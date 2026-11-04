@@ -55,6 +55,7 @@ covers:
 | `ActionPlacement`, `ActionConfirmation`, `ActionConfirmationTone` | Место показа действия (`buttons`, `more`, `hidden`) и настройка его окна подтверждения (`delay`, `title`, `message`, `tone`) |
 | `useFunctionResult` | Хук результата [функции объекта](hooks.md#выполнение-действий); экспортируется из SDK вместе с `ActionResult` |
 | `ActionResult`, `ActionConfirmationState`, `ActionConfirmationDialogProperties` | Результат [`useActionResult`](hooks.md#выполнение-действий) с `refresh`, результат `useActionConfirmation` и свойства [окна подтверждения](components.md#подтверждение-действия) |
+| `PlatformObjects` | Типизированные ссылки встроенных объектов: `PlatformObjects.catalog.users`, без серверных обработчиков в клиенте |
 | `ObjectReference`, `FieldName`, `RecordCondition`, `RecordSort` и связанные | [Ссылки на объекты](../web-sdk.md#типизация-объектов) с точными типами записи и действий |
 | `BreakpointContainerProperties` | Свойства `BreakpointContainer`: `of="window"`, `of="fixed"` с `point` или `of="element"` с `style` |
 | `SpacingStep`, `Breakpoint`, `GridGutter`, `PageModel`, `ColumnCount` | Шаг шкалы отступов, точка перелома, режим зазора сетки, [модель страницы](../components.md#модели-страницы) и число колонок по точкам |

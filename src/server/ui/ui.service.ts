@@ -3,8 +3,7 @@ import { Effect } from 'effect';
 import { pageModules } from '../../configuration/configuration.generated.js';
 import { applicationShell } from '../../configuration/shell.js';
 import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
-import { userObjectView } from '../users/views.js';
-import { pageOpenRight, platformRights } from '../authorization/rights.js';
+import { pageOpenRight } from '../authorization/rights.js';
 import { Database } from '../database/database.effect.js';
 import { DatabaseService } from '../database/database.service.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
@@ -50,7 +49,6 @@ export class UiService {
         this.views ??= this.metadata.objects.map((object) => ({ object, view: buildObjectView(object) }));
         const rights = await Effect.runPromise(this.rightsGuard.rightsOf(userGuid).pipe(Effect.provideService(Database, this.database.effect)));
         const objects = this.views.flatMap(({ object, view }) => restrictObjectView(object, view, rights.allows, rights) ?? []);
-        if (rights.allows(platformRights.users.read)) objects.push(userObjectView(rights.allows(platformRights.users.write)));
         const pages = this.pages.filter((page) => rights.allows(pageOpenRight(page.name)));
         // Схема отбирается по уже отобранным описаниям: пункт без описания клиент не смог бы ни подписать, ни открыть.
         const available = new Set([...objects.map((object) => `${object.kind}.${object.name}`), ...pages.map((page) => `${pageKind}.${page.name}`)]);
