@@ -5,6 +5,7 @@ import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { objectValue, stringValue, type RecordValue } from './records.js';
 import type { ObjectDescription, ObjectReferenceValue } from '../metadata/descriptions.js';
 import { objectReference } from '../metadata/references.js';
+import type { AccessDefinition } from '../authorization/access-schema.js';
 import { writeJournal } from '../journal/journal.js';
 
 /**
@@ -12,6 +13,24 @@ import { writeJournal } from '../journal/journal.js';
  * Вызывается диспетчером в транзакции. Права, политики и журнал каждой записи
  * проверяются вложенным save; ошибка любого элемента отменяет всю порцию.
  */
+/** Регистр сведений «Внешние связи»: импорт хранит в нём, какой записи справочника соответствует внешний объект. */
+const externalLinks = { kind: 'informationRegister', name: 'externalLinks' } as const;
+
+/**
+ * Права, которые импорт справочника объявляет на время своего вызова: изменение полей справочника
+ * и чтение и запись «Внешних связей». Пользователю нужно только право на импорт
+ * (`catalog.<справочник>.import`): права записи справочника и регистра у него может не быть.
+ */
+export function importAccess(description: Pick<ObjectDescription, 'kind' | 'name'>): AccessDefinition {
+    return {
+        groups: [],
+        entries: [
+            { target: { kind: description.kind, name: description.name }, path: 'fields', level: 'edit' },
+            { target: externalLinks, path: 'fields', level: 'edit' },
+        ],
+    };
+}
+
 export const importCatalog = Effect.fnUntraced(function* (description: ObjectDescription, payload: unknown) {
     const occurredAt = new Date().toISOString();
     const request = objectValue(payload, 'payload');
@@ -35,7 +54,7 @@ export const importCatalog = Effect.fnUntraced(function* (description: ObjectDes
                 }
             }
             const dimensions = { externalSystem, sourceObject, externalIdentifier };
-            const target = { kind: 'informationRegister', name: 'externalLinks' };
+            const target = externalLinks;
             const link = yield* dispatcher.execute({ target, action: 'get', payload: { dimensions } }).pipe(
                 Effect.catchIf((error): error is DataNotFoundError => error instanceof DataNotFoundError, () => Effect.succeed(null)),
             ) as Effect.Effect<RecordValue | null, unknown>;
