@@ -10,7 +10,7 @@
 import { Effect } from 'effect';
 import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { query } from '../../server/database/sql.builder.js';
 import { formula, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { Employees } from '../catalogs/employees.catalog.js';
@@ -87,7 +87,7 @@ const checkClosingConditions = (closedThrough: string) => Effect.gen(function* (
     if (closedThrough >= today()) return yield* rejected('Период закрывается только прошедшим днём: сегодняшний день ещё не закончился');
     const previous = yield* lastClosedThrough;
     if (previous !== null && closedThrough <= previous) return yield* rejected(`Период уже закрыт по ${previous}: новая граница должна быть позже`);
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const openShifts = (yield* database.all(query(Shift).select({
         columns: ['number', 'date'],
         where: [{ column: 'closedAt', operator: '=', value: null }],
@@ -145,7 +145,7 @@ const closingRulesPolicy: Policy<ClosingRecord> = {
         yield* checkPayroll(document);
     }),
     unpost: ({ document }) => Effect.gen(function* () {
-        const database = yield* Database;
+        const database = yield* ReadonlyDatabase;
         const later = yield* database.get(query(closing).select({
             columns: ['closedThrough'],
             where: [...active, { column: 'closedThrough', operator: '>', value: document.closedThrough }],

@@ -1,3 +1,4 @@
+import type { AccessDefinition } from '../authorization/access-schema.js';
 /**
  * Неизменяемые описания объектов конфигурации. Их собирает `commit()` билдера,
  * и с ними работает остальная платформа: структура БД, диспетчер, формы.
@@ -218,6 +219,7 @@ export interface ActionConfirmation {
 
 /** Собственное действие объекта: диспетчер проверяет входные данные перед вызовом обработчика. */
 export interface ActionDescription {
+    readonly access?: AccessDefinition;
     readonly name: string;
     readonly title: string;
     readonly input: ReadonlyArray<FieldDescription>;
@@ -238,6 +240,7 @@ export interface ActionDescription {
  * и проверяются диспетчером перед вызовом обработчика. Журнал вызов функции не пишет.
  */
 export interface FunctionDescription {
+    readonly access?: AccessDefinition;
     readonly name: string;
     readonly title: string;
     readonly input: ReadonlyArray<FieldDescription>;
@@ -335,6 +338,7 @@ export interface LookupDescription {
  * платформа читает его из разных модулей, и изменение в одном месте незаметно сломало бы другие.
  */
 export interface ObjectDescription {
+    readonly access?: AccessDefinition;
     readonly kind: ObjectKind;
     readonly name: string;
     readonly title: string;

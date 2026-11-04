@@ -5,7 +5,7 @@
 import { Effect } from 'effect';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { catalog, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { PhysicalPersons } from './physical-persons.catalog.js';
 
@@ -26,7 +26,7 @@ const employees = catalog('employees')
 const onePersonOneEmployeePolicy: Policy<RecordOf<typeof employees>> = {
     name: 'one-person-one-employee',
     save: ({ proposedRecord }) => Effect.gen(function* () {
-        const database = yield* Database;
+        const database = yield* ReadonlyDatabase;
         const occupying = yield* database.get(query(employees).select({
             columns: ['name', 'deletedAt'],
             where: [

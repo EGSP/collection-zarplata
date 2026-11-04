@@ -38,6 +38,8 @@ export interface ValidationRules {
  * Значение поля вида `money` — целое число копеек; перевод в рубли для показа выполняет клиент.
  */
 export interface FormField {
+    /** Недоступное значение отсутствует в ответе; оно отличается от пустого. */
+    readonly access?: 'deny' | 'read' | 'edit';
     readonly name: string;
     /** Подпись с учётом переопределения формы. */
     readonly title: string;
@@ -72,6 +74,7 @@ export interface FormField {
 
 /** Табличная часть формы: колонки — поля одной строки в порядке объявления. */
 export interface FormTablePart {
+    readonly access?: 'deny' | 'read' | 'edit';
     /** Компонент вместо стандартной таблицы; отсутствие означает стандартное представление. */
     readonly inputElement?: string | null;
     readonly name: string;
@@ -169,6 +172,7 @@ export interface ListVariant {
 
 /** Колонка списка: поле записи. */
 export interface ListColumn {
+    readonly access?: 'deny' | 'read' | 'edit';
     /** Роль поля позволяет отличить измерения ключа от ресурсов регистра. */
     readonly role: FieldRole;
     readonly field: string;

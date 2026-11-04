@@ -18,7 +18,7 @@ import { Effect } from 'effect';
 import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError, DataValidationError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { document, movements, objectReference, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { InstallmentRates } from '../catalogs/installment-rates.catalog.js';
 import { Goods } from '../goods.js';
@@ -139,7 +139,7 @@ export interface SaleSettlementTerms {
  * доли банка. Возврат делится по ним так же, как его делит расчёт зарплаты.
  */
 const saleTerms = (saleGuid: string, excludedRefund: string | null) => Effect.gen(function* () {
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const sale = yield* database.get(query(Sale).select({ columns: ['guid', 'number', 'date', 'shift', 'amount'], where: [{ column: 'guid', operator: '=', value: saleGuid }], limit: 1 }));
     if (sale === undefined) return yield* rejected('Продажа из возврата не найдена');
     const payments = yield* database.all(query(Sale).tablePart('payments').select({ columns: ['method', 'amount'], where: [{ column: 'ownerGuid', operator: '=', value: saleGuid }] }));
@@ -292,7 +292,7 @@ const creditsOf = (record: RefundRecord | null) => {
  */
 const reopenInstallments = (refundGuid: string, sales: ReadonlyArray<string>, credits: ReadonlyMap<string, number>) => Effect.gen(function* () {
     if (sales.length === 0) return;
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const dispatcher = yield* ActionDispatcher;
     const installments = yield* database.all(query(SaleInstallment).select({
         columns: ['guid', 'sale', 'closedAt'],
@@ -334,7 +334,7 @@ const refundWithPolicies = refund
     .posting((record) => Effect.gen(function* () {
         const returned = new Map<string, number>();
         for (const line of record.goods) returned.set(line.sale, (returned.get(line.sale) ?? 0) + line.total);
-        const database = yield* Database;
+        const database = yield* ReadonlyDatabase;
         const shifts = new Map<string, string>();
         for (const saleGuid of new Set([...returned.keys(), ...record.settlements.map((line) => line.sale)])) {
             const sale = yield* database.get(query(Sale).select({
@@ -390,7 +390,7 @@ export const Refund = refundWithPolicies
             .field('sale', (field) => field.reference(Sale).title('Продажа').required())
             .field('excludedRefund', (field) => field.string().title('Исключаемый возврат')))
         .handle((input) => Effect.gen(function* () {
-            const database = yield* Database;
+            const database = yield* ReadonlyDatabase;
             const lines = yield* database.all(query(refund).tablePart('goods').select({
                 columns: ['ownerGuid', 'name', 'code', 'size', 'comment', 'cost', 'discount'],
                 where: [{ column: 'sale', operator: '=', value: input.sale }],
@@ -428,7 +428,7 @@ export const Refund = refundWithPolicies
         .input((input) => input
             .field('sale', (field) => field.reference(Sale).title('Продажа').required()))
         .handle((input) => Effect.gen(function* () {
-            const database = yield* Database;
+            const database = yield* ReadonlyDatabase;
             const owners = [...new Set((yield* database.all(query(refund).tablePart('bases').select({
                 columns: ['ownerGuid'],
                 where: [{ column: 'sale', operator: '=', value: input.sale }],

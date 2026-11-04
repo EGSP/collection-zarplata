@@ -223,14 +223,16 @@ interface TablePartItemProperties {
  */
 function TablePartItem({ part, disabled, traversal, options }: TablePartItemProperties) {
     const restricted = useFieldRestricted(part.name);
+    if (part.access === 'deny') return <Form.Item label={part.title}><span>Нет доступа</span></Form.Item>;
     return (
         // Недоступность ячейкам передаёт контекст Ant Design, как на форме только для просмотра.
         <div {...{ [fieldAttribute]: part.name }}>
             <ConfigProvider {...(restricted ? { componentDisabled: true } : {})}>
                 <TablePartInput
                     part={part}
-                    options={options}
-                    disabled={disabled || restricted}
+                    // Защищённая колонка сохраняется по номеру строки: добавление и удаление изменили бы её.
+                    options={{ ...options, fixedRows: options?.fixedRows === true || part.columns.some(column => column.access === 'deny' || column.access === 'read') }}
+                    disabled={disabled || restricted || part.access === 'read'}
                     // Обход останавливается на имени, у которого есть ссылка, поэтому недоступная часть её не получает.
                     ref={restricted ? undefined : traversal?.register(part.name)}
                     onPrevious={traversal === undefined ? undefined : () => traversal.previous(part.name)}
@@ -271,6 +273,7 @@ function FieldItem({ field, record, traversal, layout: groupLayout, free }: Fiel
     const layout: FieldLayout = field.kind === 'composite' ? 'stacked' : groupLayout;
     const fluid = layout === 'fluid';
     const required = isMarkedRequired(field);
+    if (field.access === 'deny') return <Form.Item label={field.title}><span>Нет доступа</span></Form.Item>;
     if (field.readOnly) {
         const display = <FieldDisplay field={field} value={field.computed ? watched : record?.[field.name]} />;
         if (fluid) {

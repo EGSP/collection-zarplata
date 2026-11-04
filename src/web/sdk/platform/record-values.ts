@@ -35,7 +35,7 @@ function editableFields(form: FormView): ReadonlyArray<FormField> {
 
 /** Значения формы новой записи: редактируемые поля шапки и пустые табличные части. */
 export function newRecordValues(form: FormView): FormValues {
-    return { ...initialValues(editableFields(form)), ...Object.fromEntries(form.tableParts.map((part) => [part.name, []])) };
+    return { ...initialValues(editableFields(form)), ...Object.fromEntries(form.tableParts.filter(part => part.access !== 'deny').map((part) => [part.name, []])) };
 }
 
 /**
@@ -54,7 +54,7 @@ export function newRowValues(part: FormTablePart): FormValues {
 /** Строка табличной части, в которой оставлены только колонки из описания. */
 function rowValues(part: FormTablePart, row: unknown): FormValues {
     const values = (typeof row === 'object' && row !== null ? row : {}) as RecordData;
-    return Object.fromEntries(part.columns.map((column) => [column.name, values[column.name] ?? null]));
+    return Object.fromEntries(part.columns.filter(column => column.access !== 'deny').map((column) => [column.name, values[column.name] ?? null]));
 }
 
 /** Значения формы по записи с сервера либо по значениям, которые отдала форма Ant Design. */
@@ -62,7 +62,7 @@ export function recordValues(form: FormView, record: RecordData): FormValues {
     return {
         ...Object.fromEntries(editableFields(form).map((field) => [field.name, record[field.name] ?? null])),
         ...Object.fromEntries(
-            form.tableParts.map((part) => {
+            form.tableParts.filter(part => part.access !== 'deny').map((part) => {
                 const rows = record[part.name];
                 return [part.name, Array.isArray(rows) ? rows.map((row) => rowValues(part, row)) : []];
             }),

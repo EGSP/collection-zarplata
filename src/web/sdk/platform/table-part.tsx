@@ -388,6 +388,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     const labelColumn = part.columns.find((column) => !totals.includes(column.name))?.name;
     const summary = totals.length === 0 || rows.length === 0 ? undefined : Object.fromEntries(part.columns.flatMap((column): [string, ReactNode][] => {
         if (totals.includes(column.name)) {
+            if (column.access === 'deny') return [[column.name, <span>Нет доступа</span>]];
             // Итог передаётся числом: таблица форматирует его по типу колонки, как значения строк.
             return [[column.name, values.reduce((total, row) => total + (typeof row[column.name] === 'number' ? row[column.name] as number : 0), 0)]];
         }

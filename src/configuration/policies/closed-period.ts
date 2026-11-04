@@ -1,6 +1,6 @@
 /** Прикладное правило закрытия: границу задают проведённые документы конфигурации. */
 import { Effect } from 'effect';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { query } from '../../server/database/sql.builder.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import type { Policy } from '../../server/metadata/index.js';
@@ -11,7 +11,7 @@ import { periodClosingHead } from '../period-closing.js';
  * Её читают и политика, и расчёт зарплаты: период расчёта начинается со следующего дня.
  */
 export const lastClosedThrough = Effect.gen(function* () {
-    const database = yield* Database;
+    const database = yield* ReadonlyDatabase;
     const closing = yield* database.get(query(periodClosingHead).select({
         columns: ['closedThrough'],
         where: [

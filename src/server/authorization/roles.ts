@@ -1,11 +1,11 @@
+import { emptyAccess, type AccessDefinition } from './access-schema.js';
 /**
  * Роли: именованные наборы прав, которые назначаются пользователям.
  *
  * Роли — часть конфигурации, как и объекты: платформа не знает, какие роли нужны конкретному
  * магазину. Они описываются билдерами в `src/configuration/roles.ts` и собираются при запуске.
- * В базе хранится только связь пользователя с именем роли, а состав прав роли берётся из
- * конфигурации. Поэтому изменение роли действует на всех её пользователей после перезапуска
- * и не требует переноса данных.
+ * База хранит назначения ролей и переопределения их узлов. Конфигурация задаёт исходную схему;
+ * административные изменения заменяют решение той же роли на конкретном узле без перезапуска.
  */
 import { Effect } from 'effect';
 import { MetadataError, type MetadataProblem } from '../metadata/metadata.errors.js';
@@ -13,6 +13,7 @@ import type { Right } from './rights.js';
 
 /** Всё, что накопила цепочка вызовов билдера роли. */
 interface RoleState {
+    readonly access: AccessDefinition;
     readonly name: string;
     readonly title: string | null;
     readonly all: boolean;
@@ -33,6 +34,10 @@ export class RoleBuilder {
     }
 
     /** Добавляет роли права. Права берутся из объекта `Rights`, а не записываются строками. */
+    access(schema: AccessDefinition): RoleBuilder {
+        return new RoleBuilder({ ...this['~state'], access: { entries: [...this['~state'].access.entries, ...schema.entries], groups: [...this['~state'].access.groups, ...schema.groups] } });
+    }
+
     grant(...rights: ReadonlyArray<Right>): RoleBuilder {
         return new RoleBuilder({ ...this['~state'], rights: [...this['~state'].rights, ...rights] });
     }
@@ -49,14 +54,15 @@ export class RoleBuilder {
 
 /** Роль с именем `name`. По имени роль хранится в базе у пользователя, поэтому менять его после назначения нельзя. */
 export function role(name: string): RoleBuilder {
-    return new RoleBuilder({ name, title: null, all: false, rights: [] });
+    return new RoleBuilder({ name, title: null, all: false, rights: [], access: emptyAccess });
 }
 
 /** Готовое описание роли, с которым работает проверка прав. */
 export interface RoleDescription {
+    readonly access: AccessDefinition;
     readonly name: string;
     readonly title: string;
-    /** Роль даёт все права; `rights` при этом не проверяется. */
+    /** Исходный полный доступ; явные исключения дерева продолжают действовать. */
     readonly all: boolean;
     /** Ключи прав роли. */
     readonly rights: ReadonlySet<string>;
@@ -83,6 +89,7 @@ export function commitRoles(builders: ReadonlyArray<RoleBuilder>): Effect.Effect
             if (names.has(state.name)) problems.push({ object, location: null, message: 'имя роли повторяется' });
             names.add(state.name);
             return Object.freeze({
+                access: state.access,
                 name: state.name,
                 title: state.title ?? state.name,
                 all: state.all,

@@ -8,7 +8,7 @@ import { Effect } from 'effect';
 import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
-import { Database } from '../../server/database/database.effect.js';
+import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { document, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { Employees } from '../catalogs/employees.catalog.js';
 
@@ -70,7 +70,7 @@ const shiftRulesPolicy: Policy<ShiftRecord> = {
         if (closedAt !== null && closedAt <= openedAt) {
             return yield* rejected('Дата закрытия смены должна быть позже даты открытия');
         }
-        const database = yield* Database;
+        const database = yield* ReadonlyDatabase;
         const others = yield* database.all(query(shift).select({
             columns: ['number', 'date', 'closedAt'],
             // Без исключения самой записи открытая смена мешала бы собственному изменению и закрытию.
@@ -128,7 +128,7 @@ export const Shift = shift
         .title('Закрыть смену')
         .input((input) => input.field('closedAt', (field) => field.dateTime().title('Дата закрытия').required()))
         .handle((input) => Effect.gen(function* () {
-            const database = yield* Database;
+            const database = yield* ReadonlyDatabase;
             const dispatcher = yield* ActionDispatcher;
             const open = yield* database.get(query(shift).select({
                 columns: ['guid'],

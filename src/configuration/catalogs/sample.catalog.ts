@@ -1,3 +1,4 @@
+import { accessSchema } from '../../server/authorization/access-schema.js';
 /**
  * Пробный справочник для проверки платформы, пока в конфигурации нет прикладных объектов.
  * Использует основные виды полей и табличную часть. Удаляется, когда появятся настоящие справочники.
@@ -11,7 +12,7 @@ import { DataValidationError } from '../../server/data/data.errors.js';
  * Пробный объект сохраняет действия для проверки вложенного вызова диспетчера: `inspect` читает
  * запись, `duplicate` создаёт копию, и журнал связывает её запись с вызвавшим действием.
  */
-export const Sample = catalog('sample')
+const sample = catalog('sample')
     .title('Пробный справочник')
     .field('percentage', (field) => field.number().title('Процент').minimum(0).maximum(100))
     .field('comment', (field) => field.string().title('Комментарий').maximumLength(500))
@@ -24,6 +25,9 @@ export const Sample = catalog('sample')
         .title('Строки')
         .field('text', (field) => field.string().title('Текст').required())
         .field('relatedRecord', (field) => field.reference().title('Связанная запись')))
+;
+
+export const Sample = sample
     .action('inspect', (action) => action
         .title('Прочитать через вложенное действие')
         .input((input) => input.field('guid', (field) => field.string().title('Идентификатор').required()))
@@ -34,6 +38,8 @@ export const Sample = catalog('sample')
             return { record, userGuid: context.userGuid, traceGuid: context.traceGuid, actionGuid: context.actionGuid };
         })))
     .action('duplicate', (action) => action
+        // Право копировать не открывает прямое чтение и запись справочника.
+        .access(accessSchema(sample).level('edit'))
         .title('Создать копию через вложенное действие')
         .input((input) => input.field('guid', (field) => field.string().title('Идентификатор').required()))
         .handle((input) => Effect.gen(function* () {

@@ -6,7 +6,8 @@
  * готовые строки с `guid` записи и значениями колонок.
  */
 import { Effect } from 'effect';
-import { Database } from '../database/database.effect.js';
+import { Database, ReadonlyDatabase } from '../database/database.effect.js';
+import type { Metadata } from '../metadata/metadata.effect.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { readOnlyDatabase } from './read-only-database.js';
@@ -29,7 +30,7 @@ export interface LookupResponse {
  * Результат проверяется на форму, а не на значения колонок: колонки описаны для показа, и окно
  * само форматирует значение по виду колонки. Строка без `guid` отклоняется: выбрать её нельзя.
  */
-export function lookupAction(description: ObjectDescription, payload: unknown): Effect.Effect<LookupResponse, unknown, Database> {
+export function lookupAction(description: ObjectDescription, payload: unknown): Effect.Effect<LookupResponse, unknown, Database | ReadonlyDatabase | Metadata> {
     return Effect.gen(function* () {
         const lookup = description.lookup;
         if (lookup === null) {
@@ -46,7 +47,7 @@ export function lookupAction(description: ObjectDescription, payload: unknown): 
         // Описание хранит функцию со стёртым типом аргумента; вход собран по контракту LookupInput.
         const result = lookup.search({ search, page: page.page, pageSize: page.pageSize, offset: page.offset } as never);
         if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Функция подбора должна вернуть Effect'));
-        const value = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, Database>, Database, readOnlyDatabase(database));
+        const value = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ReadonlyDatabase | Metadata>, Database, readOnlyDatabase(database));
         const response = value as Partial<LookupResponse> | null;
         if (response === null || typeof response !== 'object' || typeof response.total !== 'number' || !Array.isArray(response.rows)
             || response.rows.some((row) => row === null || typeof row !== 'object' || typeof row['guid'] !== 'string')) {

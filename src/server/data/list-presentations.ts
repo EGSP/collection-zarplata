@@ -81,6 +81,7 @@ export class ListPresentations {
      * записи повторно не читает. Результат помещает в служебное поле `$presentation`.
      */
     loadOwn(object: ObjectDescription, records: ReadonlyArray<RecordValue>): Effect.Effect<void, DatabaseError, Database> {
+        if ([...object.fields.map(field => field.name), ...object.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => this.rights.decision(object, `fields.${name}`).level === 'deny')) return Effect.void;
         const references: Array<ObjectReferenceValue> = [];
         for (const record of records) {
             const source = presentationSource(object.presentation, record);
@@ -164,7 +165,7 @@ export class ListPresentations {
                 // Даже отсутствующие и недоступные записи проверяются только один раз за запрос.
                 this.cache.set(key, null);
                 const object = this.objects.find((candidate) => candidate.kind === reference.kind && candidate.name === reference.name);
-                if (object === undefined || !this.rights.allows(readRight(object))) continue;
+                if (object === undefined || !this.rights.allows(readRight(object)) || [...object.fields.map(field => field.name), ...object.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => this.rights.decision(object, `fields.${name}`).level === 'deny')) continue;
                 const group = groups.get(object) ?? new Map<string, ObjectReferenceValue>();
                 group.set(reference.guid, reference);
                 groups.set(object, group);

@@ -1,3 +1,5 @@
+import { Database } from '../database/database.effect.js';
+import type { AccessSetting } from './rights-guard.platform.js';
 import { Effect } from 'effect';
 import { pageModules } from '../../configuration/configuration.generated.js';
 import { applicationShell } from '../../configuration/shell.js';
@@ -77,9 +79,9 @@ export const describeAccessTree = Effect.fn('authorization.describeTree')(functi
  * Снимок доступа на время одной транзакции. У каждого узла храним множество guid,
  * поэтому группы считают объединение пользователей и никогда не складывают счётчики детей.
  */
-export function accessSnapshot(nodes: readonly RightNode[], accounts: readonly UserAccount[], guard: RightsGuardPlatform) {
-    const active = accounts.filter((account) => account.disabledAt === null).map((account) => ({ account, rights: guard.rightsFromRoles(account.roles) }));
-    const configuredRoles = guard.roles.map((role) => ({ role, rights: guard.rightsFromRoles([role.name]) }));
+export function accessSnapshot(nodes: readonly RightNode[], accounts: readonly UserAccount[], guard: RightsGuardPlatform, settings: readonly AccessSetting[] = []) {
+    const active = accounts.filter((account) => account.disabledAt === null).map((account) => ({ account, rights: guard.rightsFromRoles(account.roles, settings, account.guid) }));
+    const configuredRoles = guard.roles.map((role) => ({ role, rights: guard.rightsFromRoles([role.name], settings) }));
     const byKey = new Map<string, { readonly node: AccessNode; readonly leaves: readonly { readonly key: string; readonly title: string }[] }>();
     function visit(source: RightNode, path: readonly string[]): { readonly node: AccessNode; readonly users: ReadonlySet<string> } {
         const fullPath = [...path, source.title];
@@ -127,7 +129,9 @@ export const accessTreeAction = Effect.fn('authorization.accessTree')(function* 
     yield* guard.require(userGuid, platformRights.authorization.read);
     const nodes = yield* describeAccessTree(objects);
     const accounts = yield* readUserAccounts();
-    const snapshot = accessSnapshot(nodes, accounts, guard);
+    const database = yield* Database;
+    const settings = yield* database.all<AccessSetting>({ sql: 'SELECT * FROM platform_access_settings', parameters: [] });
+    const snapshot = accessSnapshot(nodes, accounts, guard, settings);
     if (action === 'tree') return { nodes: snapshot.tree };
     const input = objectValue(payload, 'payload');
     const key = stringValue(input['key'], 'key');
