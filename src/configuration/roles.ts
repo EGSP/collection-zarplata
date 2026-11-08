@@ -53,10 +53,10 @@ export const roles = [
         .access(accessSchema()
             .object(Shift, access => access.level('edit').post('allow').action('close', 'allow')))
         .access(accessSchema()
-            .object(Sale, access => access.function('figures', 'allow').level('edit').post('allow').action('cancel', 'allow').action('changesState', 'allow').action('saveChanges', 'allow').action('sellWithInstallment', 'allow'))
+            .object(Sale, access => access.function('figures', 'allow').function('periodFigures', 'allow').level('edit').post('allow').action('cancel', 'allow').action('changesState', 'allow').action('saveChanges', 'allow').action('sellWithInstallment', 'allow'))
             .object(Weighing, access => access.level('edit').post('allow').action('applySale', 'allow'))
             // Ленту продаж и возвратов на рабочем месте читает функция возврата `sellerFeed`.
-            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow'))
+            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow').function('figures', 'allow'))
             .object(SaleInstallment, access => access.level('edit').post('allow').action('pay', 'allow').action('settleByBank', 'allow').function('figures', 'allow')))
         // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
         .access(accessSchema()
@@ -107,7 +107,7 @@ export const roles = [
             .object(Sale, access => access.function('figures', 'allow'))
             .object(SaleInstallment, access => access.function('figures', 'allow'))
             // Ленту продаж и возвратов на рабочем месте читает функция возврата.
-            .object(Refund, access => access.function('sellerFeed', 'allow'))),
+            .object(Refund, access => access.function('sellerFeed', 'allow').function('figures', 'allow'))),
     role('sampleEditor')
         .title('Запись пробного документа')
         // Права на действие «Принять строки» нет: на этой роли проверяется политика, которая его требует.

@@ -5,6 +5,7 @@ covers:
   - src/configuration/payroll-context.ts
   - src/configuration/money-shares.ts
   - src/configuration/period-summary.ts
+  - src/configuration/period-summary-operations.ts
 ---
 
 # Структура проекта
@@ -114,3 +115,5 @@ repos/                исходники внешних библиотек дл�
 | `repos/` | Исходники внешних библиотек (git subtree) для чтения, без импортов в приложение | [Инструменты разработки](development-tools.md) |
 
 Каталоги результатов сборки, такие как `dist/`, не предназначены для правки; состав поставки описан в [«Поставке»](delivery.md).
+
+Связанные строки сводки и их итоги собирает `src/configuration/period-summary-operations.ts`. Общие пакетные расчёты документов находятся в `documents/sale.functions.ts` и `documents/refund.functions.ts`; раскладка таблицы-фида в `pages/period-summary-feed.tsx`.

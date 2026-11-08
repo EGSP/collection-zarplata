@@ -6,6 +6,7 @@
  * Период задаётся днями включительно. День события сравнивается по первым десяти знакам даты,
  * как в политике закрытого периода и в расчёте зарплаты.
  */
+import { summaryOperations } from './period-summary-operations.js';
 import { Effect } from 'effect';
 import { callFunction } from '../server/data/action-context.js';
 import { ReadonlyDatabase } from '../server/database/database.effect.js';
@@ -94,6 +95,7 @@ export interface SummaryDebtor {
 
 /** Сводка за период. */
 export interface PeriodSummary {
+    readonly operations: ReturnType<typeof summaryOperations>;
     readonly from: string;
     readonly to: string;
     readonly postedIn1C: SummaryGoodsBlock;
@@ -148,7 +150,8 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         where: [...active, { column: 'date', operator: '>=', value: dayStart(from) }, { column: 'date', operator: '<', value: end }],
     }))).filter((sale) => inPeriod(sale.date)).sort((first, second) => moment(first.date) - moment(second.date));
     const saleGuids = sales.map((sale) => sale.guid);
-    const saleFigures = yield* callFunction(Sale, 'figures', { date: to, sales: saleGuids.map((guid) => ({ guid })) });
+    const periodFigures = yield* callFunction(Sale, 'periodFigures', { periodStart: from, periodEnd: to });
+    const saleFigures = periodFigures.sales.filter((sale) => saleGuids.includes(sale.sale));
     // Рассрочки, оформленные не позже конца периода, и их суммы на его конец: по ним считаются
     // внесённая часть продаж периода, взносы периода и долги.
     const installments = (yield* database.all(query(SaleInstallment).select({
@@ -230,6 +233,7 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
     const notPostedBlock = block(notPosted);
     const result: PeriodSummary = {
         from, to,
+        operations: summaryOperations(periodFigures.sales, periodFigures.refunds, from),
         postedIn1C: postedBlock,
         notPostedIn1C: notPostedBlock,
         allSales: {
