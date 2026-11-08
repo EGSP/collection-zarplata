@@ -1,5 +1,6 @@
 import { theme } from 'antd';
 import { useLayoutEffect, type RefObject } from 'react';
+import { isRendered } from './rendered';
 
 /**
  * Следит, есть ли невидимое содержимое по выбранной оси от области прокрутки, и отмечает это
@@ -21,6 +22,8 @@ export function useOverflowShadows(frame: RefObject<HTMLDivElement | null>, scro
         const area = scroller.current;
         if (outer === null || area === null) return;
         const update = () => {
+            // Скрытая область (неактивная вкладка) не имеет размеров: тени остаются прежними до её показа.
+            if (!isRendered(area)) return;
             // Округление: при дробном масштабе страницы прокрутка до края даёт не ровно ноль.
             const position = axis === 'horizontal' ? area.scrollLeft : area.scrollTop;
             const visible = axis === 'horizontal' ? area.clientWidth : area.clientHeight;
