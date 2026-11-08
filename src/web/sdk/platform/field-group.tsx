@@ -9,6 +9,7 @@ import { fieldRules, isMarkedRequired } from '../../widgets/validation';
 import type { InputProperties } from '../../widgets/widget';
 import { Column, Grid, type ColumnCount } from '../ds/grid';
 import { layoutClasses } from '../ds/layout';
+import { isRendered } from '../ds/rendered';
 import { FluidField, type FieldInputComponent, type FieldLayout } from './field-layout';
 import { fieldAttribute, type FieldTraversal } from './field-traversal';
 import { useFieldRestricted, useFormElement } from './form-data';
@@ -148,6 +149,9 @@ function FreeFieldColumn({ children }: { readonly children: ReactNode }) {
         const grid = element?.closest<HTMLElement>(`.${layoutClasses.grid}`);
         if (element === null || element === undefined || grid === null || grid === undefined) return;
         const measure = () => {
+            // У скрытой вкладки колонки сетки описаны шаблоном CSS, а не пикселями, и число колонок
+            // поля получилось бы неверным. Поле сохраняет прежнюю ширину до показа вкладки.
+            if (!isRendered(grid)) return;
             const style = getComputedStyle(grid);
             const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
             const track = tracks[0] ?? 0;

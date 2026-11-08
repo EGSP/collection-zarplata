@@ -29,6 +29,7 @@ import { breakpointAtLeast, useBreakpoint } from '../ds/breakpoints';
 import { useLayer } from '../ds/layer';
 import { spacing, type Breakpoint } from '../ds/layout';
 import { useOverflowShadows } from '../ds/overflow-shadows';
+import { isRendered } from '../ds/rendered';
 import { Stack } from '../ds/stack';
 import { ListSearch } from './list-search';
 
@@ -135,16 +136,24 @@ export function Feed<Row>({ rows, rowKey, renderRow, group, scroll, search, pagi
     // Высота по экрану пересчитывается при смене размеров страницы и после новых строк:
     // над лентой могли появиться или исчезнуть блоки.
     useLayoutEffect(() => {
-        if (!scrolling || scroll?.fill !== true || scroller.current === null) {
+        if (!scrolling || scroll?.fill !== true || scroller.current === null || frame.current === null) {
             setFilled(null);
             return;
         }
         const area = scroller.current;
-        const update = () => setFilled(fillHeight(area));
+        // Скрытая лента (неактивная вкладка окна или панели) не имеет размеров: замер дал бы
+        // отрицательную высоту, и лента сжалась бы до `rows` строк. Поэтому она сохраняет прежнюю
+        // высоту, пока скрыта, а при показе пересчитывает её по наблюдению за рамкой.
+        const update = () => {
+            if (isRendered(area)) setFilled(fillHeight(area));
+        };
         update();
         const page = scrollParent(area);
         const observer = new ResizeObserver(update);
         observer.observe(page);
+        // Рамка ленты меняет размер при показе, даже когда область страницы осталась прежней:
+        // например, лента стоит на вкладке панели и скрыта вместе с ней, а строки обновились.
+        observer.observe(frame.current);
         window.addEventListener('resize', update);
         return () => {
             observer.disconnect();
