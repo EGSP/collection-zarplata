@@ -32,7 +32,7 @@ covers:
 | Платформа | `platformVersion` | [`src/server/versions/versions.ts`](https://github.com/EGSP/collection-zarplata/blob/main/src/server/versions/versions.ts) |
 | Конфигурация | `configurationVersion` | [`src/configuration/version.ts`](https://github.com/EGSP/collection-zarplata/blob/main/src/configuration/version.ts) |
 
-Каждая константа содержит поле `version` и поле `compatibleFrom`. Текущие значения: платформа `1.0.1`, конфигурация `1.1.0`, у обеих `compatibleFrom` равен `1.0.0`.
+Каждая константа содержит поле `version` и поле `compatibleFrom`. Текущие значения: платформа `1.1.0`, конфигурация `1.1.1`, у обеих `compatibleFrom` равен `1.0.0`.
 
 Глобальный `MetadataModule` экспортирует токен `VersionInformation` с одним `useValue`-провайдером. Его поля `platform` и `configuration` содержат версии с границами совместимости, `current` содержит пару строк для HTTP-ответов. Контроллер состояния, синхронизация базы и interceptor получают эти сведения через `@Inject(VersionInformation)`. Обычные константы остаются доступны без Nest для сборки клиента, упаковщика и раннего вывода журнала до создания контейнера DI.
 
@@ -43,7 +43,7 @@ covers:
 - в ответе открытого запроса `GET /api/health`:
 
   ```json
-  { "status": "ok", "versions": { "platform": "1.0.1", "configuration": "1.1.0" }, "testEnvironment": true }
+  { "status": "ok", "versions": { "platform": "1.1.0", "configuration": "1.1.1" }, "testEnvironment": true }
   ```
 
 - в имени архива комплекта: скрипт `npm run build:executable` в конце печатает `collection-zarplata_portable_platform-<x.y.z>_configuration-<x.y.z>.zip`. Сам архив собирают вручную.
@@ -59,7 +59,7 @@ covers:
 Глобальный `VersionsInterceptor`, зарегистрированный через `APP_INTERCEPTOR`, добавляет в ответы контроллеров API заголовок `x-application-versions` с JSON:
 
 ```json
-{ "platform": "1.0.1", "configuration": "1.1.0" }
+{ "platform": "1.1.0", "configuration": "1.1.1" }
 ```
 
 Заголовок устанавливается до вызова обработчика и сохраняется в ответах без тела и при ошибках внутри обработки запроса. Отказы guard'ов, например `401` без сессии на запрос метаданных, происходят раньше interceptor и заголовка не содержат. Это допустимо: открытый `GET /api/health` сообщает версии и без входа. Хук Fastify для передачи версий не используется.
