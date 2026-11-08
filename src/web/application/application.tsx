@@ -6,6 +6,7 @@ import { useMemo } from 'react';
 import { BrowserRouter } from 'react-router';
 import { configurationShellGroups } from '../../configuration/shell-groups';
 import { BreakpointContainer } from '../sdk/ds/breakpoints';
+import { DrawerScope } from '../sdk/ds/drawer';
 import { DialogStyles } from '../sdk/ds/dialog-styles';
 import { ShellGroupsProvider } from '../sdk/platform/shell-group-content';
 import { createAuthenticationProvider } from '../authentication/authentication-provider';
@@ -87,11 +88,14 @@ function RefineApplication() {
         >
             {/* Окно браузера: внешний контейнер точек перелома, по нему выбирает режим боковая панель. */}
             <BreakpointContainer of="window">
-                <Authenticated key="application" fallback={<LoginPage />} loading={<Pending fullPage />}>
-                    <WindowTabsProvider>
-                        <ApplicationLayout />
-                    </WindowTabsProvider>
-                </Authenticated>
+                {/* Владелец выезжающих панелей: во всём окне открыта не больше чем одна панель. */}
+                <DrawerScope>
+                    <Authenticated key="application" fallback={<LoginPage />} loading={<Pending fullPage />}>
+                        <WindowTabsProvider>
+                            <ApplicationLayout />
+                        </WindowTabsProvider>
+                    </Authenticated>
+                </DrawerScope>
             </BreakpointContainer>
         </Refine>
     );

@@ -8,6 +8,7 @@ import { pageSegment } from '../common/paths';
 import { RecordDialogHost, RecordDialogLayerContext } from '../forms/record-dialog';
 import { RecordPage } from '../forms/record-page';
 import { BreakpointContainer } from '../sdk/ds/breakpoints';
+import { DrawerContainer } from '../sdk/ds/drawer';
 import { WindowScopeProvider } from '../window/window-scope';
 import { useWindowTabs, WindowTabScope } from './window-tabs';
 
@@ -102,12 +103,14 @@ function PageArea({ visible, children }: { readonly visible: boolean; readonly c
     const { token } = theme.useToken();
     const [layer, setLayer] = useState<HTMLElement | null>(null);
     return (
-        <div style={{ display: visible ? 'block' : 'none', height: '100%', position: 'relative' }}>
+        // Область страницы служит и контейнером выезжающих панелей: встроенная панель страницы выезжает
+        // в её пределах, не закрывает полосу вкладок и меню и скрывается вместе со скрытой вкладкой.
+        <DrawerContainer style={{ display: visible ? 'block' : 'none', height: '100%' }}>
             {/* Область страницы делит раскладку: компоненты страницы получают её точку перелома, а не точку окна. */}
             <BreakpointContainer style={{ height: '100%', overflowY: 'auto', padding: token.paddingLG }}>
                 <RecordDialogLayerContext.Provider value={layer}>{children}</RecordDialogLayerContext.Provider>
             </BreakpointContainer>
             <div ref={setLayer} />
-        </div>
+        </DrawerContainer>
     );
 }

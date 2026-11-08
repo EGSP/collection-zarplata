@@ -39,7 +39,15 @@ export function documentNumber(number: string): string {
     return number.replace(/^0+(?=\d)/u, '');
 }
 
+/**
+ * Товар «код: название»; у товара без кода только название. Общий у ленты продаж и списка товаров
+ * отвеса. Пустой код считается отсутствующим: необязательное поле строки может прийти пустой строкой.
+ */
+export function goodsLine(line: { readonly code?: string | null | undefined; readonly name: string }): string {
+    return line.code === null || line.code === undefined || line.code === '' ? line.name : `${line.code}: ${line.name}`;
+}
+
 /** Перечень товаров «код: название» через запятую; у товара без кода только название. */
 export function feedGoods(goods: ReadonlyArray<{ readonly code: string | null; readonly name: string }>): string {
-    return goods.map((line) => (line.code === null ? line.name : `${line.code}: ${line.name}`)).join(', ');
+    return goods.map(goodsLine).join(', ');
 }
