@@ -53,7 +53,7 @@ export const roles = [
         .access(accessSchema()
             .object(Shift, access => access.level('edit').post('allow').action('close', 'allow')))
         .access(accessSchema()
-            .object(Sale, access => access.level('edit').post('allow').action('cancel', 'allow').action('changesState', 'allow').action('saveChanges', 'allow').action('sellWithInstallment', 'allow'))
+            .object(Sale, access => access.function('figures', 'allow').level('edit').post('allow').action('cancel', 'allow').action('changesState', 'allow').action('saveChanges', 'allow').action('sellWithInstallment', 'allow'))
             .object(Weighing, access => access.level('edit').post('allow').action('applySale', 'allow'))
             // Ленту продаж и возвратов на рабочем месте читает функция возврата `sellerFeed`.
             .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow'))
@@ -104,6 +104,7 @@ export const roles = [
             .object(UnarrangedInstallments, access => access.level('read')))
         // Суммы рассрочек на формах продажи и рассрочки считает функция: без права формы их не покажут.
         .access(accessSchema()
+            .object(Sale, access => access.function('figures', 'allow'))
             .object(SaleInstallment, access => access.function('figures', 'allow'))
             // Ленту продаж и возвратов на рабочем месте читает функция возврата.
             .object(Refund, access => access.function('sellerFeed', 'allow'))),

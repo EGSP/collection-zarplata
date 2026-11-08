@@ -15,7 +15,7 @@
  * проверки, как черновик. Предел погашения так же проверяет ограничение регистра «Долги по рассрочкам».
  */
 import { Effect } from 'effect';
-import { ActionDispatcher } from '../../server/data/action-context.js';
+import { ActionDispatcher, callFunction } from '../../server/data/action-context.js';
 import { DataPolicyError, DataValidationError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
@@ -104,15 +104,12 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     const where = [{ column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }] as const;
     const orderBy = [{ column: 'date', direction: 'DESC' }, { column: 'number', direction: 'DESC' }] as const;
     const limit = words.length === 0 ? { limit: offset + pageSize } : {};
-    const sales = yield* database.all(query(Sale).select({ columns: ['guid', 'number', 'date', 'paymentMode', 'amount'], where, orderBy, ...limit }));
+    const sales = yield* database.all(query(Sale).select({ columns: ['guid', 'number', 'date', 'paymentMode'], where, orderBy, ...limit }));
     const refunds = yield* database.all(query(refund).select({ columns: ['guid', 'number', 'date'], where, orderBy, ...limit }));
 
     // Табличные части читаются только у прочитанных документов, по порядку строк.
-    const saleGoods = sales.length === 0 ? [] : yield* database.all(query(Sale).tablePart('goods').select({
-        columns: ['ownerGuid', 'code', 'name'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: sales.map((row) => row.guid) }],
-        orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
-    }));
+    // Исходные суммы и товары продаж берёт общая функция; возвраты остаются отдельными строками ленты.
+    const saleFigures = new Map((yield* callFunction(Sale, 'figures', { date: null, sales: sales.map((row) => ({ guid: row.guid })) })).map((row) => [row.sale, row]));
     const refundGuids = refunds.map((row) => row.guid);
     const refundGoods = refunds.length === 0 ? [] : yield* database.all(query(refund).tablePart('goods').select({
         columns: ['ownerGuid', 'code', 'name', 'total'],
@@ -143,7 +140,7 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     const add = (owner: string, line: { readonly code: unknown; readonly name: string }) => {
         goodsOf.set(owner, [...goodsOf.get(owner) ?? [], { code: typeof line.code === 'string' && line.code.trim() !== '' ? line.code : null, name: line.name }]);
     };
-    for (const line of saleGoods) add(line.ownerGuid, line);
+    for (const sale of saleFigures.values()) for (const line of sale.goods) add(sale.sale, line);
     // Сумма возврата — итог возвращённых товаров: сколько стоил возврат, а не как с покупателем рассчитались.
     const amountOf = new Map<string, number>();
     for (const line of refundGoods) {
@@ -154,7 +151,7 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     for (const line of settlements) methodsOf.set(line.ownerGuid, (methodsOf.get(line.ownerGuid) ?? new Set<string>()).add(line.method));
 
     const rows: FeedRow[] = [
-        ...sales.map((row): FeedRow => ({ kind: 'sale', guid: row.guid, number: row.number, date: row.date, method: row.paymentMode, goods: goodsOf.get(row.guid) ?? [], amount: row.amount, sales: [] })),
+        ...sales.map((row): FeedRow => ({ kind: 'sale', guid: row.guid, number: row.number, date: row.date, method: row.paymentMode, goods: goodsOf.get(row.guid) ?? [], amount: saleFigures.get(row.guid)!.amount, sales: [] })),
         ...refunds.map((row): FeedRow => {
             const methods = [...methodsOf.get(row.guid) ?? []];
             return { kind: 'refund', guid: row.guid, number: row.number, date: row.date, method: methods.length === 1 ? methods[0]! : methods.length === 0 ? '' : complexMethod, goods: goodsOf.get(row.guid) ?? [], amount: amountOf.get(row.guid) ?? 0, sales: salesOf.get(row.guid) ?? [] };
