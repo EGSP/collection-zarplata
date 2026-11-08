@@ -21,6 +21,7 @@
  */
 import { createContext, useContext, useLayoutEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import { breakpoints, breakpointWidths, type Breakpoint } from './layout';
+import { isRendered } from './rendered';
 
 /**
  * Точка ближайшего контейнера. Вне контейнеров действует самая узкая точка: компонент, которому
@@ -115,7 +116,7 @@ function ElementContainer({ style, children }: { readonly style: CSSProperties |
         // Скрытый элемент (неактивная вкладка) имеет ширину 0. Точку он не меняет: иначе страница
         // перестраивалась бы на узкую раскладку при каждом переключении вкладок.
         const measure = (width: number) => {
-            if (width > 0) setPoint(breakpointOf(width));
+            if (isRendered(element)) setPoint(breakpointOf(width));
         };
         measure(contentWidth(element));
         const observer = new ResizeObserver(([entry]) => {
