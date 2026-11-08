@@ -4,7 +4,7 @@ import { ActionButton, ActionTile, Column, FieldDisplay, Grid, Icons, Page, Pane
 import { Objects } from '../objects.generated';
 import { employeeCount, useCurrentShift, type OpenShiftState } from '../shell-components/current-shift-state';
 import OpenSaleInstallments, { useInstallmentDebt } from '../shell-components/open-sale-installments';
-import OpenWeighings, { useOpenWeighingCount } from '../shell-components/open-weighings';
+import OpenWeighings, { useHeldGoodsAvailable, useOpenWeighingCount } from '../shell-components/open-weighings';
 import SellerFeed, { useSellerFeedAvailable } from '../shell-components/seller-feed';
 
 /** Может ли пользователь создавать записи объекта: сервер оставляет действие `save` только при праве записи. */
@@ -145,14 +145,14 @@ function WeighingsLabel() {
  * Их продавец смотрит по очереди, поэтому три узкие карточки рядом заменены вкладками.
  * Вкладки и строки крупные: ленту читают на ходу, с расстояния.
  *
- * Вкладка есть только при нужном праве: у продаж и возвратов — на функцию ленты, у рассрочек
- * и отвесов — на чтение объекта. Подписи читают списки, и без права сервер ответил бы отказом. Содержимое вкладки остаётся смонтированным
+ * Вкладка есть только при нужном праве: у продаж и возвратов — на функцию ленты возврата, у отвесов —
+ * на функцию отвеса `heldGoods`, у рассрочек — на чтение объекта. Подписи читают списки, и без права сервер ответил бы отказом. Содержимое вкладки остаётся смонтированным
  * после первого показа, поэтому поиск и страница сохраняются при переключении.
  */
 function WorkplaceJournal() {
     const feed = useSellerFeedAvailable();
     const installments = useObjectView(Objects.document.saleInstallment) !== undefined;
-    const weighings = useObjectView(Objects.document.weighing) !== undefined;
+    const weighings = useHeldGoodsAvailable();
     const items = [
         ...(feed ? [{ key: 'feed', label: 'Продажи', children: <SellerFeed /> }] : []),
         ...(installments ? [{ key: 'installments', label: <InstallmentsLabel />, children: <OpenSaleInstallments /> }] : []),
