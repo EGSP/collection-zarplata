@@ -167,3 +167,6 @@ export { tablePartValidationMessages, type TablePartInputProperties } from './pl
 
 // Встроенные объекты имеют тот же контракт ссылок, что объекты конфигурации.
 export { PlatformObjects } from '../../common/platform-objects';
+
+export { StickyRail, type StickyRailProperties } from './ds/sticky-rail';
+export { FeedTable, FeedTableDescription, type FeedTableProperties, type FeedTableColumn } from './derivations/feed-table';

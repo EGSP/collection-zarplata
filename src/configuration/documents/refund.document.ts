@@ -14,6 +14,7 @@
  * проведении и при записи проведённого возврата, а непроведённый возврат записывается без
  * проверки, как черновик. Предел погашения так же проверяет ограничение регистра «Долги по рассрочкам».
  */
+import { readRefundFigures, refundFiguresFunction } from './refund.functions.js';
 import { Effect } from 'effect';
 import { ActionDispatcher, callFunction } from '../../server/data/action-context.js';
 import { DataPolicyError, DataValidationError } from '../../server/data/data.errors.js';
@@ -110,51 +111,13 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     // Табличные части читаются только у прочитанных документов, по порядку строк.
     // Исходные суммы и товары продаж берёт общая функция; возвраты остаются отдельными строками ленты.
     const saleFigures = new Map((yield* callFunction(Sale, 'figures', { date: null, sales: sales.map((row) => ({ guid: row.guid })) })).map((row) => [row.sale, row]));
-    const refundGuids = refunds.map((row) => row.guid);
-    const refundGoods = refunds.length === 0 ? [] : yield* database.all(query(refund).tablePart('goods').select({
-        columns: ['ownerGuid', 'code', 'name', 'total'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: refundGuids }],
-        orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
-    }));
-    const settlements = refunds.length === 0 ? [] : yield* database.all(query(refund).tablePart('settlements').select({
-        columns: ['ownerGuid', 'method'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: refundGuids }],
-    }));
-    const bases = refunds.length === 0 ? [] : yield* database.all(query(refund).tablePart('bases').select({
-        columns: ['ownerGuid', 'sale'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: refundGuids }],
-        orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
-    }));
-    // Номера и даты продаж-оснований: продажа может быть старше страницы ленты, поэтому читается отдельно.
-    const basisSales = bases.length === 0 ? [] : yield* database.all(query(Sale).select({
-        columns: ['guid', 'number', 'date'],
-        where: [{ column: 'guid', operator: 'IN', value: [...new Set(bases.map((line) => line.sale))] }],
-    }));
-    const saleByGuid = new Map(basisSales.map((row) => [row.guid, { guid: row.guid, number: row.number, date: row.date }]));
-    const salesOf = new Map<string, FeedSale[]>();
-    for (const line of bases) {
-        const basis = saleByGuid.get(line.sale);
-        if (basis !== undefined) salesOf.set(line.ownerGuid, [...salesOf.get(line.ownerGuid) ?? [], basis]);
-    }
-    const goodsOf = new Map<string, FeedGoods[]>();
-    const add = (owner: string, line: { readonly code: unknown; readonly name: string }) => {
-        goodsOf.set(owner, [...goodsOf.get(owner) ?? [], { code: typeof line.code === 'string' && line.code.trim() !== '' ? line.code : null, name: line.name }]);
-    };
-    for (const sale of saleFigures.values()) for (const line of sale.goods) add(sale.sale, line);
-    // Сумма возврата — итог возвращённых товаров: сколько стоил возврат, а не как с покупателем рассчитались.
-    const amountOf = new Map<string, number>();
-    for (const line of refundGoods) {
-        add(line.ownerGuid, line);
-        amountOf.set(line.ownerGuid, (amountOf.get(line.ownerGuid) ?? 0) + line.total);
-    }
-    const methodsOf = new Map<string, Set<string>>();
-    for (const line of settlements) methodsOf.set(line.ownerGuid, (methodsOf.get(line.ownerGuid) ?? new Set<string>()).add(line.method));
-
+    const refundFigures = yield* readRefundFigures(refunds.map((row) => row.guid), null);
+    const goodsOf = new Map([...saleFigures.values()].map((sale) => [sale.sale, sale.goods]));
     const rows: FeedRow[] = [
         ...sales.map((row): FeedRow => ({ kind: 'sale', guid: row.guid, number: row.number, date: row.date, method: row.paymentMode, goods: goodsOf.get(row.guid) ?? [], amount: saleFigures.get(row.guid)!.amount, sales: [] })),
-        ...refunds.map((row): FeedRow => {
-            const methods = [...methodsOf.get(row.guid) ?? []];
-            return { kind: 'refund', guid: row.guid, number: row.number, date: row.date, method: methods.length === 1 ? methods[0]! : methods.length === 0 ? '' : complexMethod, goods: goodsOf.get(row.guid) ?? [], amount: amountOf.get(row.guid) ?? 0, sales: salesOf.get(row.guid) ?? [] };
+        ...refundFigures.map((row): FeedRow => {
+            const methods = row.methods;
+            return { kind: 'refund', guid: row.refund, number: row.number, date: row.date, method: methods.length === 1 ? methods[0]! : methods.length === 0 ? '' : complexMethod, goods: row.goods, amount: row.amount, sales: row.sales };
         }),
     ];
     // Даты хранятся строками ISO одного вида, поэтому сравниваются как текст.
@@ -515,6 +478,7 @@ const refundWithPolicies = refund
  * а отбор списка по строкам табличной части платформа не поддерживает, поэтому нужно действие.
  */
 export const Refund = refundWithPolicies
+    .function('figures', refundFiguresFunction)
     .action('returnedGoods', (action) => action
         .title('Возвращённые товары')
         .input((input) => input

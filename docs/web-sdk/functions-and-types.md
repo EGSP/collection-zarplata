@@ -84,4 +84,6 @@ covers:
 | `ColumnSize`, `ControlColumnSize`, `TableLayout`, `TableLayouts` | Размер колонки в знаках и долях, размер служебной колонки `'control'`, схема отображения и схемы по точкам перелома |
 | `CellType`, `PrimitiveCellType`, `CellInputOptions`, `CellTextInputHandle`, `CellTextInputProperties`, `TextConversion`, `CellComboInputProperties`, `CellOption`, `CellField` | Тип ячейки (`string`, `number`, `money`, `date`, `dateTime`, `boolean`, `free`) и его примитивная часть, ограничения ввода (`integer`, `maximumLength`), управление и свойства поля ячейки, перевод значения в текст и обратно, свойства поля со списком и его вариант (`key`, `label`), поле для расчёта типа |
 | `ReadOnlyTablePartProperties` | Свойства `ReadOnlyTablePart` |
+| `StickyRailProperties` | Порог `from`, шаг верхнего отступа `offset`, содержимое [рельса](components.md#прилипающий-рельс) |
+| `FeedTableProperties`, `FeedTableColumn` | Строки, связи, оформление, открытие и колонки [таблицы-фида](components.md#таблица-фид) |
 | `<Компонент>Properties` | Свойства компонента SDK, например `TileProperties` |

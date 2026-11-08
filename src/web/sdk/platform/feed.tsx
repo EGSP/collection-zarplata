@@ -220,6 +220,8 @@ export function Feed<Row>({ rows, rowKey, renderRow, group, scroll, search, pagi
 
 /** Свойства плашки строки ленты. */
 export interface FeedItemProperties {
+    /** Производная таблица использует ту же строку с табличной семантикой. */
+    readonly role?: 'button' | 'row';
     /** Заливка строки: экран выбирает её по виду записи, например бирюзовая у продажи. */
     readonly background: string;
     /** Заливка под курсором. */
@@ -236,13 +238,13 @@ export interface FeedItemProperties {
  * (выразительный вид Carbon): ленту читают на ходу, а бледный текст на цветной заливке плохо
  * различим. Содержимое раскладывают ячейки `FeedCell`.
  */
-export function FeedItem({ background, hover, label, onOpen, children }: FeedItemProperties) {
+export function FeedItem({ background, hover, label, onOpen, children, role = 'button' }: FeedItemProperties) {
     const { token } = theme.useToken();
     const [hovered, setHovered] = useState(false);
     const [focused, setFocused] = useState(false);
     return (
         <div
-            role="button"
+            role={role}
             tabIndex={0}
             aria-label={label}
             onClick={onOpen}
