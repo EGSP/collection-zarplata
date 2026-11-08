@@ -1,10 +1,11 @@
 import { useOverflowShadows } from '../sdk/ds/overflow-shadows';
 import { useLogout } from '@refinedev/core';
-import { App, Button, ConfigProvider, Divider, Drawer, Flex, Layout, Menu, Result, theme, Tooltip, Typography } from 'antd';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { App, Button, ConfigProvider, Divider, Flex, Layout, Menu, Result, theme, Tooltip, Typography } from 'antd';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ShellSubsystem } from '../../server/ui/descriptions';
 import { Pending } from '../common/pending';
 import { useMetadata } from '../data-provider/metadata';
+import { Drawer, DrawerContainer, useDrawer } from '../sdk/ds/drawer';
 import { Icons } from '../sdk/ds/icons';
 import { ApplicationVersionsText } from './application-versions';
 import { TabPages } from '../tabs/tab-pages';
@@ -24,6 +25,8 @@ import { WorkplaceMenu, useWorkplaceItems } from './workplaces';
  * страницу (push), с `md` выдвигается поверх неё (overlay), на `sm` стоит под страницей. Точку окна раскладка
  * получает от контейнера окна в корне приложения, а страницы вкладок от своих контейнеров. Раскладка хранит только признак,
  * развёрнута ли панель, и выводит закреплённую панель и выдвижную так, как велит стратегия.
+ * Выдвижное меню строится на `Drawer` дизайн-системы, как и остальные выезжающие панели: на `md`
+ * и шире оно выезжает слева поверх раскладки, на `sm` снизу над нижним баром.
  * Сетки внутри вкладки считают точки перелома по своему контейнеру и сами учитывают ширину панели.
  *
  * Страницы строятся по описаниям объектов, поэтому раскладка показывает их только после
@@ -32,13 +35,28 @@ import { WorkplaceMenu, useWorkplaceItems } from './workplaces';
 export function ApplicationLayout() {
     const { token } = theme.useToken();
     const strategy = useNavigationStrategy();
-    // Нажатие Switcher запоминается вместе со стратегией, при которой сделано. Смена стратегии
-    // сбрасывает его сразу при отрисовке: иначе выбор вернулся бы, когда окно снова станет прежней ширины.
+    // Где развёрнутая панель выдвигается (overlay, bottom), признак «развёрнута» хранит выезжающая панель:
+    // её открытие спрашивает владельца, и меню не выдвинется поверх уже открытой панели страницы.
+    const menu = useDrawer('Развёрнутое меню');
+    const drawn = strategy.present(true).overlay;
+    // Нажатие Switcher на широком окне запоминается вместе со стратегией, при которой сделано. Смена
+    // стратегии сбрасывает его сразу при отрисовке: иначе выбор вернулся бы, когда окно снова станет прежней ширины.
     const [toggle, setToggle] = useState<{ readonly strategy: string; readonly expanded: boolean } | null>(null);
     if (toggle !== null && toggle.strategy !== strategy.name) setToggle(null);
-    const expanded = toggle !== null && toggle.strategy === strategy.name ? toggle.expanded : strategy.expandedByDefault;
+    const docked = toggle !== null && toggle.strategy === strategy.name ? toggle.expanded : strategy.expandedByDefault;
+    const expanded = drawn ? menu.isOpen : docked;
+    // Выдвинутое меню переживает смену ширины окна: между `sm` и `md` оно остаётся открытым и только
+    // перестраивается (снизу над баром или слева поверх раскладки). Закрывается оно, лишь когда окно
+    // доросло до стратегии без выдвижной панели (push): там панель закреплена рядом со страницей.
+    useEffect(() => {
+        if (!drawn) menu.close();
+    }, [drawn]);
     const presentation = strategy.present(expanded);
-    const setExpanded = (value: boolean) => setToggle({ strategy: strategy.name, expanded: value });
+    const setExpanded = (value: boolean) => {
+        if (!drawn) setToggle({ strategy: strategy.name, expanded: value });
+        else if (value) menu.open();
+        else menu.close();
+    };
     const collapse = () => setExpanded(false);
     const afterNavigation = () => {
         if (strategy.collapsesOnNavigation) collapse();
@@ -51,8 +69,15 @@ export function ApplicationLayout() {
     };
     const collapsed = presentation.docked === 'rail';
     const bottom = presentation.docked === 'bottom';
+    // Одна панель меню выводится в одном из двух мест: на `sm` над нижним баром, шире поверх раскладки.
+    // При смене ширины открытое меню переходит из одного места в другое. До закрытия при переходе
+    // к push меню не показывается поверх закреплённой панели.
+    const sideMenu = { ...menu, isOpen: drawn && !bottom && presentation.overlay };
+    const bottomMenu = { ...menu, isOpen: drawn && bottom && expanded };
     return (
-        <Layout style={{ height: 'var(--application-height, 100dvh)', flexDirection: bottom ? 'column' : 'row' }}>
+        // Контейнер всей раскладки: выдвинутое на `md` меню лежит поверх полосы иконок и страницы.
+        <DrawerContainer style={{ height: 'var(--application-height, 100dvh)' }}>
+        <Layout style={{ height: '100%', flexDirection: bottom ? 'column' : 'row' }}>
             {/* Свёрнутое меню Ant Design по умолчанию шире полосы (80 px), поэтому его ширина выровнена по панели. */}
             {!bottom && <ConfigProvider theme={{ components: { Menu: { collapsedWidth: navigationWidths.rail } } }}>
                 <Layout.Sider
@@ -73,49 +98,44 @@ export function ApplicationLayout() {
                     />
                 </Layout.Sider>
             </ConfigProvider>}
-            {/* Drawer закрывается по Esc и нажатию на затемнение; панель внутри него та же, только развёрнутая. */}
-            {!bottom && <Drawer
-                open={presentation.overlay}
-                placement="left"
-                size={navigationWidths.expanded}
-                closable={false}
-                onClose={collapse}
-                styles={{ body: { padding: 0 } }}
-            >
+            {/* На `md` и шире меню выдвигается слева поверх всей раскладки, с затемнением. Панель внутри
+                та же, что закреплённая, только развёрнутая; меню закрывают её Switcher, Esc и переход. */}
+            <Drawer control={sideMenu} placement={menuPlacement} width={navigationWidths.expanded}>
                 <NavigationPanel
                     collapsed={false}
-                    showVersions={!bottom}
                     switcherTitle={strategy.switcherTitle(expanded)}
                     onSwitch={collapse}
                     onNavigate={afterNavigation}
                     onOpenSubsystem={openSubsystem}
                 />
-            </Drawer>}
+            </Drawer>
             {openedSubsystem === null ? null : <SubsystemDialog subsystem={openedSubsystem} onClose={() => setOpenedSubsystem(null)} />}
             {/* Без нулевой наименьшей ширины длинная полоса вкладок растянула бы область шире окна. */}
-            <Layout.Content style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-                <TabStrip />
-                {/* Прокручивается страница вкладки, а не вся область: полоса вкладок остаётся на месте. */}
-                <div style={{ flex: 1, minHeight: 0 }}>
-                    <PageContent />
-                </div>
-                {/* Мобильное меню занимает только область страницы: бар остаётся отдельным
-                    интерактивным соседом, без маски, блокировки прокрутки окна и ловушки фокуса. */}
-                {bottom && expanded && <section aria-label="Развёрнутое меню" className="mobile-navigation-panel" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); collapse(); } }} style={{ position: 'absolute', inset: 0, zIndex: 10, background: token.colorBgContainer }}>
-                    <style>{`
-                        @keyframes mobile-navigation-enter { from { transform: translateY(100%); } to { transform: translateY(0); } }
-                        .mobile-navigation-panel { animation: mobile-navigation-enter 180ms ease-out; }
-                        @media (prefers-reduced-motion: reduce) { .mobile-navigation-panel { animation: none; } }
-                    `}</style>
-                    <ConfigProvider theme={{ token: { fontSize: 16 }, components: { Menu: { itemHeight: 64, iconSize: 24 } } }}>
-                        <NavigationPanel collapsed={false} showHeader={false} showVersions={false} switcherTitle={strategy.switcherTitle(expanded)} onSwitch={collapse} onNavigate={afterNavigation} onOpenSubsystem={openSubsystem} />
-                    </ConfigProvider>
-                </section>}
+            <Layout.Content style={{ display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+                {/* Контейнер полосы вкладок и страницы: в нём на `sm` выезжает снизу меню. */}
+                <DrawerContainer style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                    <TabStrip />
+                    {/* Прокручивается страница вкладки, а не вся область: полоса вкладок остаётся на месте. */}
+                    <div style={{ flex: 1, minHeight: 0 }}>
+                        <PageContent />
+                    </div>
+                    {/* Меню на `sm` занимает полосу вкладок и страницу, но не нижний бар: бар остаётся
+                        доступен без затемнения, и его Switcher закрывает меню. */}
+                    <Drawer control={bottomMenu} mode="inline" placement={menuPlacement}>
+                        <ConfigProvider theme={{ token: { fontSize: 16 }, components: { Menu: { itemHeight: 64, iconSize: 24 } } }}>
+                            <NavigationPanel collapsed={false} showHeader={false} showVersions={false} switcherTitle={strategy.switcherTitle(expanded)} onSwitch={collapse} onNavigate={afterNavigation} onOpenSubsystem={openSubsystem} />
+                        </ConfigProvider>
+                    </Drawer>
+                </DrawerContainer>
             </Layout.Content>
             {bottom && <BottomNavigation onSwitch={() => setExpanded(!expanded)} switcherTitle={strategy.switcherTitle(expanded)} onNavigate={afterNavigation} onOpenSubsystem={openSubsystem} />}
         </Layout>
+        </DrawerContainer>
     );
 }
+
+/** Меню выезжает снизу на `sm`, где оно стоит над нижним баром, и слева от `md`, от боковой панели. */
+const menuPlacement = { sm: 'bottom', md: 'left' } as const;
 
 /** Свойства содержимого боковой панели. */
 interface NavigationPanelProperties {
