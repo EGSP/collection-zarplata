@@ -54,7 +54,8 @@ export const roles = [
             .object(Shift, access => access.level('edit').post('allow').action('close', 'allow')))
         .access(accessSchema()
             .object(Sale, access => access.level('edit').post('allow').action('cancel', 'allow').action('changesState', 'allow').action('saveChanges', 'allow').action('sellWithInstallment', 'allow'))
-            .object(Weighing, access => access.level('edit').post('allow').action('applySale', 'allow'))
+            // Вкладку «Отвесы» на рабочем месте читает функция отвеса `heldGoods`.
+            .object(Weighing, access => access.level('edit').post('allow').action('applySale', 'allow').function('heldGoods', 'allow'))
             // Ленту продаж и возвратов на рабочем месте читает функция возврата `sellerFeed`.
             .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow'))
             .object(SaleInstallment, access => access.level('edit').post('allow').action('pay', 'allow').action('settleByBank', 'allow').function('figures', 'allow')))
@@ -105,8 +106,9 @@ export const roles = [
         // Суммы рассрочек на формах продажи и рассрочки считает функция: без права формы их не покажут.
         .access(accessSchema()
             .object(SaleInstallment, access => access.function('figures', 'allow'))
-            // Ленту продаж и возвратов на рабочем месте читает функция возврата.
-            .object(Refund, access => access.function('sellerFeed', 'allow'))),
+            // Ленту продаж и возвратов на рабочем месте читает функция возврата, вкладку «Отвесы» — функция отвеса.
+            .object(Refund, access => access.function('sellerFeed', 'allow'))
+            .object(Weighing, access => access.function('heldGoods', 'allow'))),
     role('sampleEditor')
         .title('Запись пробного документа')
         // Права на действие «Принять строки» нет: на этой роли проверяется политика, которая его требует.
