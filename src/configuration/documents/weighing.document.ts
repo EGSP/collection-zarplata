@@ -12,6 +12,7 @@ import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
+import { normalizeSearchText } from '../../server/ui/value-format.js';
 import { document, formula, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
@@ -85,6 +86,65 @@ const weighingRulesPolicy: Policy<WeighingRecord> = {
 
 const target = { kind: 'document', name: 'weighing' };
 
+/** Товар незакрытого отвеса в результате `heldGoods`: «код: название», у товара без кода только название. */
+interface HeldGoods {
+    readonly code: string | null;
+    readonly name: string;
+}
+
+/** Незакрытый отвес в результате `heldGoods`: покупатель и его товары «В отвесе» по порядку строк. */
+interface HeldWeighing {
+    readonly guid: string;
+    readonly number: string;
+    readonly date: string;
+    readonly person: string;
+    readonly goods: ReadonlyArray<HeldGoods>;
+}
+
+/**
+ * Товары незакрытых отвесов для вкладки «Отвесы» рабочего места продавца: одним запросом, без
+ * чтения каждого отвеса. Действие `list` табличных частей не отдаёт, а вкладка показывает товары
+ * сразу, сгруппированными по покупателю.
+ *
+ * Незакрытый отвес не помечен на удаление и содержит товары «В отвесе»; их число хранит вычисляемое
+ * поле шапки. Проданные и вывешенные товары в результат не входят: на покупателе они уже не лежат.
+ * Отвесы идут по дате от старых к новым: дольше всех ждёт покупатель первого отвеса. Ограничения
+ * числа нет: незакрытых отвесов в магазине десятки, а не тысячи.
+ *
+ * Поиск отбирает отвесы по части ФИО покупателя без учёта регистра, как условие «покупатель
+ * содержит» у списка рассрочек. ФИО читаются только у покупателей незакрытых отвесов и сравниваются
+ * здесь: SQLite сравнивает кириллицу в `LIKE` с учётом регистра.
+ */
+const heldGoods = (search: string) => Effect.gen(function* () {
+    const database = yield* ReadonlyDatabase;
+    const open = yield* database.all(query(weighing).select({
+        columns: ['guid', 'number', 'date', 'person'],
+        where: [{ column: 'heldCount', operator: '>', value: 0 }, { column: 'deletedAt', operator: '=', value: null }],
+        orderBy: [{ column: 'date', direction: 'ASC' }, { column: 'number', direction: 'ASC' }],
+    }));
+    const needle = normalizeSearchText('string', search.trim());
+    const persons = needle === '' || open.length === 0 ? [] : yield* database.all(query(PhysicalPersons).select({
+        columns: ['guid', 'name'],
+        where: [{ column: 'guid', operator: 'IN', value: [...new Set(open.map((row) => row.person))] }],
+    }));
+    const found = new Set(persons.filter((row) => normalizeSearchText('string', row.name).includes(needle)).map((row) => row.guid));
+    const weighings = needle === '' ? open : open.filter((row) => found.has(row.person));
+    // Строки читаются только у незакрытых отвесов, по порядку строк документа.
+    const lines = weighings.length === 0 ? [] : yield* database.all(query(weighing).tablePart('goods').select({
+        columns: ['ownerGuid', 'code', 'name'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: weighings.map((row) => row.guid) }, { column: 'state', operator: '=', value: held }],
+        orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
+    }));
+    const goodsOf = new Map<string, HeldGoods[]>();
+    for (const line of lines) {
+        // Пустой код равен отсутствующему: необязательное поле строки бывает пустой строкой.
+        const code = typeof line.code === 'string' && line.code.trim() !== '' ? line.code : null;
+        goodsOf.set(line.ownerGuid, [...goodsOf.get(line.ownerGuid) ?? [], { code, name: line.name }]);
+    }
+    const rows: ReadonlyArray<HeldWeighing> = weighings.map((row) => ({ guid: row.guid, number: row.number, date: row.date, person: row.person, goods: goodsOf.get(row.guid) ?? [] }));
+    return { rows };
+});
+
 /**
  * Форма отвеса собственная (`weighing-form-layout.tsx`): таблица товаров не выводит стоимость,
  * скидку, итог и «Проведено в 1С». Эти колонки заполняются в продаже, которую открывает кнопка
@@ -138,4 +198,10 @@ export const Weighing = weighing
             // Продажа к этому моменту записана: политика отвеса проверяет, что строка «Продано»
             // ссылается на продажу, оформленную из этого отвеса.
             return yield* dispatcher.execute({ target, action: 'save', payload: { guid: record.guid, fields: { ...record, goods } } });
-        })));
+        })))
+    // Вкладка «Отвесы» рабочего места продавца (`heldGoods` выше): незакрытые отвесы с товарами.
+    .function('heldGoods', (builder) => builder
+        .title('Товары незакрытых отвесов')
+        .input((input) => input
+            .field('search', (field) => field.string().title('Поиск по ФИО покупателя')))
+        .handle((input) => heldGoods(input.search ?? '')));
