@@ -23,6 +23,7 @@ import { InstallmentRates } from '../catalogs/installment-rates.catalog.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
 import { installmentTypes, ownInstallment, ownInstallmentRate } from '../installments.js';
+import { figuresFunction } from './sale.functions.js';
 import { SaleInstallmentFunctions } from './sale-installment.functions.js';
 import { numberAndDate, rubles } from '../money.js';
 import { cash, installmentMethod, paymentColumns, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from '../payments.js';
@@ -868,4 +869,5 @@ const saleWithHandlers = sale
     ]));
 
 /** Группа полномочий объединяет суммы и оплаты независимо от расположения на форме. */
-export const Sale = saleWithHandlers.withAccess(accessSchema(saleWithHandlers).defineGroup('financial', ['amount', 'paid', 'payments', 'goods.cost', 'goods.discount', 'goods.total'], 'Финансы'));
+const saleWithFunctions = saleWithHandlers.function('figures', figuresFunction);
+export const Sale = saleWithFunctions.withAccess(accessSchema(saleWithFunctions).defineGroup('financial', ['amount', 'paid', 'payments', 'goods.cost', 'goods.discount', 'goods.total'], 'Финансы'));

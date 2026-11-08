@@ -13,9 +13,8 @@ import { query } from '../server/database/sql.builder.js';
 import { SaleInstallment } from './documents/sale-installment.document.js';
 import { Sale } from './documents/sale.document.js';
 import { Weighing } from './documents/weighing.document.js';
-import { allocate } from './payroll-context.js';
 import { nextDay } from './payroll.js';
-import { cash, installmentMethod, paymentMethods } from './payments.js';
+import { cash, paymentMethods } from './payments.js';
 import { dayOf } from './policies/closed-period.js';
 
 /** Безналичная оплата: второй способ, которым принимаются деньги. */
@@ -124,15 +123,8 @@ const moment = (value: string): number => new Date(value).getTime();
 /**
  * Строит сводку с дня `from` по день `to` включительно.
  *
- * - Продажи: проведённые продажи периода по товарам, раздельно проведённые и не проведённые
- *   в 1С (отметка строки товара). Оплаты продажи хранятся целиком, поэтому каждая оплата делится
- *   между товарами пропорционально их итогам; итоги блока — суммы этих долей. Совокупные итоги
- *   складывают оба блока: это все проведённые продажи периода. Для части в рассрочку считается
- *   и внесённая часть: взносы по рассрочкам продажи по конец периода, включая оплату банком,
- *   делятся между товарами пропорционально их долям рассрочки. Погашения возвратами во внесённую
- *   часть не входят: они не приносят денег. Рассрочка считается незакрытой, если на конец периода
- *   у рассрочки продажи есть долг или сумма в рассрочку оформлена не целиком. Дата закрытия
- *   не учитывается: возврат, открывший рассрочку позже, стирает её.
+ * - Продажи: функция продажи `figures` отдаёт товары с вычетом возвратов по конец периода,
+ *   оставшиеся доли оплат и состояние рассрочки. Здесь строки только группируются по отметке 1С.
  * - Взносы: взносы проведённых рассрочек с датой в периоде.
  * - Отвесы: строки, которые сейчас в состоянии «В отвесе», у отвесов с датой не позже конца
  *   периода. Отвес не хранит историю состояний строк, поэтому берётся текущее.
@@ -156,15 +148,7 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         where: [...active, { column: 'date', operator: '>=', value: dayStart(from) }, { column: 'date', operator: '<', value: end }],
     }))).filter((sale) => inPeriod(sale.date)).sort((first, second) => moment(first.date) - moment(second.date));
     const saleGuids = sales.map((sale) => sale.guid);
-    const goods = saleGuids.length === 0 ? [] : yield* database.all(query(Sale).tablePart('goods').select({
-        columns: ['ownerGuid', 'name', 'code', 'size', 'total', 'postedIn1C'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: saleGuids }],
-        orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
-    }));
-    const payments = saleGuids.length === 0 ? [] : yield* database.all(query(Sale).tablePart('payments').select({
-        columns: ['ownerGuid', 'method', 'amount'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: saleGuids }],
-    }));
+    const saleFigures = yield* callFunction(Sale, 'figures', { date: to, sales: saleGuids.map((guid) => ({ guid })) });
     // Рассрочки, оформленные не позже конца периода, и их суммы на его конец: по ним считаются
     // внесённая часть продаж периода, взносы периода и долги.
     const installments = (yield* database.all(query(SaleInstallment).select({
@@ -176,34 +160,17 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         installments: installments.map((installment) => ({ guid: installment.guid })),
     })).map((item) => [item.installment, item]));
     const figuresOf = (guid: string) => figures.get(guid)!;
-    const saleInstallments = installments.filter((installment) => saleGuids.includes(installment.sale));
     const posted: SummaryGoodsRow[] = [];
     const notPosted: SummaryGoodsRow[] = [];
-    for (const sale of sales) {
-        const lines = goods.filter((line) => line.ownerGuid === sale.guid);
-        const totals = lines.map((line) => line.total);
-        const byMethod = (method: string) => allocate(payments.filter((payment) => payment.ownerGuid === sale.guid && payment.method === method).reduce((sum, payment) => sum + payment.amount, 0), totals);
-        const cashShares = byMethod(cash);
-        const cashlessShares = byMethod(cashless);
-        const installmentShares = byMethod(installmentMethod);
-        const installmentTotal = installmentShares.reduce((sum, share) => sum + share, 0);
-        const ownInstallments = saleInstallments.filter((installment) => installment.sale === sale.guid);
-        const paid = ownInstallments.reduce((sum, installment) => sum + figuresOf(installment.guid).paid, 0);
-        const arranged = ownInstallments.reduce((sum, installment) => sum + installment.amount, 0);
-        // Незакрыта рассрочка с долгом на конец периода и сумма в рассрочку, на которую рассрочку ещё не оформили.
-        const open = installmentTotal > 0 && (arranged < installmentTotal
-            || ownInstallments.some((installment) => figuresOf(installment.guid).debt > 0));
-        // Взносы делятся между товарами по их долям рассрочки и не превышают суммы в рассрочку.
-        const paidShares = allocate(Math.min(paid, installmentTotal), installmentShares);
-        lines.forEach((line, index) => {
+    // Деление оплат и вычет возвратов выполняет функция продажи; сводка только группирует её строки.
+    for (const sale of saleFigures) {
+        for (const line of sale.goods) {
             const row: SummaryGoodsRow = {
-                sale: sale.guid, date: sale.date, name: line.name, code: line.code, size: line.size, total: line.total,
-                payments: { cash: cashShares[index]!, cashless: cashlessShares[index]!, installment: installmentShares[index]! },
-                installmentPaid: paidShares[index]!,
-                installmentOpen: open && installmentShares[index]! > 0,
+                sale: sale.sale, date: sale.date, name: line.name, code: line.code, size: line.size, total: line.netTotal,
+                payments: line.netPayments, installmentPaid: line.installmentPaid, installmentOpen: line.installmentOpen,
             };
-            (line.postedIn1C === true ? posted : notPosted).push(row);
-        });
+            (line.postedIn1C ? posted : notPosted).push(row);
+        }
     }
     const block = (rows: ReadonlyArray<SummaryGoodsRow>): SummaryGoodsBlock => ({
         rows,
