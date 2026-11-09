@@ -1,5 +1,5 @@
 import { InputDraftItem } from '../../widgets/input-draft';
-import { Form, Typography } from 'antd';
+import { Flex, Form, Typography } from 'antd';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentType, type Key, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import type { FormField, FormTablePart } from '../../../server/ui/descriptions';
 import { hasInput } from '../../widgets/registry';
@@ -90,6 +90,13 @@ export interface TablePartOptions {
      */
     readonly fixedRows?: boolean | undefined;
     /**
+     * Строки только для чтения: функция получает значения строки и возвращает `true`, если её ячейки
+     * нельзя изменять, а саму строку удалять. Например, строку «На сертификат» в расчётах возврата
+     * подставляет форма, и продавец её не меняет. Функция вызывается при отрисовке, поэтому хуки
+     * внутри неё недопустимы.
+     */
+    readonly readOnlyRows?: ((row: Record<string, unknown>) => boolean) | undefined;
+    /**
      * Содержимое под строкой: например, товары продажи из строки основания возврата. Строка
      * получает кнопку раскрытия и изначально раскрыта; пользователь может её свернуть. Вместо
      * содержимого можно вернуть `null`: такая строка не раскрывается. Заменяет раскрытие
@@ -97,6 +104,13 @@ export interface TablePartOptions {
      * как компонент, поэтому хуки внутри неё недопустимы: хуки используют в возвращаемом компоненте.
      */
     readonly expandedRow?: ((row: Record<string, unknown>, index: number) => ReactNode) | undefined;
+    /**
+     * Пометки рядом со значением ячейки по именам колонок: например, значок купона у итога строки
+     * товара. Функция получает значения строки и возвращает пометку или `null`. Пометка стоит
+     * справа от значения и не участвует в вводе: значение ячейки остаётся прежним. Функция
+     * вызывается при отрисовке, поэтому хуки внутри неё недопустимы.
+     */
+    readonly columnAdornments?: { readonly [column: string]: (row: Record<string, unknown>) => ReactNode } | undefined;
 }
 
 /** Свойства табличной части. */
@@ -190,7 +204,7 @@ const arrows: { readonly [Key in string]?: readonly [number, number] } = { Arrow
  * ссылки на поля остальных строк. Новая строка получает фокус после регистрации её полей.
  * Редактируется не больше одной ячейки: её имя хранит таблица.
  */
-function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnSizes, layouts, columnInputs, addTitle = 'Добавить строку', addIcon = <Icons.add />, initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false, expandedRow }: RowTableProperties) {
+function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnSizes, layouts, columnInputs, addTitle = 'Добавить строку', addIcon = <Icons.add />, initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false, readOnlyRows, expandedRow, columnAdornments }: RowTableProperties) {
     const form = Form.useFormInstance();
     const watched: unknown = Form.useWatch(part.name, { form, preserve: true });
     const values = (Array.isArray(watched) ? watched : form.getFieldValue(part.name) ?? []) as Record<string, unknown>[];
@@ -232,6 +246,11 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
         const row = rows[rowIndex];
         const column = inputColumns[columnIndex];
         if (row === undefined || column === undefined) return;
+        // Строка только для чтения ячеек ввода не имеет: обход переходит к следующей строке.
+        if (readOnlyRows?.(values[rowIndex] ?? {}) === true) {
+            if (rowIndex < rows.length - 1) focusCell(rowIndex + 1, 0, edit);
+            return;
+        }
         const name = cellName(row, column.name);
         if (edit && !direct(column)) {
             // Повторный focus() уже открытой ячейки тоже возвращает фокус в её поле.
@@ -358,9 +377,10 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
             title: <span>{column.title}{isMarkedRequired(column) && <Typography.Text type="danger"> *</Typography.Text>}</span>,
             render: (row) => {
                 const name = cellName(row, column.name);
-                return (
+                const adornment = columnAdornments?.[column.name]?.(values[row.name] ?? {}) ?? null;
+                const cell = (
                     <InputDraftItem name={[row.name, column.name]} rules={fieldRules(column)} noStyle>
-                        {column.readOnly || !hasInput(column)
+                        {column.readOnly || !hasInput(column) || readOnlyRows?.(values[row.name] ?? {}) === true
                             ? <CellValue field={column} type={fieldColumn(column).type} />
                             : <TableCell
                                 tabNavigation={tabNavigation}
@@ -376,13 +396,21 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
                             />}
                     </InputDraftItem>
                 );
+                // Пометка стоит вне элемента формы: он передаёт значение и обработчик единственному потомку.
+                return adornment === null ? cell : (
+                    <Flex align="center" gap={4}>
+                        <div style={{ flex: 1, minWidth: 0 }}>{cell}</div>
+                        {adornment}
+                    </Flex>
+                );
             },
         })),
     ];
     if (removable) columns.push({
         key: 'remove', title: '', type: 'free', size: 'control',
         // Служебная кнопка не прерывает Tab между ячейками и выход к кнопке добавления.
-        render: (row) => <Button tabIndex={-1} type="text" icon={<Icons.removeRow />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
+        // Строку только для чтения удалить нельзя: её состав задаёт форма.
+        render: (row) => readOnlyRows?.(values[row.name] ?? {}) === true ? null : <Button tabIndex={-1} type="text" icon={<Icons.removeRow />} aria-label="Удалить строку" onClick={() => remove(row.name)} />,
     });
     // Подпись «Итого» стоит в первой колонке без суммы.
     const labelColumn = part.columns.find((column) => !totals.includes(column.name))?.name;

@@ -5,9 +5,9 @@
  * которую по ней ещё можно вернуть; саму продажу возврат не изменяет.
  *
  * Расчёты показывают, как магазин рассчитался с покупателем, отдельно по каждой продаже:
- * выдал деньги или погасил возвратом долг по собственной рассрочке. Деньги возврат записывает
- * в «Поступления денег» с минусом, погашение — в «Долги по рассрочкам» с минусом по рассрочке
- * продажи: остаток рассрочки — итог этого регистра, поэтому он уменьшается сам. Все движения относятся к смене продажи, а не к смене возврата: результат смены
+ * пополнил сертификат, которым была оплачена продажа, погасил возвратом долг по собственной
+ * рассрочке или выдал деньги. Правила и движения каждого способа собраны в плане расчётов
+ * (`refund-plan.ts`). Деньги относятся к смене продажи, а не к смене возврата: результат смены
  * считается с учётом возвратов по её продажам. Смена в шапке показывает, когда возврат оформлен.
  *
  * Предел возврата проверяет ограничение итога регистра, а не политика: оно действует при
@@ -21,16 +21,16 @@ import { DataPolicyError, DataValidationError } from '../../server/data/data.err
 import { query } from '../../server/database/sql.builder.js';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { formatDateTime, formatMoney, normalizeSearchText } from '../../server/ui/value-format.js';
-import { document, movements, objectReference, type Policy, type RecordOf } from '../../server/metadata/index.js';
+import { document, movements, type Policy, type RecordOf, type RegisterMovements } from '../../server/metadata/index.js';
 import { InstallmentRates } from '../catalogs/installment-rates.catalog.js';
 import { Goods } from '../goods.js';
 import { installmentDebt, ownInstallment } from '../installments.js';
 import { numberAndDate, rubles } from '../money.js';
-import { expectedPayout, type PayoutPart } from '../money-shares.js';
-import { debtSettlement, installmentMethod, paymentMethods, paymentsWithoutReceiver, receiverField } from '../payments.js';
-import { InstallmentDebts } from '../registers/installment-debts.register.js';
-import { MoneyReceipts } from '../registers/money-receipts.register.js';
+import { type PayoutPart } from '../money-shares.js';
+import { certificateRefill, debtSettlement, installmentMethod, paymentMethods, paymentsWithoutReceiver, receiverField } from '../payments.js';
+import { operationMovements, operationOf, planRefund, plannedTotal, refundOperationHandlers, type CertificateTerms, type ExecutionContext, type SaleSettlementTerms } from '../refund-plan.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
+import { Certificate, readCertificateFeed } from './certificate.document.js';
 import { Sale } from './sale.document.js';
 import { SaleInstallment } from './sale-installment.document.js';
 import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
@@ -38,10 +38,11 @@ import { closedPeriodByDocumentDatePolicy } from '../policies/closed-period.js';
 import { Shift } from './shift.document.js';
 
 /**
- * Способы расчёта возврата: деньги и «В счёт долга» — погашение долга по рассрочке: покупатель
- * получает назад ту часть, которую ещё не внёс, уменьшением долга.
+ * Способы расчёта возврата: деньги, «В счёт долга» (погашение долга по рассрочке: покупатель
+ * получает назад ту часть, которую ещё не внёс, уменьшением долга) и «На сертификат»
+ * (пополнение сертификата, которым была оплачена продажа).
  */
-const settlementMethods = [...paymentMethods, debtSettlement];
+const settlementMethods = [...paymentMethods, debtSettlement, certificateRefill];
 
 const rejected = (message: string) => new DataPolicyError({ message });
 
@@ -51,8 +52,11 @@ const installmentTarget = { kind: 'document', name: 'saleInstallment' } as const
 /** Способ расчёта строки ленты, когда в продаже или возврате их несколько: так же пишет продажа. */
 const complexMethod = 'Сложная';
 
-/** Вид документа словами: поиск ленты находит возвраты по слову «возврат», продажи — по слову «продажа». */
-const kindTitles = { sale: 'Продажа', refund: 'Возврат' } as const;
+/**
+ * Вид строки словами: поиск ленты находит возвраты по слову «возврат», продажи — по слову «продажа»,
+ * оформление и обмен сертификатов — по слову «сертификат», обмен ещё и по слову «обмен».
+ */
+const kindTitles = { sale: 'Продажа', refund: 'Возврат', certificate: 'Сертификат', certificateExchange: 'Сертификат обмен' } as const;
 
 /** Товар строки ленты: код необязателен, ведущие нули сохраняются как текст. */
 interface FeedGoods {
@@ -69,11 +73,13 @@ interface FeedSale {
 
 /**
  * Строка ленты продаж и возвратов. `kind` выбирает компонент строки на клиенте. `method` —
- * способ оплаты продажи или способ выдачи возврата, `amount` — сумма продажи или итог
- * возвращённых товаров в копейках. `sales` — продажи-основания возврата; у продажи список пуст.
+ * способ оплаты продажи, способ выдачи возврата или способ оплаты и обмена сертификата, `amount` —
+ * сумма продажи, итог возвращённых товаров или номинал сертификата в копейках. `sales` —
+ * продажи-основания возврата; у остальных строк список пуст. `holder` — ФИО держателя сертификата,
+ * у продаж и возвратов `null`. Строки сертификата не содержат товаров.
  */
 interface FeedRow {
-    readonly kind: 'sale' | 'refund';
+    readonly kind: 'sale' | 'refund' | 'certificate' | 'certificateExchange';
     readonly guid: string;
     readonly number: string;
     readonly date: string;
@@ -81,11 +87,18 @@ interface FeedRow {
     readonly goods: ReadonlyArray<FeedGoods>;
     readonly amount: number;
     readonly sales: ReadonlyArray<FeedSale>;
+    /** В продаже применён хотя бы один купон: строка ленты показывает его значок. У возврата `false`. */
+    readonly coupon: boolean;
+    /** Продажа оплачена хотя бы одним сертификатом: строка ленты показывает его значок. У возврата `false`. */
+    readonly certificate: boolean;
+    readonly holder: string | null;
 }
 
 /**
  * Лента продаж и возвратов для рабочего места продавца: проведённые документы без пометки удаления,
- * новые сверху, страницами. Продажи и возвраты стоят в одной последовательности по дате, поэтому
+ * новые сверху, страницами. Сертификаты стоят в ленте своими строками в момент оформления и в момент
+ * обмена на деньги (`readCertificateFeed`): деньги за них проходят через продавца, хотя кассу смены
+ * не меняют. Продажи и возвраты стоят в одной последовательности по дате, поэтому
  * страницы нарезаются здесь: две ленты по отдельности, склеенные на клиенте, давали бы на второй
  * странице разные дни.
  *
@@ -105,8 +118,9 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     const where = [{ column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }] as const;
     const orderBy = [{ column: 'date', direction: 'DESC' }, { column: 'number', direction: 'DESC' }] as const;
     const limit = words.length === 0 ? { limit: offset + pageSize } : {};
-    const sales = yield* database.all(query(Sale).select({ columns: ['guid', 'number', 'date', 'paymentMode'], where, orderBy, ...limit }));
+    const sales = yield* database.all(query(Sale).select({ columns: ['guid', 'number', 'date', 'paymentMode', 'paidByCertificates'], where, orderBy, ...limit }));
     const refunds = yield* database.all(query(refund).select({ columns: ['guid', 'number', 'date'], where, orderBy, ...limit }));
+    const certificates = yield* readCertificateFeed(words.length === 0 ? offset + pageSize : null);
 
     // Табличные части читаются только у прочитанных документов, по порядку строк.
     // Исходные суммы и товары продаж берёт общая функция; возвраты остаются отдельными строками ленты.
@@ -114,11 +128,16 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     const refundFigures = yield* readRefundFigures(refunds.map((row) => row.guid), null);
     const goodsOf = new Map([...saleFigures.values()].map((sale) => [sale.sale, sale.goods]));
     const rows: FeedRow[] = [
-        ...sales.map((row): FeedRow => ({ kind: 'sale', guid: row.guid, number: row.number, date: row.date, method: row.paymentMode, goods: goodsOf.get(row.guid) ?? [], amount: saleFigures.get(row.guid)!.amount, sales: [] })),
+        // У продажи, целиком оплаченной сертификатами, способа нет: строка показывает только значок сертификата.
+        ...sales.map((row): FeedRow => ({
+            kind: 'sale', guid: row.guid, number: row.number, date: row.date, method: row.paymentMode ?? '', goods: goodsOf.get(row.guid) ?? [], amount: saleFigures.get(row.guid)!.amount, sales: [],
+            coupon: (goodsOf.get(row.guid) ?? []).some((line) => (line.couponPercent ?? 0) > 0), certificate: (row.paidByCertificates ?? 0) > 0, holder: null,
+        })),
         ...refundFigures.map((row): FeedRow => {
             const methods = row.methods;
-            return { kind: 'refund', guid: row.refund, number: row.number, date: row.date, method: methods.length === 1 ? methods[0]! : methods.length === 0 ? '' : complexMethod, goods: row.goods, amount: row.amount, sales: row.sales };
+            return { kind: 'refund', guid: row.refund, number: row.number, date: row.date, method: methods.length === 1 ? methods[0]! : methods.length === 0 ? '' : complexMethod, goods: row.goods, amount: row.amount, sales: row.sales, coupon: false, certificate: false, holder: null };
         }),
+        ...certificates.rows.map((row): FeedRow => ({ ...row, goods: [], sales: [], coupon: false, certificate: false })),
     ];
     // Даты хранятся строками ISO одного вида, поэтому сравниваются как текст.
     rows.sort((left, right) => right.date.localeCompare(left.date) || right.number.localeCompare(left.number));
@@ -126,15 +145,16 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     if (words.length === 0) {
         const saleCount = yield* database.get(query(Sale).count({ where }));
         const refundCount = yield* database.get(query(refund).count({ where }));
-        return { total: (saleCount?.total ?? 0) + (refundCount?.total ?? 0), rows: rows.slice(offset, offset + pageSize) };
+        return { total: (saleCount?.total ?? 0) + (refundCount?.total ?? 0) + certificates.total, rows: rows.slice(offset, offset + pageSize) };
     }
     const matched = rows.filter((row) => {
         // Сумма добавлена и без пробелов разрядов: «13256» и «13 256» находят один документ.
         const money = formatMoney(row.amount);
         const goods = row.goods.flatMap((line) => line.code === null ? [line.name] : [line.code, line.name]);
-        // Возврат находится и по номеру своей продажи-основания.
+        // Возврат находится и по номеру своей продажи-основания, сертификат — по ФИО держателя.
         const sales = row.sales.map((sale) => String(Number(sale.number)));
-        const text = normalizeSearchText('string', [kindTitles[row.kind], formatDateTime(row.date), row.method, ...goods, money, money.replace(/\s/gu, ''), String(Number(row.number)), ...sales].join(' '));
+        // Продажа с сертификатом находится и по слову «сертификат».
+        const text = normalizeSearchText('string', [kindTitles[row.kind], formatDateTime(row.date), row.method, row.certificate ? 'сертификат' : '', ...goods, money, money.replace(/\s/gu, ''), String(Number(row.number)), ...sales, row.holder ?? ''].join(' '));
         return words.every((word) => text.includes(word));
     });
     return { total: matched.length, rows: matched.slice(offset, offset + pageSize) };
@@ -163,7 +183,9 @@ const refund = document('refund')
         .field('sale', (field) => field.reference(Sale).title('Продажа').required())
         .field('method', (field) => field.string().title('Способ').choices(settlementMethods).required())
         .field('amount', (field) => field.money().title('Сумма').minimum(1).required())
-        .field('receiver', (field) => receiverField(field).title('Откуда выдано')))
+        .field('receiver', (field) => receiverField(field).title('Откуда выдано'))
+        // Сертификат продажи, который пополняет строка «На сертификат»; у остальных строк пусто.
+        .field('certificate', (field) => field.reference(Certificate).title('Сертификат')))
     .listTableParts(['goods']);
 
 type RefundRecord = RecordOf<typeof refund>;
@@ -199,38 +221,15 @@ const refundGoodsPolicy: Policy<RefundContent> = {
 };
 
 /**
- * Условия расчёта по продаже: части её оплаты, по которым делится возврат, и рассрочка по ней.
- * Их читают правило расчётов возврата и форма возврата (действие `settlementTerms`).
- */
-export interface SaleSettlementTerms {
-    readonly sale: { readonly guid: string; readonly number: string; readonly date: string; readonly shift: string; readonly amount: number };
-    /** Части оплаты продажи: деньги, рассрочки и неоформленная сумма рассрочки. */
-    readonly parts: ReadonlyArray<PayoutPart>;
-    /** Сумма оплаты «Рассрочка», которую не покрывают проведённые рассрочки без пометки удаления. */
-    readonly unarranged: number;
-    /** Рассрочка по продаже без пометки удаления; у продажи их не больше одной. */
-    readonly installment: {
-        readonly guid: string;
-        readonly number: string;
-        readonly date: string;
-        readonly type: string | null;
-        readonly posted: boolean;
-        readonly closed: boolean;
-        /** Остаток без погашения исключённого возврата: столько этот возврат может погасить. */
-        readonly balance: number;
-        /** Погашение исключённого возврата, уже записанное в рассрочку. */
-        readonly settled: number;
-    } | null;
-}
-
-/**
  * Читает условия расчёта по продаже. `excludedRefund` — возврат, открытый на форме или проверяемый
  * правилом: его прежнее погашение возвращается в остаток, иначе изменение возврата посчитало бы
  * его погашение дважды.
  *
  * Части оплаты: деньги — сумма продажи без оплат «Рассрочка», каждая рассрочка без пометки
  * удаления своей суммой с долей банка у банковской, неоформленная часть оплаты «Рассрочка» без
- * доли банка. Возврат делится по ним так же, как его делит расчёт зарплаты.
+ * доли банка. Возврат делится по ним так же, как его делит расчёт зарплаты. Оплата сертификатами
+ * в части не входит: её возврат пополняет сертификат (`certificates`). По каждому сертификату
+ * доступно списание продажи за вычетом пополнений других проведённых возвратов без пометки удаления.
  */
 const saleTerms = (saleGuid: string, excludedRefund: string | null) => Effect.gen(function* () {
     const database = yield* ReadonlyDatabase;
@@ -243,7 +242,16 @@ const saleTerms = (saleGuid: string, excludedRefund: string | null) => Effect.ge
         where: [{ column: 'sale', operator: '=', value: saleGuid }, { column: 'deletedAt', operator: '=', value: null }],
         orderBy: [{ column: 'date', direction: 'ASC' }, { column: 'number', direction: 'ASC' }],
     }));
-    const parts: PayoutPart[] = [{ amount: sale.amount - byInstallment, bankPercentage: 0 }];
+    const lines = yield* database.all(query(Sale).tablePart('certificates').select({
+        columns: ['certificate', 'amount'], where: [{ column: 'ownerGuid', operator: '=', value: saleGuid }], orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
+    }));
+    const refills = lines.length === 0 ? [] : yield* priorRefills(saleGuid, excludedRefund);
+    const certificates = lines.map((line): CertificateTerms => {
+        const refilled = refills.filter((refill) => refill.certificate === line.certificate).reduce((total, refill) => total + refill.amount, 0);
+        return { certificate: line.certificate, amount: line.amount, available: Math.max(0, line.amount - refilled) };
+    });
+    const paidByCertificates = lines.reduce((total, line) => total + line.amount, 0);
+    const parts: PayoutPart[] = [{ amount: sale.amount - byInstallment - paidByCertificates, bankPercentage: 0 }];
     for (const installment of installments) {
         const rate = installment.type === ownInstallment || installment.rate === null ? undefined
             : yield* database.get(query(InstallmentRates).select({ columns: ['percentage'], where: [{ column: 'guid', operator: '=', value: installment.rate }], limit: 1 }));
@@ -265,27 +273,50 @@ const saleTerms = (saleGuid: string, excludedRefund: string | null) => Effect.ge
             balance, settled: balance - first.balance,
         };
     }
-    const terms: SaleSettlementTerms = { sale, parts, unarranged, installment };
+    const terms: SaleSettlementTerms = { sale, parts, certificates, unarranged, installment };
     return terms;
+});
+
+/**
+ * Пополнения сертификатов по продаже в проведённых возвратах без пометки удаления, кроме
+ * `excludedRefund`: строки «На сертификат» с продажей `saleGuid`.
+ */
+const priorRefills = (saleGuid: string, excludedRefund: string | null) => Effect.gen(function* () {
+    const database = yield* ReadonlyDatabase;
+    const lines = yield* database.all(query(refund).tablePart('settlements').select({
+        columns: ['ownerGuid', 'certificate', 'amount'],
+        where: [{ column: 'sale', operator: '=', value: saleGuid }, { column: 'method', operator: '=', value: certificateRefill }],
+    }));
+    const owners = lines.map((line) => line.ownerGuid).filter((guid) => guid !== excludedRefund);
+    if (owners.length === 0) return [];
+    const active = new Set((yield* database.all(query(refund).select({
+        columns: ['guid'],
+        where: [{ column: 'guid', operator: 'IN', value: [...new Set(owners)] }, { column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }],
+    }))).map((row) => row.guid));
+    return lines.filter((line) => active.has(line.ownerGuid)).map((line) => ({ certificate: line.certificate ?? '', amount: line.amount }));
 });
 
 /** Сумма строк. */
 const sumOf = (lines: ReadonlyArray<{ readonly amount: number }>) => lines.reduce((total, line) => total + line.amount, 0);
 
 /** Строка расчёта для сравнения с прежней записью: колонки по порядку, пустые как `null`. */
-const settlementKey = (line: Settlement) => JSON.stringify([line.sale, line.method, line.amount, line.receiver ?? null]);
+const settlementKey = (line: Settlement) => JSON.stringify([line.sale, line.method, line.amount, line.receiver ?? null, line.certificate ?? null]);
 
 /**
  * Проверяет расчёты возврата (раздел «Правила учёта»). `posting` — возврат проводится или уже
  * проведён: тогда действуют и правила, без которых возврат не может попасть в учёт.
  *
- * - Строка относится к продаже из оснований, и у продажи не больше одной строки каждого способа.
- * - У новых и изменённых строк деньгами «Откуда выдано» обязательно, у строки «В счёт долга» оно пусто.
+ * - Строка относится к продаже из оснований, и у продажи не больше одной строки каждого способа,
+ *   а у «На сертификат» — каждого сертификата.
+ * - У новых и изменённых строк деньгами «Откуда выдано» обязательно, у строк «В счёт долга»
+ *   и «На сертификат» оно пусто. Сертификат указывается только у строки «На сертификат».
+ * - Строки «На сертификат» совпадают с пополнениями плана расчётов (`planRefund`): пополнение
+ *   обязательно, и его сумму выбирает не продавец.
  * - «В счёт долга» допустимо только у продажи с проведённой собственной рассрочкой, которая ещё не закрыта:
  *   банковскую рассрочку банк уже оплатил, и возврат по ней выдаётся деньгами, а закрытая погашена.
  *   Изменить уже записанное погашение закрытой рассрочки можно только в меньшую сторону: так возврат
  *   снова открывает рассрочку, а увеличить погашенный долг нечем.
- * - Расчёты по продаже не больше ожидаемой выдачи: итога её товаров без доли банка. Меньше
+ * - Расчёты по продаже не больше суммы операций плана: итога её товаров без доли банка. Меньше
  *   допустимо: магазин может удержать часть суммы, форма об этом предупреждает.
  * - Проводится только возврат, у продаж которого оплата «Рассрочка» покрыта проведёнными
  *   рассрочками: иначе неизвестно, есть ли долг, который можно погасить возвратом.
@@ -299,11 +330,18 @@ const checkSettlements = (record: RefundRecord, existing: RefundRecord | null, p
     for (const [index, line] of record.settlements.entries()) {
         const place = `Строка расчёта ${index + 1}`;
         if (!bases.has(line.sale)) return yield* rejected(`${place}: продажа не из оснований возврата`);
-        const key = JSON.stringify([line.sale, line.method]);
-        if (seen.has(key)) return yield* rejected(`${place}: способ «${line.method}» по этой продаже уже указан. У продажи не больше одной строки расчёта каждого способа`);
-        seen.add(key);
         // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
-        if (line.method === debtSettlement && (line.receiver ?? null) !== null) return yield* rejected(`${place}: у строки «${debtSettlement}» «Откуда выдано» не заполняется: деньги не выдаются`);
+        const certificate = line.certificate ?? null;
+        const refill = line.method === certificateRefill;
+        if (refill && certificate === null) return yield* rejected(`${place}: укажите сертификат, который пополняет возврат`);
+        if (!refill && certificate !== null) return yield* rejected(`${place}: сертификат указывается только у строки «${certificateRefill}»`);
+        const key = JSON.stringify([line.sale, line.method, certificate]);
+        if (seen.has(key)) {
+            return yield* rejected(refill ? `${place}: этот сертификат по этой продаже уже пополняется другой строкой`
+                : `${place}: способ «${line.method}» по этой продаже уже указан. У продажи не больше одной строки расчёта каждого способа`);
+        }
+        seen.add(key);
+        if ((line.method === debtSettlement || refill) && (line.receiver ?? null) !== null) return yield* rejected(`${place}: у строки «${line.method}» «Откуда выдано» не заполняется: деньги не выдаются`);
     }
     const withoutReceiver = paymentsWithoutReceiver(existing?.settlements ?? [], record.settlements, settlementKey);
     if (withoutReceiver.length > 0) {
@@ -329,7 +367,19 @@ const checkSettlements = (record: RefundRecord, existing: RefundRecord | null, p
             }
         }
         const total = sumOf(record.goods.filter((line) => line.sale === saleGuid).map((line) => ({ amount: line.total })));
-        const { expected } = expectedPayout(total, terms.parts);
+        const plan = yield* planRefund(terms, total);
+        // Пополнения сверяются по каждому сертификату: строка есть у каждого пополнения плана с той же суммой, лишних строк нет.
+        const refills = plan.flatMap((operation) => operation.kind === 'certificateRefill' ? [operation] : []);
+        const refillLines = lines.filter((line) => line.method === certificateRefill);
+        for (const refill of refills) {
+            const line = refillLines.find((candidate) => candidate.certificate === refill.certificate);
+            if (line === undefined) return yield* rejected(`${title}: возврат пополняет сертификат на ${rubles(refill.amount)}, а строки «${certificateRefill}» нет`);
+            if (line.amount !== refill.amount) return yield* rejected(`${title}: пополнение сертификата ${rubles(refill.amount)}, а в строке «${certificateRefill}» ${rubles(line.amount)}`);
+        }
+        if (refillLines.some((line) => !refills.some((refill) => refill.certificate === line.certificate))) {
+            return yield* rejected(`${title}: сертификат в строке «${certificateRefill}» не пополняется этим возвратом: он не оплачивал продажу или уже пополнен прежними возвратами`);
+        }
+        const expected = plannedTotal(plan);
         const settled = sumOf(lines);
         if (settled > expected) return yield* rejected(`${title}: расчёты ${rubles(settled)} больше ожидаемой выдачи ${rubles(expected)} на ${rubles(settled - expected)}`);
         if (posting && terms.unarranged > 0) {
@@ -367,10 +417,16 @@ const refundReopeningPolicy: Policy<RefundRecord> = {
     },
 };
 
-/** Погашение долга по продажам: сумма строк «В счёт долга» каждой продажи. */
+/**
+ * Погашение долга по продажам: сумма строк, операции которых снимают закрытие рассрочки
+ * (`reopensInstallment` обработчика), по каждой продаже. Сейчас это строки «В счёт долга».
+ */
 const creditsOf = (record: RefundRecord | null) => {
     const credits = new Map<string, number>();
-    for (const line of record?.settlements ?? []) if (line.method === debtSettlement) credits.set(line.sale, (credits.get(line.sale) ?? 0) + line.amount);
+    for (const line of record?.settlements ?? []) {
+        if (!refundOperationHandlers[operationOf(line).kind].reopensInstallment) continue;
+        credits.set(line.sale, (credits.get(line.sale) ?? 0) + line.amount);
+    }
     return credits;
 };
 
@@ -423,8 +479,10 @@ const refundWithPolicies = refund
         .group('Товары на возврат', ['goods'])
         .group('Расчёты возврата', ['settlements'])
         .hide('posted'))
-    // Движения записываются на продажу, а не на строку: предел действует на сумму по продаже.
-    // Смена движений — смена продажи: возврат уменьшает результат тех, кто продал.
+    // Движения товаров записываются на продажу, а не на строку: предел действует на сумму по продаже.
+    // Смена движений — смена продажи: возврат уменьшает результат тех, кто продал. Строки расчётов
+    // превращаются в операции плана, и движения по ним отдают обработчики видов операций.
+    // План при этом не пересчитывается: расхождение строк с ним отклоняет политика расчётов.
     .posting((record) => Effect.gen(function* () {
         const returned = new Map<string, number>();
         for (const line of record.goods) returned.set(line.sale, (returned.get(line.sale) ?? 0) + line.total);
@@ -439,25 +497,26 @@ const refundWithPolicies = refund
             if (sale === undefined) return yield* rejected('Продажа из строки возврата не найдена');
             shifts.set(saleGuid, sale.shift);
         }
-        // Погашение долга записывается движением по рассрочке продажи: основание — рассрочка, смена —
-        // смена рассрочки, как у её взносов. Предел остатком проверяет ограничение регистра.
-        const debts = [];
-        for (const [saleGuid, amount] of creditsOf(record)) {
-            const installment = yield* database.get(query(SaleInstallment).select({
-                columns: ['guid', 'person', 'shift'],
-                where: [{ column: 'sale', operator: '=', value: saleGuid }, { column: 'deletedAt', operator: '=', value: null }, { column: 'posted', operator: '=', value: true }],
-                limit: 1,
-            }));
-            if (installment === undefined || installment.person === null) return yield* rejected('Рассрочка для погашения долга не найдена или не проведена');
-            debts.push({ basis: objectReference(installmentTarget, installment.guid), person: installment.person, shift: installment.shift, amount: 0 - amount });
+        // Рассрочка читается только у продаж с погашением долга: её движения нужны только ему.
+        const contexts = new Map<string, ExecutionContext>();
+        for (const saleGuid of shifts.keys()) {
+            let installment: ExecutionContext['installment'] = null;
+            if (creditsOf(record).has(saleGuid)) {
+                const found = yield* database.get(query(SaleInstallment).select({
+                    columns: ['guid', 'person', 'shift'],
+                    where: [{ column: 'sale', operator: '=', value: saleGuid }, { column: 'deletedAt', operator: '=', value: null }, { column: 'posted', operator: '=', value: true }],
+                    limit: 1,
+                }));
+                if (found === undefined || found.person === null) return yield* rejected('Рассрочка для погашения долга не найдена или не проведена');
+                installment = { guid: found.guid, person: found.person, shift: found.shift };
+            }
+            contexts.set(saleGuid, { saleShift: shifts.get(saleGuid)!, installment });
         }
+        const settlements: RegisterMovements[] = record.settlements.flatMap((line) => [...operationMovements(operationOf(line), contexts.get(line.sale)!)]);
         return [
             // Вычитание из нуля, а не унарный минус: для нулевой суммы он дал бы отрицательный ноль.
             movements(SalesNetOfReturns, [...returned].map(([sale, total]) => ({ sale, shift: shifts.get(sale)!, amount: 0 - total }))),
-            // Выданные деньги уменьшают деньги смены продажи по способу выдачи; погашение долга денег не двигает.
-            movements(MoneyReceipts, record.settlements.filter((line) => line.method !== debtSettlement)
-                .map((line) => ({ shift: shifts.get(line.sale)!, method: line.method, amount: 0 - line.amount }))),
-            movements(InstallmentDebts, debts),
+            ...settlements,
         ];
     }));
 
@@ -469,9 +528,11 @@ const refundWithPolicies = refund
  * Строки возвращаются в порядке возвратов и строк: товар в возврате не хранит ссылку на строку
  * продажи, поэтому форма сопоставляет строки по содержимому.
  *
- * Действие `settlementTerms` отдаёт форме условия расчёта по продаже и ожидаемую выдачу за товары
- * на сумму `total`: по ним она заполняет расчёты и предупреждает о расхождении и погашении долга.
- * Выдачу считает сервер тем же расчётом, что и правило расчётов, поэтому форма с ним не расходится.
+ * Действие `settlementTerms` отдаёт форме условия расчёта по продаже и план расчёта за товары
+ * на сумму `total`: по нему она заполняет расчёты, ставит неизменяемые строки «На сертификат»
+ * и предупреждает о расхождении и погашении долга. План считает сервер тем же расчётом, что
+ * и правило расчётов, поэтому форма с ним не расходится. Функция `refundPlan` отдаёт тот же план
+ * через API: так его можно проверить, ничего не записывая.
  *
  * Действие `saleRefunds` отдаёт проведённые возвраты по продаже в порядке даты и номера: продажа
  * выводит их под своими рассрочками. Черновики не выводятся: в расчётах они не участвуют. Связь с продажей хранит строка оснований,
@@ -487,7 +548,7 @@ export const Refund = refundWithPolicies
         .handle((input) => Effect.gen(function* () {
             const database = yield* ReadonlyDatabase;
             const lines = yield* database.all(query(refund).tablePart('goods').select({
-                columns: ['ownerGuid', 'name', 'code', 'size', 'comment', 'cost', 'discount'],
+                columns: ['ownerGuid', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'couponPercent'],
                 where: [{ column: 'sale', operator: '=', value: input.sale }],
                 orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
             }));
@@ -501,7 +562,7 @@ export const Refund = refundWithPolicies
                 ],
             }))).map((row) => row.guid));
             owners.delete(input.excludedRefund ?? '');
-            return lines.filter((line) => owners.has(line.ownerGuid)).map(({ name, code, size, comment, cost, discount }) => ({ name, code, size, comment, cost, discount }));
+            return lines.filter((line) => owners.has(line.ownerGuid)).map(({ name, code, size, comment, cost, discount, couponPercent }) => ({ name, code, size, comment, cost, discount, couponPercent }));
         })))
     .action('settlementTerms', (action) => action
         .title('Условия расчёта по продаже')
@@ -514,7 +575,7 @@ export const Refund = refundWithPolicies
         .handle((input) => Effect.gen(function* () {
             const terms = yield* saleTerms(input.sale, input.excludedRefund ?? null);
             const total = input.total ?? 0;
-            return { ...terms, total, payout: expectedPayout(total, terms.parts) };
+            return { ...terms, total, plan: yield* planRefund(terms, total) };
         })))
     .action('saleRefunds', (action) => action
         .title('Возвраты по продаже')
@@ -534,6 +595,16 @@ export const Refund = refundWithPolicies
                 where: [{ column: 'guid', operator: 'IN', value: owners }, { column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }],
                 orderBy: [{ column: 'date', direction: 'ASC' }, { column: 'number', direction: 'ASC' }],
             }));
+        })))
+    .function('refundPlan', (builder) => builder
+        .title('План расчёта возврата по продаже')
+        .input((input) => input
+            .field('sale', (field) => field.reference(Sale).title('Продажа').required())
+            .field('excludedRefund', (field) => field.string().title('Исключаемый возврат'))
+            .field('total', (field) => field.money().title('Итог товаров').minimum(0).required()))
+        .handle((input) => Effect.gen(function* () {
+            const terms = yield* saleTerms(input.sale, input.excludedRefund ?? null);
+            return yield* planRefund(terms, input.total);
         })))
     // Лента рабочего места продавца (`sellerFeed` выше): продажи и возвраты одной последовательностью.
     .function('sellerFeed', (builder) => builder

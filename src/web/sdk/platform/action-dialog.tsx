@@ -27,6 +27,11 @@ export interface ActionDialogProperties {
      */
     readonly onExecute: (input: FormValues) => Promise<void>;
     readonly onClose: () => void;
+    /**
+     * Начальные значения полей поверх значений по умолчанию: например, окно открыто для изменения
+     * уже применённого значения. Окно читает их только при открытии.
+     */
+    readonly initialValues?: FormValues | undefined;
 }
 
 /**
@@ -35,7 +40,7 @@ export interface ActionDialogProperties {
  * поля из его перечня отмечаются ошибкой. На время запроса закрытие блокируется, чтобы ответ
  * сервера и ошибки полей пришли в открытое окно.
  */
-export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClose }: ActionDialogProperties) {
+export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClose, initialValues }: ActionDialogProperties) {
     const [form] = Form.useForm<FormValues>();
     const [executing, setExecuting] = useState(false);
     const parts = action.tableParts ?? [];
@@ -75,7 +80,7 @@ export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClo
             {/* Окно ведёт собственный ввод: недоступность формы продажи не должна наследоваться
                 его полями. Во время выполнения запроса блокируется уже сам ввод окна. */}
             <BreakpointContainer of="fixed" point="sm">
-            <Form form={form} scrollToFirstError={{ focus: true }} disabled={executing} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])) }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
+            <Form form={form} scrollToFirstError={{ focus: true }} disabled={executing} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])), ...initialValues }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
                 <ComputedValues view={{ fields: action.input, tableParts: parts }} />
                 {action.input.map((field) => {
                     const limits = field.kind === 'date' ? dateLimits?.[field.name] : undefined;

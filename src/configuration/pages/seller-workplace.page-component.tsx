@@ -3,7 +3,8 @@ import type { ComponentType, ReactNode } from 'react';
 import { ActionButton, ActionTile, Column, FieldDisplay, Grid, Icons, Page, Panel, RecordLink, Stack, useObjectView, useOpenRecord, type ColumnCount, type PerformTarget } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { employeeCount, useCurrentShift, type OpenShiftState } from '../shell-components/current-shift-state';
-import OpenSaleInstallments, { useInstallmentDebt } from '../shell-components/open-sale-installments';
+import ActiveCertificates, { useActiveCertificatesAvailable, useActiveCertificatesBalance } from '../shell-components/active-certificates';
+import OpenSaleInstallments,{ useInstallmentDebt } from '../shell-components/open-sale-installments';
 import OpenWeighings, { useHeldGoodsAvailable, useOpenWeighingCount } from '../shell-components/open-weighings';
 import SellerFeed, { useSellerFeedAvailable } from '../shell-components/seller-feed';
 
@@ -135,28 +136,35 @@ function InstallmentsLabel() {
     return <TabLabel title="Рассрочки" value={<>{debt.partial ? 'не меньше ' : ''}<FieldDisplay field={{ kind: 'money', target: null }} value={debt.amount} /></>} />;
 }
 
+/** Подпись вкладки «Сертификаты»: общий остаток действующих сертификатов, без учёта поиска во вкладке. */
+function CertificatesLabel() {
+    return <TabLabel title="Сертификаты" value={<FieldDisplay field={{ kind: 'money', target: null }} value={useActiveCertificatesBalance()} />} />;
+}
+
 /** Подпись вкладки «Отвесы»: число незакрытых отвесов. */
 function WeighingsLabel() {
     return <TabLabel title="Отвесы" value={useOpenWeighingCount()} />;
 }
 
 /**
- * Лента рабочего места: продажи и возвраты, незакрытые рассрочки и отвесы во вкладках одной панели.
- * Их продавец смотрит по очереди, поэтому три узкие карточки рядом заменены вкладками.
+ * Лента рабочего места: продажи и возвраты, незакрытые рассрочки, отвесы и действующие сертификаты
+ * во вкладках одной панели. Их продавец смотрит по очереди, поэтому узкие карточки рядом заменены вкладками.
  * Вкладки и строки крупные: ленту читают на ходу, с расстояния.
  *
  * Вкладка есть только при нужном праве: у продаж и возвратов — на функцию ленты возврата, у отвесов —
- * на функцию отвеса `heldGoods`, у рассрочек — на чтение объекта. Подписи читают списки, и без права сервер ответил бы отказом. Содержимое вкладки остаётся смонтированным
+ * на функцию отвеса `heldGoods`, у сертификатов — на функцию `activeCertificates`, у рассрочек — на чтение объекта. Подписи читают списки, и без права сервер ответил бы отказом. Содержимое вкладки остаётся смонтированным
  * после первого показа, поэтому поиск и страница сохраняются при переключении.
  */
 function WorkplaceJournal() {
     const feed = useSellerFeedAvailable();
     const installments = useObjectView(Objects.document.saleInstallment) !== undefined;
     const weighings = useHeldGoodsAvailable();
+    const certificates = useActiveCertificatesAvailable();
     const items = [
         ...(feed ? [{ key: 'feed', label: 'Продажи', children: <SellerFeed /> }] : []),
         ...(installments ? [{ key: 'installments', label: <InstallmentsLabel />, children: <OpenSaleInstallments /> }] : []),
         ...(weighings ? [{ key: 'weighings', label: <WeighingsLabel />, children: <OpenWeighings /> }] : []),
+        ...(certificates ? [{ key: 'certificates', label: <CertificatesLabel />, children: <ActiveCertificates /> }] : []),
     ];
     return items.length === 0 ? null : <Panel flushTop><Tabs size="large" items={items} /></Panel>;
 }
@@ -176,6 +184,7 @@ function OpenShiftWorkplace({ shift }: { readonly shift: OpenShiftState }) {
                         <DocumentActionTile action="Продать" primary icon={Icons.sell} object={Objects.document.sale} />
                         <DocumentActionTile action="Отложить товар" icon={Icons.weigh} object={Objects.document.weighing} />
                         <DocumentActionTile action="Оформить возврат" icon={Icons.refund} object={Objects.document.refund} />
+                        <DocumentActionTile action="Оформить сертификат" icon={Icons.certificate} object={Objects.document.certificate} />
                     </Grid>
                 </Column>
                 <Column span={columns.feed}>

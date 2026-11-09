@@ -3,7 +3,7 @@ import { Effect } from 'effect';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { query } from '../../server/database/sql.builder.js';
 import { Metadata, type FunctionBuilder } from '../../server/metadata/index.js';
-import { cash, debtSettlement, paymentMethods } from '../payments.js';
+import { cash, certificateRefill, debtSettlement, paymentMethods } from '../payments.js';
 import { dayOf } from '../policies/closed-period.js';
 
 export interface RefundFigures {
@@ -11,13 +11,13 @@ export interface RefundFigures {
     readonly number: string;
     readonly date: string;
     readonly amount: number;
-    /** Денежная выдача и списание долга различаются; происхождение выданных денег не восстанавливается. */
-    readonly settlements: ReadonlyArray<{ readonly sale: string; readonly cash: number; readonly cashless: number; readonly debt: number }>;
+    /** Денежная выдача, списание долга и пополнение сертификата различаются; происхождение выданных денег не восстанавливается. */
+    readonly settlements: ReadonlyArray<{ readonly sale: string; readonly cash: number; readonly cashless: number; readonly debt: number; readonly certificate: number }>;
     readonly methods: ReadonlyArray<string>;
     readonly sales: ReadonlyArray<{ readonly guid: string; readonly number: string; readonly date: string }>;
     readonly goods: ReadonlyArray<{
         readonly sale: string; readonly name: string; readonly code: string | null; readonly size: string | null;
-        readonly comment: string | null; readonly cost: number; readonly discount: number | null; readonly total: number;
+        readonly comment: string | null; readonly cost: number; readonly discount: number | null; readonly couponPercent: number | null; readonly total: number;
     }>;
 }
 
@@ -35,7 +35,7 @@ export const readRefundFigures = Effect.fn('refund.figures')(function* (guids: R
     if (headers.length === 0) return [] as RefundFigures[];
     const owners = headers.map((row) => String(row['guid']));
     const goods = yield* database.all(query(refund).tablePart('goods').select({
-        columns: ['ownerGuid', 'sale', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'total'],
+        columns: ['ownerGuid', 'sale', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'couponPercent', 'total'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: owners }], orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
     }));
     const settlements = yield* database.all(query(refund).tablePart('settlements').select({
@@ -61,11 +61,12 @@ export const readRefundFigures = Effect.fn('refund.figures')(function* (guids: R
             methods: [...new Set(payments.map((row) => String(row['method'])))],
             settlements: [...related].map((sale) => {
                 const amount = (method: string) => payments.filter((row) => row['sale'] === sale && row['method'] === method).reduce((sum, row) => sum + Number(row['amount']), 0);
-                return { sale, cash: amount(cash), cashless: amount(cashless), debt: amount(debtSettlement) };
+                return { sale, cash: amount(cash), cashless: amount(cashless), debt: amount(debtSettlement), certificate: amount(certificateRefill) };
             }),
             sales: sales.filter((row) => related.has(String(row['guid']))).map((row) => ({ guid: String(row['guid']), number: String(row['number']), date: String(row['date']) })),
             goods: lines.map((row) => ({ sale: String(row['sale']), name: String(row['name']), code: text(row['code']), size: text(row['size']),
-                comment: text(row['comment']), cost: Number(row['cost']), discount: row['discount'] === null ? null : Number(row['discount']), total: Number(row['total']) })),
+                comment: text(row['comment']), cost: Number(row['cost']), discount: row['discount'] === null ? null : Number(row['discount']),
+                couponPercent: row['couponPercent'] == null ? null : Number(row['couponPercent']), total: Number(row['total']) })),
         };
     });
 });

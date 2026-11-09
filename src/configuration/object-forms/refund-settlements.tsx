@@ -1,46 +1,66 @@
 /**
  * Расчёты возврата на форме: ожидаемая выдача над таблицей расчётов, предупреждения по продаже
  * под её строкой в основаниях, автозаполнение расчётов при отметке товаров и подстановка
- * «Откуда выдано». Правила расчётов проверяет сервер
- * (`refund.document.ts`); форма считает то же по тем же условиям, чтобы продавец видел итог до записи.
+ * «Откуда выдано». Правила расчётов проверяет сервер (`refund.document.ts`), а заполняет
+ * форма их по плану, который сервер считает тем же расчётом (`refund-plan.ts`): продавец видит
+ * итог до записи, а неизменяемые строки «На сертификат» совпадают с проверкой.
  */
 import { Alert, Typography } from 'antd';
 import { useEffect, useRef, useState } from 'react';
+import type { InputProperties } from '../../web/sdk';
 import { Stack, useActionResult, useFormData, useFormValue, type TablePartOptions } from '../../web/sdk';
-import { PaymentMethodIcons } from '../form-elements/payment-method-input';
+import { PaymentMethodIcons, UnavailablePaymentMethods } from '../form-elements/payment-method-input';
 import { PaymentReceiverDefaults } from '../form-elements/payment-receiver-default';
 import { Objects } from '../objects.generated';
 
 /**
  * Способы расчёта и оплаты. Совпадают со значениями в `payments.ts`: тот модуль серверный,
- * а компонент собирается в клиент. «В счёт долга» гасит долг по рассрочке, «Рассрочка» — способ
- * оплаты продажи, о котором сообщает предупреждение о неоформленной рассрочке.
+ * а компонент собирается в клиент. «В счёт долга» гасит долг по рассрочке, «На сертификат»
+ * пополняет сертификат продажи, «Рассрочка» — способ оплаты продажи, о котором сообщает
+ * предупреждение о неоформленной рассрочке.
  */
 const cash = 'Наличные';
 const debtSettlement = 'В счёт долга';
+const certificateRefill = 'На сертификат';
 const installmentMethod = 'Рассрочка';
-const ownInstallment = 'Собственная';
 
 /** Сумма в копейках рублями со знаком валюты, как `rubles` из `money.ts`. */
 const rubles = (kopecks: number) => `${(kopecks / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`;
 
 /**
+ * Операция плана расчёта по продаже: `RefundOperation` из `refund-plan.ts`. У денежной выдачи
+ * в плане способа нет: его выбирает продавец.
+ */
+type PlannedOperation =
+    | { readonly kind: 'certificateRefill'; readonly certificate: string; readonly amount: number }
+    | { readonly kind: 'debtRepayment'; readonly amount: number }
+    | { readonly kind: 'payout'; readonly amount: number; readonly bankShare: number };
+
+/**
  * Условия расчёта по продаже: ответ действия `settlementTerms`, описанный в `refund.document.ts`.
- * Ожидаемую выдачу за товары на `total` считает сервер тем же расчётом, что проверяет возврат.
+ * План расчёта за товары на `total` считает сервер тем же расчётом, что проверяет возврат.
  */
 interface SettlementTerms {
     readonly total: number;
-    readonly payout: { readonly expected: number; readonly bankShare: number };
+    readonly plan: ReadonlyArray<PlannedOperation>;
     readonly unarranged: number;
-    readonly installment: {
-        readonly number: string;
-        readonly date: string;
-        readonly type: string | null;
-        readonly posted: boolean;
-        readonly closed: boolean;
-        readonly balance: number;
-    } | null;
 }
+
+/**
+ * Итоги плана: всего к расчёту, из них на сертификат, удержание банка. Всего — предел расчётов
+ * по продаже, как `plannedTotal` сервера.
+ */
+interface PlanTotals {
+    readonly expected: number;
+    readonly refill: number;
+    readonly bankShare: number;
+}
+
+const planTotals = (plan: ReadonlyArray<PlannedOperation>): PlanTotals => ({
+    expected: plan.reduce((total, operation) => total + operation.amount, 0),
+    refill: plan.reduce((total, operation) => total + (operation.kind === 'certificateRefill' ? operation.amount : 0), 0),
+    bankShare: plan.reduce((total, operation) => total + (operation.kind === 'payout' ? operation.bankShare : 0), 0),
+});
 
 /** Строка расчёта на форме: до записи любая ячейка может быть не заполнена. */
 interface SettlementRow {
@@ -48,26 +68,29 @@ interface SettlementRow {
     readonly method: string | null;
     readonly amount: number | null;
     readonly receiver?: unknown;
+    readonly certificate?: unknown;
+}
+
+/** Способ «На сертификат» продавец не выбирает: такие строки подставляет форма по плану. */
+const unavailableMethods = [certificateRefill];
+
+/** Способ строки расчёта значками, без «На сертификат» среди доступных. */
+function SettlementMethodIcons(properties: InputProperties<unknown>) {
+    return <UnavailablePaymentMethods value={unavailableMethods}><PaymentMethodIcons {...properties} /></UnavailablePaymentMethods>;
 }
 
 /**
  * Таблица расчётов: способ выбирается кнопками из значков, как в оплатах продажи. Порядок колонок
- * задаёт чтение строки: по какой продаже, каким способом, сколько и откуда выдано.
+ * задаёт чтение строки: по какой продаже, каким способом, сколько, откуда выдано и какой
+ * сертификат пополнен. Строки «На сертификат» только для чтения: их сумму задаёт план.
  */
 export const settlementsOptions: TablePartOptions = {
     columnSizes: { method: { minimum: 18 } },
-    columnInputs: { method: PaymentMethodIcons },
-    columnOrder: ['sale', 'method', 'amount', 'receiver'],
+    columnInputs: { method: SettlementMethodIcons },
+    columnOrder: ['sale', 'method', 'amount', 'receiver', 'certificate'],
+    readOnlyColumns: ['certificate'],
+    readOnlyRows: (row) => row['method'] === certificateRefill,
     addTitle: 'Расчёт',
-};
-
-/**
- * Можно ли погасить возвратом долг по рассрочке продажи: только проведённая собственная рассрочка,
- * которая не закрыта и у которой есть остаток. Банковскую рассрочку банк уже оплатил.
- */
-const creditable = (terms: SettlementTerms) => {
-    const installment = terms.installment;
-    return installment !== null && installment.posted && !installment.closed && installment.type === ownInstallment && installment.balance > 0;
 };
 
 /**
@@ -93,16 +116,17 @@ function useSettlementTerms(sale: string) {
  * и расхождение расчётов с ожидаемой выдачей. Обычный возврат ничего здесь не выводит.
  *
  * Когда продавец меняет отмеченные товары продажи, строки расчёта этой продажи заполняются
- * заново: сначала в счёт остатка долга по собственной рассрочке, остальное наличными. Так покупатель
- * с долгом не получает деньги, пока долг не погашен. Расчёты других продаж не меняются,
- * а при открытии записанного возврата его расчёты остаются прежними.
+ * заново по плану сервера: пополнения сертификатов, погашение долга по собственной рассрочке,
+ * остальное наличными. Так покупатель с долгом не получает деньги, пока долг не погашен.
+ * Расчёты других продаж не меняются, а при открытии записанного возврата его расчёты
+ * остаются прежними.
  */
 export function RefundSaleSettlement({ sale }: { readonly sale: string }) {
     const refunds = Objects.document.refund;
     const form = useFormData(refunds);
     const settlements = useFormValue(refunds, 'settlements') as ReadonlyArray<SettlementRow>;
     const { total, terms } = useSettlementTerms(sale);
-    const payout = terms?.payout ?? null;
+    const payout = terms === undefined ? null : planTotals(terms.plan);
 
     // Расчёты заполняются при изменении итога товаров, а не при открытии формы. Если условия
     // ещё не прочитаны, заполнение ждёт их.
@@ -115,19 +139,20 @@ export function RefundSaleSettlement({ sale }: { readonly sale: string }) {
         }
         if (!pending.current || terms === undefined || payout === null || form.readOnly) return;
         pending.current = false;
-        const credit = creditable(terms) ? Math.min(payout.expected, terms.installment!.balance) : 0;
-        const money = payout.expected - credit;
+        const plan = terms.plan;
         form.setValue('settlements', (current) => {
             const rows = current as ReadonlyArray<SettlementRow>;
             // Выбранный продавцом приёмник наличных сохраняется: строка меняет только сумму.
             const previousCash = rows.find((row) => row.sale === sale && row.method === cash);
-            const next: SettlementRow[] = [
-                ...credit > 0 ? [{ sale, method: debtSettlement, amount: credit, receiver: null }] : [],
-                ...money > 0 ? [{ sale, method: cash, amount: money, receiver: previousCash?.receiver ?? null }] : [],
-            ];
+            const next: SettlementRow[] = plan.flatMap((operation): SettlementRow[] => {
+                if (operation.amount <= 0) return [];
+                if (operation.kind === 'certificateRefill') return [{ sale, method: certificateRefill, amount: operation.amount, receiver: null, certificate: operation.certificate }];
+                if (operation.kind === 'debtRepayment') return [{ sale, method: debtSettlement, amount: operation.amount, receiver: null, certificate: null }];
+                return [{ sale, method: cash, amount: operation.amount, receiver: previousCash?.receiver ?? null, certificate: null }];
+            });
             return [...rows.filter((row) => row.sale !== sale), ...next] as never;
         }, { validate: false });
-    }, [total, terms, payout?.expected, form.readOnly]);
+    }, [total, terms, form.readOnly]);
 
     if (terms === undefined || payout === null) return null;
     const lines = settlements.filter((row) => row.sale === sale);
@@ -151,7 +176,7 @@ export function RefundSaleSettlement({ sale }: { readonly sale: string }) {
 
 /**
  * Подставляет «Откуда выдано» строкам расчёта деньгами по способу, как «Куда оплачено» в оплатах
- * продажи. У строки «В счёт долга» поле очищается: деньги не выдаются.
+ * продажи. У строк «В счёт долга» и «На сертификат» поле очищается: деньги не выдаются.
  */
 export function RefundSettlementDefaults() {
     const refunds = Objects.document.refund;
@@ -162,29 +187,30 @@ export function RefundSettlementDefaults() {
             (current as ReadonlyArray<SettlementRow>).map((row, position) => position === index ? { ...row, receiver } : row) as never, { validate: false })} />;
 }
 
-/** Ожидаемая выдача по одной продаже: сообщает сумму родителю и ничего не выводит. */
-function SalePayout({ sale, onChange }: { readonly sale: string; readonly onChange: (sale: string, payout: SettlementTerms['payout'] | null) => void }) {
+/** Итоги плана по одной продаже: сообщает их родителю и ничего не выводит. */
+function SalePayout({ sale, onChange }: { readonly sale: string; readonly onChange: (sale: string, payout: PlanTotals | null) => void }) {
     const { terms } = useSettlementTerms(sale);
-    const payout = terms?.payout ?? null;
+    const payout = terms === undefined ? null : planTotals(terms.plan);
     useEffect(() => {
         onChange(sale, payout);
-    }, [sale, payout?.expected, payout?.bankShare]);
+    }, [sale, payout?.expected, payout?.refill, payout?.bankShare]);
     useEffect(() => () => onChange(sale, null), [sale]);
     return null;
 }
 
 /**
  * Строка «К выдаче клиенту» над таблицей расчётов: сколько покупатель может ожидать за отмеченные
- * товары по всем продажам, с удержанием банка по банковской рассрочке. Сумму считает сервер
- * (`settlementTerms`), тем же расчётом, которым проведение ограничивает расчёты. Пока ответ хотя бы
- * по одной продаже не пришёл, строка не выводится, чтобы не показывать неполную сумму.
+ * товары по всем продажам, с удержанием банка по банковской рассрочке. Пополнение сертификатов
+ * в выдачу не входит и называется отдельно. Суммы считает сервер (`settlementTerms`), тем же
+ * расчётом, которым проведение ограничивает расчёты. Пока ответ хотя бы по одной продаже
+ * не пришёл, строка не выводится, чтобы не показывать неполную сумму.
  */
 export function RefundPayout() {
     const refunds = Objects.document.refund;
     const bases = useFormValue(refunds, 'bases') as ReadonlyArray<{ readonly sale?: unknown }>;
     const sales = [...new Set(bases.map((row) => row.sale).filter((sale): sale is string => typeof sale === 'string'))];
-    const [payouts, setPayouts] = useState<ReadonlyMap<string, SettlementTerms['payout']>>(new Map());
-    const update = (sale: string, payout: SettlementTerms['payout'] | null) => setPayouts((current) => {
+    const [payouts, setPayouts] = useState<ReadonlyMap<string, PlanTotals>>(new Map());
+    const update = (sale: string, payout: PlanTotals | null) => setPayouts((current) => {
         const next = new Map(current);
         if (payout === null) next.delete(sale); else next.set(sale, payout);
         return next;
@@ -192,12 +218,14 @@ export function RefundPayout() {
     const known = sales.map((sale) => payouts.get(sale));
     const complete = known.every((payout) => payout !== undefined);
     const expected = known.reduce((sum, payout) => sum + (payout?.expected ?? 0), 0);
+    const refill = known.reduce((sum, payout) => sum + (payout?.refill ?? 0), 0);
     const bankShare = known.reduce((sum, payout) => sum + (payout?.bankShare ?? 0), 0);
     return <>
         {sales.map((sale) => <SalePayout key={sale} sale={sale} onChange={update} />)}
         {sales.length > 0 && complete && (
             <Typography.Text>
-                К выдаче клиенту: {rubles(expected)}{bankShare > 0 ? ` (банк удерживает ${rubles(bankShare)})` : ''}
+                К выдаче клиенту: {rubles(expected - refill)}{bankShare > 0 ? ` (банк удерживает ${rubles(bankShare)})` : ''}
+                {refill > 0 ? `, на сертификат: ${rubles(refill)}` : ''}
             </Typography.Text>
         )}
     </>;

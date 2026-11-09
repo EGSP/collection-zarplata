@@ -20,9 +20,10 @@ import { SaleInstallment } from './documents/sale-installment.document.js';
 import { Sale } from './documents/sale.document.js';
 import { Shift } from './documents/shift.document.js';
 import { ownInstallment } from './installments.js';
-import { PayrollContext, type PayrollData, type PayrollLine, type PayrollRefund, type PayrollRuleDescription, type PayrollSale, type SalePart } from './payroll-context.js';
+import { PayrollContext, type PayrollData, type PayrollLine, type PayrollPartKind, type PayrollRefund, type PayrollRuleDescription, type PayrollSale, type SalePart } from './payroll-context.js';
 import { payrollRules } from './payroll-rules.js';
-import { debtSettlement, installmentMethod } from './payments.js';
+import { installmentMethod } from './payments.js';
+import { operationOf, refundOperationHandlers } from './refund-plan.js';
 import { dayOf, lastClosedThrough } from './policies/closed-period.js';
 
 export type { PayrollLine, PayrollRuleDescription } from './payroll-context.js';
@@ -64,27 +65,32 @@ const active = [
 const distinct = (values: ReadonlyArray<string | null>): string[] => [...new Set(values.filter((value): value is string => value !== null))];
 
 /**
- * Возвраты с товарами и погашениями долга по продажам. Погашения (строки «В счёт долга») нужны,
- * чтобы разделить возврат по частям продажи: погашение относится к собственной рассрочке.
+ * Возвраты с товарами и суммами строк расчёта, которые относятся к одной части продажи. Они нужны,
+ * чтобы разделить возврат по частям продажи: погашение относится к собственной рассрочке,
+ * пополнение сертификата к денежной части. Часть берётся из обработчика вида операции.
  */
 const refundDetails = (heads: ReadonlyArray<{ readonly guid: string; readonly date: string }>) => Effect.gen(function* () {
     if (heads.length === 0) return [];
     const database = yield* ReadonlyDatabase;
     const guids = heads.map((refund) => refund.guid);
     const lines = yield* database.all(query(Refund).tablePart('goods').select({
-        columns: ['ownerGuid', 'name', 'discount', 'total', 'sale'],
+        columns: ['ownerGuid', 'name', 'discount', 'couponPercent', 'total', 'sale'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: guids }],
         orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
     }));
-    const credits = yield* database.all(query(Refund).tablePart('settlements').select({
-        columns: ['ownerGuid', 'sale', 'amount'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: guids }, { column: 'method', operator: '=', value: debtSettlement }],
+    const settlements = yield* database.all(query(Refund).tablePart('settlements').select({
+        columns: ['ownerGuid', 'sale', 'method', 'amount'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: guids }],
     }));
     return heads.map((refund): PayrollRefund => ({
         guid: refund.guid, date: refund.date,
-        lines: lines.filter((line) => line.ownerGuid === refund.guid).map((line) => ({ name: line.name, discount: line.discount ?? 0, total: line.total, sale: line.sale })),
-        credits: credits.filter((line) => line.ownerGuid === refund.guid)
-            .reduce((sums, line) => sums.set(line.sale, (sums.get(line.sale) ?? 0) + line.amount), new Map<string, number>()),
+        lines: lines.filter((line) => line.ownerGuid === refund.guid).map((line) => ({ name: line.name, discount: line.discount ?? 0, coupon: line.couponPercent ?? 0, total: line.total, sale: line.sale })),
+        directed: settlements.filter((line) => line.ownerGuid === refund.guid).reduce((sums, line) => {
+            const part = refundOperationHandlers[operationOf(line).kind].payrollPart;
+            if (part === null) return sums;
+            const parts = new Map(sums.get(line.sale) ?? []);
+            return sums.set(line.sale, parts.set(part, (parts.get(part) ?? 0) + line.amount));
+        }, new Map<string, ReadonlyMap<PayrollPartKind, number>>()),
     }));
 });
 
@@ -132,9 +138,9 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
     const sales = new Map<string, PayrollSale>();
     const partShifts: string[] = [];
     if (saleGuids.length > 0) {
-        const heads = yield* database.all(query(Sale).select({ columns: ['guid', 'date', 'shift', 'amount', 'posted'], where: [{ column: 'guid', operator: 'IN', value: saleGuids }] }));
+        const heads = yield* database.all(query(Sale).select({ columns: ['guid', 'date', 'shift', 'amount', 'paidByCertificates', 'posted'], where: [{ column: 'guid', operator: 'IN', value: saleGuids }] }));
         const goods = yield* database.all(query(Sale).tablePart('goods').select({
-            columns: ['ownerGuid', 'name', 'discount', 'total'],
+            columns: ['ownerGuid', 'name', 'discount', 'couponPercent', 'total'],
             where: [{ column: 'ownerGuid', operator: 'IN', value: saleGuids }],
             orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
         }));
@@ -187,9 +193,10 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
             partShifts.push(...parts.map((part) => part.shift));
             sales.set(head.guid, {
                 guid: head.guid, shift: head.shift, amount: head.amount,
-                goods: goods.filter((line) => line.ownerGuid === head.guid).map((line) => ({ name: line.name, discount: line.discount ?? 0, total: line.total })),
+                goods: goods.filter((line) => line.ownerGuid === head.guid).map((line) => ({ name: line.name, discount: line.discount ?? 0, coupon: line.couponPercent ?? 0, total: line.total })),
                 parts,
                 unarranged: Math.max(0, byInstallment - arranged),
+                certificates: head.paidByCertificates ?? 0,
                 refunds: saleRefunds.filter((refund) => refund.lines.some((line) => line.sale === head.guid)),
             });
         }

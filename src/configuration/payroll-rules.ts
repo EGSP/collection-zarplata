@@ -12,7 +12,7 @@
 import { Effect } from 'effect';
 import { objectReference } from '../server/metadata/index.js';
 import { formatMoney } from '../server/ui/value-format.js';
-import { allocate, percentOf, PayrollContext, type PayrollData, type PayrollLine, type PayrollRefund, type PayrollRuleDescription, type PayrollSale, type SalePart } from './payroll-context.js';
+import { allocate, percentOf, PayrollContext, type PayrollData, type PayrollLine, type PayrollPartKind, type PayrollRefund, type PayrollRuleDescription, type PayrollSale, type SalePart } from './payroll-context.js';
 
 /** Правило: читает контекст расчёта и возвращает свои строки. */
 // Требование эффекта — данные периода: сервис `PayrollContext` объявлен по их интерфейсу.
@@ -37,17 +37,22 @@ const rubles = (kopecks: number): string => `${formatMoney(kopecks)} ₽`;
 const discountLimit = 30;
 
 /**
- * Ступень ставки по товару: скидка меньше 30 % — 4 %, 30 % и больше — 2,5 %. Для части
- * в рассрочку к скидке прибавляется ставка рассрочки: доля банка уменьшает доход магазина
- * так же, как скидка. Сравнение идёт в сотых долях процента, чтобы сумма дробных процентов
- * не давала погрешности на границе.
+ * Ступень ставки по товару: скидка меньше 30 % — 4 %, 30 % и больше — 2,5 %. Купон уменьшает цену
+ * так же, как скидка, поэтому его процент прибавляется к скидке строки. Для части в рассрочку
+ * прибавляется и ставка рассрочки: доля банка уменьшает доход магазина так же, как скидка.
+ * Сравнение идёт в сотых долях процента, чтобы сумма дробных процентов не давала погрешности
+ * на границе.
  */
-export const goodsRate = (discount: number, part: SalePart): { readonly rate: number; readonly rule: string } => {
-    const total = Math.round(discount * 100) + Math.round(part.rate.percentage * 100);
+export const goodsRate = (goods: { readonly discount: number; readonly coupon: number }, part: SalePart): { readonly rate: number; readonly rule: string } => {
+    const terms = [
+        { title: 'Скидка', value: goods.discount, shown: true },
+        { title: 'купон', value: goods.coupon, shown: goods.coupon > 0 },
+        { title: `ставка «${part.rate.name ?? ''}»`, value: part.rate.percentage, shown: part.rate.percentage > 0 },
+    ].filter((term) => term.shown);
+    const total = terms.reduce((sum, term) => sum + Math.round(term.value * 100), 0);
     const rate = total < discountLimit * 100 ? 4 : 2.5;
-    const reduction = part.rate.percentage > 0
-        ? `Скидка ${percent(discount)} + ставка «${part.rate.name ?? ''}» ${percent(part.rate.percentage)} = ${percent(total / 100)}`
-        : `Скидка ${percent(discount)}`;
+    // Одно слагаемое выводится без суммы: «Скидка 10 %», а не «Скидка 10 % = 10 %».
+    const reduction = terms.map((term) => `${term.title} ${percent(term.value)}`).join(' + ') + (terms.length > 1 ? ` = ${percent(total / 100)}` : '');
     const base = part.rate.percentage > 0 ? `итога товара за вычетом ставки ${percent(part.rate.percentage)}` : 'итога товара';
     return { rate, rule: `${reduction} ${rate === 4 ? '<' : '≥'} ${percent(discountLimit)} → ${percent(rate)} от ${base}` };
 };
@@ -61,14 +66,14 @@ const goodsLines = (
     context: PayrollData,
     part: SalePart,
     sale: string,
-    goods: { readonly name: string; readonly discount: number },
+    goods: { readonly name: string; readonly discount: number; readonly coupon: number },
     share: number,
     sign: 1 | -1,
     event: { readonly kind: string; readonly document: PayrollLine['document']; readonly date: string },
 ): PayrollLine[] => {
     if (share === 0) return [];
     const base = share - percentOf(share, part.rate.percentage);
-    const { rate, rule } = goodsRate(goods.discount, part);
+    const { rate, rule } = goodsRate(goods, part);
     const amount = percentOf(base, rate);
     // Вычитание из нуля, а не унарный минус: для нулевой суммы он дал бы отрицательный ноль.
     const signed = (value: number) => sign === 1 ? value : 0 - value;
@@ -134,22 +139,43 @@ interface RefundLineShares {
 
 /**
  * Делит строки возврата `refund` по продаже `sale` по частям её оплаты (раздел «Правила учёта»).
- * Погашение долга возвратом относится к собственной рассрочке: оно делится по строкам пропорционально
- * их итогам. Остаток строки делится по остальным частям продажи, включая неоформленную сумму
- * рассрочки, пропорционально их суммам. Если других частей нет, остаток тоже относится
- * к собственной рассрочке. Без погашения возврат делится по всем частям, как прежде.
+ *
+ * Суммы, которые обработчик операции относит к одной части (`directed`), достаются ей целиком
+ * и делятся по строкам пропорционально их итогам: погашение долга относится к собственной
+ * рассрочке, пополнение сертификата к денежной части. Части забирают их по порядку частей
+ * продажи, не больше итога товаров.
+ *
+ * Остаток строки делится по остальным частям продажи, включая неоформленную сумму рассрочки,
+ * пропорционально их суммам. Собственная рассрочка с погашением в остатке не участвует, денежная
+ * часть участвует без оплаты сертификатами: возврат по сертификату уже вернулся на него. Если
+ * других частей нет, остаток относится к первой части с направленной суммой, а без неё
+ * к собственной рассрочке, как прежде.
  */
 const refundShares = (refund: PayrollRefund, sale: PayrollSale): RefundLineShares[] => {
     const lines = refund.lines.filter((line) => line.sale === sale.guid);
+    const totals = lines.map((line) => line.total);
     const own = sale.parts.findIndex((part) => part.kind === 'ownInstallment');
-    const credit = own === -1 ? 0 : Math.min(refund.credits.get(sale.guid) ?? 0, lines.reduce((total, line) => total + line.total, 0));
-    const credits = allocate(credit, lines.map((line) => line.total));
-    const others = [...sale.parts.map((part, index) => credit > 0 && index === own ? 0 : part.amount), sale.unarranged];
-    const weights = others.some((weight) => weight > 0) ? others : [...sale.parts.map((_part, index) => index === own ? 1 : 0), 0];
+    const requested = refund.directed.get(sale.guid) ?? new Map<PayrollPartKind, number>();
+    let left = totals.reduce((total, amount) => total + amount, 0);
+    const directed = sale.parts.map((part) => {
+        // Сумма вида достаётся первой части этого вида: у продажи одна денежная часть и одна рассрочка.
+        if (sale.parts.findIndex((candidate) => candidate.kind === part.kind) !== sale.parts.indexOf(part)) return 0;
+        const amount = Math.min(requested.get(part.kind) ?? 0, left);
+        left -= amount;
+        return amount;
+    });
+    const perLine = directed.map((amount) => allocate(amount, totals));
+    const others = [...sale.parts.map((part, index) => {
+        if (part.kind === 'ownInstallment' && directed[index]! > 0) return 0;
+        return part.kind === 'money' ? Math.max(0, part.amount - sale.certificates) : part.amount;
+    }), sale.unarranged];
+    const fallback = directed.findIndex((amount) => amount > 0);
+    const target = fallback === -1 ? own : fallback;
+    const weights = others.some((weight) => weight > 0) ? others : [...sale.parts.map((_part, index) => index === target ? 1 : 0), 0];
     return lines.map((line, position) => {
-        const lineCredit = credits[position]!;
-        const shares = allocate(line.total - lineCredit, weights).slice(0, sale.parts.length);
-        return { line, shares: shares.map((share, index) => index === own ? share + lineCredit : share) };
+        const lineDirected = perLine.reduce((total, shares) => total + shares[position]!, 0);
+        const shares = allocate(line.total - lineDirected, weights).slice(0, sale.parts.length);
+        return { line, shares: shares.map((share, index) => share + perLine[index]![position]!) };
     });
 };
 
@@ -233,7 +259,8 @@ export interface PayrollRuleDefinition extends PayrollRuleDescription {
 }
 
 /** Ступени ставки по товару словами: общая часть описаний правил товаров. */
-const tiers = `Если скидка на товар меньше ${percent(discountLimit)}, бонус равен ${percent(4)} от цены со скидкой, если ${percent(discountLimit)} и больше — ${percent(2.5)}.`;
+const tiers = `Если скидка на товар меньше ${percent(discountLimit)}, бонус равен ${percent(4)} от цены со скидкой, если ${percent(discountLimit)} и больше — ${percent(2.5)}. `
+    + 'Процент купона прибавляется к скидке: скидка 25 % и купон 10 % вместе дают 35 %.';
 
 /** Действующие правила. */
 export const payrollRules = {
@@ -244,6 +271,7 @@ export const payrollRules = {
         {
             name: 'moneyGoods', title: 'Продажа за деньги', calculate: moneyGoods,
             description: `С каждого проданного товара сотрудники смены получают бонус. ${tiers} `
+                + 'Оплата сертификатом считается денежной, даже если сертификат выдан без оплаты. '
                 + 'Бонус получает каждый сотрудник смены, между ними сумма не делится.',
         },
         {
@@ -257,7 +285,7 @@ export const payrollRules = {
         {
             name: 'refunds', title: 'Возврат', calculate: refunds,
             description: 'Если покупатель вернул товар, бонус за него вычитается у тех сотрудников, которые его получили. Вычет попадает в период, когда оформлен возврат. '
-                + 'Часть возврата в счёт долга по собственной рассрочке относится к этой рассрочке, остальное — к остальным частям оплаты продажи. '
+                + 'Часть возврата в счёт долга по собственной рассрочке относится к этой рассрочке, пополнение сертификата относится к денежной части, остальное — к остальным частям оплаты продажи. '
                 + 'Если товар вернули до закрытия собственной рассрочки, отдельно вычитать не нужно: рассрочка засчитывается при закрытии уже без него, даже если возврат был в прошлом периоде.',
         },
         {

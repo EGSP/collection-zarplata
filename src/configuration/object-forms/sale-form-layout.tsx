@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { goodsColumnSizes } from './goods-columns';
 import { PostedIn1CSwitch } from './posted-in-1c-switch';
 import { SaleChanges } from './sale-changes';
+import { certificatesTotal, SaleCertificates } from './sale-certificates';
+import { couponAdornments, SaleCoupons } from './sale-coupons';
 import { LinkedSaleInstallments } from './linked-sale-installments';
 import { LinkedSaleRefunds } from './linked-sale-refunds';
 import { emptyInstallmentTerms, installmentTermsInput, installmentTermsProblems, SaleInstallmentBlock, type SaleInstallmentTerms } from './sale-installment-block';
@@ -22,7 +24,8 @@ import { Column, FieldGroup, Grid, Icons, MainActionButton, recordFormElements, 
  * к стоимости. «Проведено в 1С» выбирается переключателем «Да» / «Нет». Сумма продажи
  * выводится строкой «Итого» под колонкой итогов строк, а не отдельным полем под таблицей.
  * Новая продажа сразу показывает пустую строку товара. Номер строки отвеса не выводится: его
- * заполняет форма отвеса, когда открывает продажу из него, а продавцу он не нужен.
+ * заполняет форма отвеса, когда открывает продажу из него, а продавцу он не нужен. Колонки купона
+ * тоже не выводятся: купон применяют в окне (`SaleCoupons`), а у итога строки стоит его значок.
  */
 const goodsOptions: TablePartOptions = {
     // Переключатель «Проведено в 1С» шире флажка: подписи «Да» и «Нет» должны читаться целиком.
@@ -37,7 +40,9 @@ const goodsOptions: TablePartOptions = {
     addTitle: 'Товар',
     initialRow: true,
     totals: ['total'],
-    hiddenColumns: ['weighingLine'],
+    // Купон выбирают в окне «Применить купон», а не в ячейке: таблица показывает только значок у итога.
+    hiddenColumns: ['weighingLine', 'coupon', 'couponNumber', 'couponPercent'],
+    columnAdornments: couponAdornments,
 };
 
 /** Отступы разделителя между частями продажи: поля над ним уже оставляют место снизу. */
@@ -84,11 +89,22 @@ const complexPayment = 'Сложная';
 const isFilledPayment = (line: Record<string, unknown>) => ['method', 'amount', 'receiver'].some((column) => (line[column] ?? null) !== null);
 
 /**
- * Подготовка значений продажи перед записью. Сложная оплата, в которой заполнена одна строка,
- * становится простой оплатой способа этой строки: так продажа записывается так же, как если бы
- * продавец сразу выбрал простой способ, а пустые строки не мешают записи.
+ * Сертификаты покрывают всю сумму продажи: оплата не нужна, и её блок не показывается
+ * (раздел «Правила учёта», подраздел «Сертификат»).
+ */
+export const coveredByCertificates = (amount: unknown, certificates: unknown) => {
+    const covered = certificatesTotal(certificates);
+    return covered > 0 && covered >= (typeof amount === 'number' ? amount : 0);
+};
+
+/**
+ * Подготовка значений продажи перед записью. Если сертификаты покрывают всю сумму, оплаты
+ * и способ очищаются: продажа без денег записывается без них. Сложная оплата, в которой заполнена
+ * одна строка, становится простой оплатой способа этой строки: так продажа записывается так же,
+ * как если бы продавец сразу выбрал простой способ, а пустые строки не мешают записи.
  */
 function beforeSave(values: FormValues): FormValues | undefined {
+    if (coveredByCertificates(values['amount'], values['certificates'])) return { ...values, paymentMode: null, payments: [] };
     if (values['paymentMode'] !== complexPayment || !Array.isArray(values['payments'])) return undefined;
     const filled = (values['payments'] as ReadonlyArray<Record<string, unknown>>).filter(isFilledPayment);
     const [single] = filled;
@@ -183,6 +199,10 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
     const paymentShown = Array.isArray(goods) && goods.some((line: GoodsLine) => isEntered(line));
     const payments: unknown = Form.useWatch('payments', { form: state.form, preserve: true });
     const shift: unknown = Form.useWatch('shift', { form: state.form, preserve: true });
+    const amount: unknown = Form.useWatch('amount', { form: state.form, preserve: true });
+    const certificates: unknown = Form.useWatch('certificates', { form: state.form, preserve: true });
+    // При полном покрытии сертификатами поля оплаты скрыты, а кнопки продажи остаются.
+    const covered = coveredByCertificates(amount, certificates);
     const basis: unknown = Form.useWatch('basis', { form: state.form, preserve: true });
     const [terms, setTerms] = useState<SaleInstallmentTerms>(emptyInstallmentTerms);
     // Покупатель рассрочки по умолчанию — покупатель отвеса-основания: продавец уже ввёл его в отвесе.
@@ -207,7 +227,7 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
     const sell = sellable ? state.postAction : undefined;
     const sellWithInstallment = state.view.actions.find((action) => action.name === 'sellWithInstallment');
     // Без права на действие продать с оплатой «Рассрочка» нельзя: обычное проведение такую продажу отклонит.
-    const withInstallment = sellable && sellWithInstallment !== undefined && Array.isArray(payments) && payments.some((line: PaymentLine) => isInstallment(line));
+    const withInstallment = sellable && !covered && sellWithInstallment !== undefined && Array.isArray(payments) && payments.some((line: PaymentLine) => isInstallment(line));
     // Сумма рассрочки — сумма оплаты способом «Рассрочка»: первоначальный взнос должен быть меньше неё.
     const installmentAmount = Array.isArray(payments) ? payments.filter((line: PaymentLine) => isInstallment(line)).reduce((total: number, line: PaymentLine) => total + (line.amount as number), 0) : 0;
     const problems = withInstallment && termsChecked ? installmentTermsProblems(terms, installmentAmount) : [];
@@ -235,22 +255,32 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
                 </div>
                 <Divider style={dividerStyle} />
                 <FieldGroup elements={recordFormElements(state, items('Товары').filter((item) => item !== 'amount'))} tablePartOptions={{ goods: goodsOptions }} {...common} />
+                {/* Купоны относятся к товарам, поэтому стоят под их таблицей, до оплаты. */}
+                <SaleCoupons form={state.form} sale={typeof state.record?.['guid'] === 'string' ? state.record['guid'] : null} disabled={common.disabled} />
+                {/* Табличная часть сертификатов смонтирована скрытой: её значение попадает в запись формы,
+                    а показывает и меняет строки `SaleCertificates` через окно. */}
+                <div hidden><FieldGroup elements={recordFormElements(state, items('Сертификаты'))} {...common} /></div>
+                {/* Сертификаты оплачивают продажу, поэтому стоят перед оплатой и появляются вместе с ней. */}
+                {paymentShown && <SaleCertificates form={state.form} sale={typeof state.record?.['guid'] === 'string' ? state.record['guid'] : null} amount={typeof amount === 'number' ? amount : 0} disabled={common.disabled} />}
                 <div hidden={!paymentShown}>
                     <Divider style={dividerStyle} />
                     {/* Расстояние между оплатами и кнопкой задаёт стек: группы полей своих внешних отступов не имеют. */}
                     <Stack gap={6}>
                         {/* Начиная с `lg` блок рассрочки стоит справа от оплат, на более узкой форме — под ними.
                             Оплаты не растягиваются на всю форму и без рассрочки: их ширина не зависит от выбора способа оплаты. */}
-                        <Grid>
-                            <Column span={paymentSpan}>
-                                <FieldGroup elements={recordFormElements(state, items('Оплата').filter((item) => item !== 'paid'))} layout="fluid" fullWidth={['paymentMode']} {...common} />
-                            </Column>
-                            {withInstallment && (
-                                <Column span={installmentSpan}>
-                                    <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={state.running !== null} problems={problems} input={sellWithInstallment?.input ?? []} />
+                        {/* Скрытые поля оплаты остаются смонтированными: элементы продолжают управлять формой. */}
+                        <div hidden={covered}>
+                            <Grid>
+                                <Column span={paymentSpan}>
+                                    <FieldGroup elements={recordFormElements(state, items('Оплата').filter((item) => item !== 'paid'))} layout="fluid" fullWidth={['paymentMode']} {...common} />
                                 </Column>
-                            )}
-                        </Grid>
+                                {withInstallment && (
+                                    <Column span={installmentSpan}>
+                                        <SaleInstallmentBlock terms={terms} onChange={setTerms} shift={typeof shift === 'string' ? shift : null} disabled={state.running !== null} problems={problems} input={sellWithInstallment?.input ?? []} />
+                                    </Column>
+                                )}
+                            </Grid>
+                        </div>
                         {/* Обёртка не даёт стеку растянуть кнопки на всю ширину и разносит их, как в отвесе. */}
                         <Flex gap="middle" wrap>
                             {sell !== undefined && (

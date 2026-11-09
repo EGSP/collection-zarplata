@@ -50,6 +50,7 @@ function Labelled({ title, empty, disabled, onBlur, children }: { readonly title
  * Строки в обоих видах принадлежат форме, поэтому смена вида ввод не теряет. Приводит строки
  * к способу при его смене элемент `SalePaymentMode`.
  *
+ * Суммой продажи здесь считается сумма без оплаты сертификатами: её покрывают оплаты.
  * Сумма простой оплаты следует за суммой продажи, пока продавец не ввёл своё значение. Признак
  * отдельно не хранится: сумма следует, пока равна прежней сумме продажи. Поэтому сумма,
  * исправленная вручную, при изменении товаров остаётся прежней, а возвращённая к сумме продажи
@@ -74,7 +75,9 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
     const form = useFormData(sales);
     const values = Form.useFormInstance();
     const mode = useFormValue(sales, 'paymentMode');
-    const saleAmount = useFormValue(sales, 'amount') ?? 0;
+    // Оплатами покрывается сумма продажи без оплаты сертификатами: её простая оплата и следует за ней.
+    const certificates = useFormValue(sales, 'certificates');
+    const saleAmount = Math.max(0, (useFormValue(sales, 'amount') ?? 0) - certificates.reduce((total, line) => total + (line.amount ?? 0), 0));
     const rows = value ?? [];
     const amount = part.columns.find((column) => column.name === 'amount');
     const receiver = part.columns.find((column) => column.name === 'receiver');

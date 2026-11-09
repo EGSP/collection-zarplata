@@ -8,6 +8,10 @@ import { accessSchema } from '../server/authorization/access-schema.js';
 import { role } from '../server/authorization/roles.js';
 import { Rights } from './configuration.generated.js';
 
+import { AppliedCoupons } from './registers/applied-coupons.register.js';
+import { Certificate } from './documents/certificate.document.js';
+import { CertificateBalances } from './registers/certificate-balances.register.js';
+import { Coupons } from './catalogs/coupons.catalog.js';
 import { Discounts } from './catalogs/discounts.catalog.js';
 import { Employees } from './catalogs/employees.catalog.js';
 import { ExternalLinks } from './information-registers/external-links.information-register.js';
@@ -47,6 +51,8 @@ export const roles = [
             .object(Employees, access => access.level('read'))
             .object(Nomenclature, access => access.level('read'))
             .object(Discounts, access => access.level('read'))
+            // Купон продавец применяет в продаже: окно купона проверяет его действием справочника.
+            .object(Coupons, access => access.level('read').action('application', 'allow'))
             .object(PaymentReceivers, access => access.level('read'))
             .object(InstallmentRates, access => access.level('read')))
         // Закрытие смены проводит её вложенным действием: одного права на закрытие недостаточно.
@@ -57,14 +63,18 @@ export const roles = [
             // Вкладку «Отвесы» на рабочем месте читает функция отвеса `heldGoods`.
             .object(Weighing, access => access.level('edit').post('allow').action('applySale', 'allow').function('heldGoods', 'allow'))
             // Ленту продаж и возвратов на рабочем месте читает функция возврата `sellerFeed`.
-            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow').function('figures', 'allow'))
-            .object(SaleInstallment, access => access.level('edit').post('allow').action('pay', 'allow').action('settleByBank', 'allow').function('figures', 'allow')))
+            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow').function('figures', 'allow').function('refundPlan', 'allow'))
+            .object(SaleInstallment, access => access.level('edit').post('allow').action('pay', 'allow').action('settleByBank', 'allow').function('figures', 'allow'))
+            // Сертификаты обоих видов выдаёт и продавец; вкладку «Сертификаты» читает функция `activeCertificates`.
+            .object(Certificate, access => access.level('edit').post('allow').action('exchange', 'allow').action('application', 'allow').function('activeCertificates', 'allow')))
         // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
         .access(accessSchema()
             .object(SalesNetOfReturns, access => access.level('read'))
             .object(InstallmentDebts, access => access.level('read'))
             .object(MoneyReceipts, access => access.level('read'))
-            .object(UnarrangedInstallments, access => access.level('read')))
+            .object(UnarrangedInstallments, access => access.level('read'))
+            .object(AppliedCoupons, access => access.level('read'))
+            .object(CertificateBalances, access => access.level('read')))
         // Продавцы видят начисление всех сотрудников, но период не закрывают: права на «Закрыть период» нет.
         .grant(Rights.page.payroll.open)
         .access(accessSchema()
@@ -91,25 +101,30 @@ export const roles = [
         .grant(Rights.page.sellerWorkplace.open)
         .access(accessSchema()
             .object(Discounts, access => access.level('read'))
+            .object(Coupons, access => access.level('read'))
             .object(PaymentReceivers, access => access.level('read'))
             .object(InstallmentRates, access => access.level('read'))
             .object(Sale, access => access.level('read'))
             .object(SaleInstallment, access => access.level('read'))
             .object(Weighing, access => access.level('read'))
+            .object(Certificate, access => access.level('read'))
             .object(Refund, access => access.level('read').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow')))
         // Регистры продаж: по ним читаются итоги по продажам, рассрочкам, сменам и способам оплаты.
         .access(accessSchema()
             .object(SalesNetOfReturns, access => access.level('read'))
             .object(InstallmentDebts, access => access.level('read'))
             .object(MoneyReceipts, access => access.level('read'))
-            .object(UnarrangedInstallments, access => access.level('read')))
+            .object(UnarrangedInstallments, access => access.level('read'))
+            .object(AppliedCoupons, access => access.level('read'))
+            .object(CertificateBalances, access => access.level('read')))
         // Суммы рассрочек на формах продажи и рассрочки считает функция: без права формы их не покажут.
         .access(accessSchema()
             .object(Sale, access => access.function('figures', 'allow'))
             .object(SaleInstallment, access => access.function('figures', 'allow'))
             // Ленту продаж и возвратов на рабочем месте читает функция возврата, вкладку «Отвесы» — функция отвеса.
-            .object(Refund, access => access.function('sellerFeed', 'allow').function('figures', 'allow'))
-            .object(Weighing, access => access.function('heldGoods', 'allow'))),
+            .object(Refund, access => access.function('sellerFeed', 'allow').function('figures', 'allow').function('refundPlan', 'allow'))
+            .object(Weighing, access => access.function('heldGoods', 'allow'))
+            .object(Certificate, access => access.function('activeCertificates', 'allow'))),
     role('sampleEditor')
         .title('Запись пробного документа')
         // Права на действие «Принять строки» нет: на этой роли проверяется политика, которая его требует.

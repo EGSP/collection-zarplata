@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { Feed, useFunctionResult, useObjectView, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
+import { CertificateFeedItem, type CertificateFeedRow } from './certificate-feed-item';
 import { RefundFeedItem, type RefundFeedRow } from './refund-feed-item';
 import { SaleFeedItem, type SaleFeedRow } from './sale-feed-item';
 import { feedDayKey, feedDayTitle } from './seller-feed-format';
@@ -11,8 +12,31 @@ const pageSize = 20;
 /** Наименьшее число видимых строк на широком экране: столько видно и на невысоком мониторе. */
 const minimumRows = 6;
 
-/** Строка ленты: продажа или возврат. Вид выбирает компонент строки. */
-type SellerFeedRow = SaleFeedRow | RefundFeedRow;
+/** Строка ленты: продажа, возврат или событие сертификата. Вид выбирает компонент строки. */
+type SellerFeedRow = SaleFeedRow | RefundFeedRow | CertificateFeedRow;
+
+/** Документ, который открывает строка ленты: у оформления и обмена сертификата это сам сертификат. */
+const documents = {
+    sale: Objects.document.sale,
+    refund: Objects.document.refund,
+    certificate: Objects.document.certificate,
+    certificateExchange: Objects.document.certificate,
+} as const;
+
+/**
+ * Ключ строки ленты. Один сертификат даёт две строки, оформление и обмен, поэтому одного `guid`
+ * мало: ключ состоит из вида строки и `guid`.
+ */
+function rowKey(row: SellerFeedRow): string {
+    return `${row.kind}.${row.guid}`;
+}
+
+/** Компонент строки по её виду. */
+function FeedRow({ row, onOpen }: { readonly row: SellerFeedRow; readonly onOpen: (event: MouseEvent | KeyboardEvent) => void }) {
+    if (row.kind === 'sale') return <SaleFeedItem row={row} onOpen={onOpen} />;
+    if (row.kind === 'refund') return <RefundFeedItem row={row} onOpen={onOpen} />;
+    return <CertificateFeedItem row={row} onOpen={onOpen} />;
+}
 
 /**
  * Вкладка «Продажи» на рабочем месте продавца. Ленту отдаёт функция возврата `sellerFeed`;
@@ -32,9 +56,9 @@ export function useSellerFeedAvailable(): boolean {
 }
 
 /**
- * Лента продавца на основе `Feed` из SDK: проведённые продажи и возвраты по дням, поиск
- * и страницы по 20. Продажу и возврат рисуют их собственные компоненты (`SaleFeedItem`,
- * `RefundFeedItem`): строки не обязаны совпадать. На широком экране лента занимает высоту
+ * Лента продавца на основе `Feed` из SDK: проведённые продажи, возвраты и события сертификатов
+ * по дням, поиск и страницы по 20. Каждый вид рисует собственный компонент (`SaleFeedItem`,
+ * `RefundFeedItem`, `CertificateFeedItem`): строки не обязаны совпадать. На широком экране лента занимает высоту
  * экрана, но показывает не меньше `minimumRows` строк.
  *
  * Результат функции хранится среди ответов о данных и сбрасывается после записи документа:
@@ -47,14 +71,14 @@ function AvailableFeed() {
     const result = useFunctionResult({ object: Objects.document.refund, name: 'sellerFeed', payload: { search, page, pageSize }, keepPrevious: true });
     const rows = (result.data?.rows ?? []) as ReadonlyArray<SellerFeedRow>;
     const open = (row: SellerFeedRow) => (event: MouseEvent | KeyboardEvent) => {
-        void openRecord(row.kind === 'sale' ? Objects.document.sale : Objects.document.refund, row.guid, 'tab', { original: event.shiftKey });
+        void openRecord(documents[row.kind], row.guid, 'tab', { original: event.shiftKey });
     };
     const searched = search.trim();
     return (
         <Feed<SellerFeedRow>
             rows={rows}
-            rowKey={(row) => row.guid}
-            renderRow={(row) => row.kind === 'sale' ? <SaleFeedItem row={row} onOpen={open(row)} /> : <RefundFeedItem row={row} onOpen={open(row)} />}
+            rowKey={rowKey}
+            renderRow={(row) => <FeedRow row={row} onOpen={open(row)} />}
             group={{ key: (row) => feedDayKey(row.date), render: (row) => feedDayTitle(row.date) }}
             scroll={{ rows: minimumRows, fill: true }}
             search={{ value: search, onSearch: (text) => { setSearch(text); setPage(1); }, placeholder: 'Поиск по коду, названию товара, номеру, дате или сумме' }}

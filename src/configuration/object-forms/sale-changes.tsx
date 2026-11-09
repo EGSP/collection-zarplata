@@ -148,7 +148,7 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
     // Флаг задаёт ограничение, а не определяет, какие данные изменил сотрудник.
     const paymentsOnly = data !== undefined && data.closedThrough !== null && data.sale.date.slice(0, 10) <= data.closedThrough;
     const termsLocked = data === undefined || paymentsOnly;
-    useFormRestrictions(sales, termsLocked ? { readOnlyFields: ['goods', 'payments', 'paymentMode'] } : {});
+    useFormRestrictions(sales, termsLocked ? { readOnlyFields: ['goods', 'payments', 'paymentMode', 'certificates'] } : {});
     const [saving, setSaving] = useState(false);
     // Суммы, заданные сотрудником; `null` — суммы распределяются автоматически.
     const [manual, setManual] = useState<ReadonlyMap<string, number | null> | null>(null);
@@ -277,6 +277,7 @@ export function SaleChanges({ state, prepare, onClose }: SaleChangesProperties) 
                     }),
                     goods: fields['goods'],
                     payments: fields['payments'],
+                    certificates: fields['certificates'],
                     installments: installments.map((installment) => ({
                         installment: installment.guid,
                         type: installment.type,

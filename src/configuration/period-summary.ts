@@ -166,11 +166,14 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
     const posted: SummaryGoodsRow[] = [];
     const notPosted: SummaryGoodsRow[] = [];
     // Деление оплат и вычет возвратов выполняет функция продажи; сводка только группирует её строки.
+    // Доля сертификатов в сводку не входит: она показывает только фактическую оплату деньгами
+    // и рассрочкой (раздел «Правила учёта», подраздел «Сводка за период»).
     for (const sale of saleFigures) {
         for (const line of sale.goods) {
+            const { cash: lineCash, cashless, installment } = line.netPayments;
             const row: SummaryGoodsRow = {
                 sale: sale.sale, date: sale.date, name: line.name, code: line.code, size: line.size, total: line.netTotal,
-                payments: line.netPayments, installmentPaid: line.installmentPaid, installmentOpen: line.installmentOpen,
+                payments: { cash: lineCash, cashless, installment }, installmentPaid: line.installmentPaid, installmentOpen: line.installmentOpen,
             };
             (line.postedIn1C ? posted : notPosted).push(row);
         }

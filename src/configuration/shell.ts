@@ -9,6 +9,7 @@ import { shell } from '../server/ui/shell.js';
 import { Users } from '../server/users/object.js';
 import { AccessRights } from './pages/access-rights.page.js';
 import { Backups } from './pages/backups.page.js';
+import { Coupons } from './catalogs/coupons.catalog.js';
 import { Discounts } from './catalogs/discounts.catalog.js';
 import { Employees } from './catalogs/employees.catalog.js';
 import { InstallmentRates } from './catalogs/installment-rates.catalog.js';
@@ -17,6 +18,7 @@ import { PaymentReceivers } from './catalogs/payment-receivers.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { SampleDelegate } from './catalogs/sample-delegate.catalog.js';
 import { Sample } from './catalogs/sample.catalog.js';
+import { Certificate } from './documents/certificate.document.js';
 import { PeriodClosing } from './documents/period-closing.document.js';
 import { Refund } from './documents/refund.document.js';
 import { SaleInstallment } from './documents/sale-installment.document.js';
@@ -32,6 +34,8 @@ import { SampleWorkplace } from './pages/sample-workplace.page.js';
 import { Payroll } from './pages/payroll.page.js';
 import { PeriodSummary } from './pages/period-summary.page.js';
 import { SellerWorkplace } from './pages/seller-workplace.page.js';
+import { AppliedCoupons } from './registers/applied-coupons.register.js';
+import { CertificateBalances } from './registers/certificate-balances.register.js';
 import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
 import { UnarrangedInstallments } from './registers/unarranged-installments.register.js';
@@ -49,9 +53,9 @@ export const applicationShell = shell()
         .title('Продажи')
         .icon('trade')
         .group('Рабочие места', [SellerWorkplace])
-        .group('Документы', [Sale, Weighing, Refund, SaleInstallment])
-        .group('Регистры', [SalesNetOfReturns, InstallmentDebts, MoneyReceipts, UnarrangedInstallments])
-        .group('Справочники', [Discounts, PaymentReceivers, InstallmentRates])
+        .group('Документы', [Sale, Weighing, Refund, SaleInstallment, Certificate])
+        .group('Регистры', [SalesNetOfReturns, InstallmentDebts, MoneyReceipts, UnarrangedInstallments, AppliedCoupons, CertificateBalances])
+        .group('Справочники', [Discounts, Coupons, PaymentReceivers, InstallmentRates])
         .group('Зарплата', [Payroll, PeriodClosing])
         .group('Отчёты', [PeriodSummary]))
     .subsystem('masterData', (subsystem) => subsystem
