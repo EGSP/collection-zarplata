@@ -118,8 +118,8 @@ export { BreakpointContainer, useBreakpoint, breakpointAtLeast, type BreakpointC
 export { Drawer, DrawerContainer, drawerDefaultPlacement, useDrawer, type DrawerContainerProperties, type DrawerControl, type DrawerPlacement, type DrawerProperties, type DrawerSide } from './ds/drawer';
 
 // Таблица данных: типы ячеек, колонки по размерам в знаках и долях, составные колонки по точкам перелома.
-export { DataTable, type DataTableColumn, type DataTableExpansion, type DataTableProperties, type DataTableRowState, type DataTableSelection, type DataTableSortDirection } from './ds/data-table';
-export { columnGroups, tableLayoutAt, type ColumnSize, type ControlColumnSize, type TableLayout, type TableLayouts } from './ds/table-layout';
+export { DataTable, compactPageSize, type DataTablePinning, type DataTableColumn, type DataTableExpansion, type DataTablePagination, type DataTableProperties, type DataTableRowState, type DataTableSelection, type DataTableSortDirection } from './ds/data-table';
+export { columnLines, screenOrder, tableLayoutAt, type ColumnSize, type ControlColumnSize, type TableGroup, type TableLayout, type TableLayoutColumn, type TableLayouts, type TableLine } from './ds/table-layout';
 export { CellTextInput, cellAlign, cellColumnSize, cellTextRules, cellTypes, formatCell, hasTextInput, listCellMinimum, type TextConversion, type CellInputOptions, type CellTextInputHandle, type CellTextInputProperties, type CellType, type PrimitiveCellType } from './ds/cell-types';
 export { CellComboInput, type CellComboInputProperties, type CellOption } from './ds/cell-combo';
 export { fieldCellType, fieldColumn, fieldColumnSize, type CellField } from './platform/field-cells';
@@ -169,4 +169,3 @@ export { tablePartValidationMessages, type TablePartInputProperties } from './pl
 export { PlatformObjects } from '../../common/platform-objects';
 
 export { StickyRail, type StickyRailProperties } from './ds/sticky-rail';
-export { FeedTable, FeedTableDescription, type FeedTableProperties, type FeedTableColumn } from './derivations/feed-table';

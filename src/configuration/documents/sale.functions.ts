@@ -21,6 +21,8 @@ export interface SalePaymentTotals {
     readonly cash: number;
     readonly cashless: number;
     readonly installment: number;
+    /** Оплата сертификатами: для сводки она не деньги, для зарплаты входит в денежную часть. */
+    readonly certificate: number;
 }
 
 /** Товар продажи и его суммы до и после проведённых возвратов. */
@@ -33,6 +35,8 @@ export interface SaleGoodsFigures {
     readonly comment: string | null;
     readonly cost: number;
     readonly discount: number | null;
+    /** Процент купона строки; `null` у товара без купона. */
+    readonly couponPercent: number | null;
     readonly total: number;
     readonly refunded: number;
     readonly netTotal: number;
@@ -66,9 +70,9 @@ export interface SaleFigures {
 }
 
 const active = [{ column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }] as const;
-const emptyPayments = (): SalePaymentTotals => ({ cash: 0, cashless: 0, installment: 0 });
+const emptyPayments = (): SalePaymentTotals => ({ cash: 0, cashless: 0, installment: 0, certificate: 0 });
 const sumPayments = (rows: ReadonlyArray<SalePaymentTotals>): SalePaymentTotals => rows.reduce((sum, row) => ({
-    cash: sum.cash + row.cash, cashless: sum.cashless + row.cashless, installment: sum.installment + row.installment,
+    cash: sum.cash + row.cash, cashless: sum.cashless + row.cashless, installment: sum.installment + row.installment, certificate: sum.certificate + row.certificate,
 }), emptyPayments());
 const nullableText = (value: unknown): string | null => value === null || value === undefined ? null : String(value);
 
@@ -93,11 +97,14 @@ const saleFigures = Effect.fn('sale.figures')(function* (sales: ReadonlyArray<st
     if (headers.length === 0) return [] as SaleFigures[];
     const owners = headers.map((row) => String(row['guid']));
     const goods = yield* database.all(query(sale).tablePart('goods').select({
-        columns: ['ownerGuid', 'lineNumber', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'total', 'postedIn1C'],
+        columns: ['ownerGuid', 'lineNumber', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'couponPercent', 'total', 'postedIn1C'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: owners }], orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
     }));
     const payments = yield* database.all(query(sale).tablePart('payments').select({
         columns: ['ownerGuid', 'method', 'amount'], where: [{ column: 'ownerGuid', operator: 'IN', value: owners }],
+    }));
+    const certificates = yield* database.all(query(sale).tablePart('certificates').select({
+        columns: ['ownerGuid', 'amount'], where: [{ column: 'ownerGuid', operator: 'IN', value: owners }],
     }));
     const refundLinks = yield* database.all(query(refund).tablePart('goods').select({
         columns: ['ownerGuid'], where: [{ column: 'sale', operator: 'IN', value: owners }],
@@ -116,9 +123,10 @@ const saleFigures = Effect.fn('sale.figures')(function* (sales: ReadonlyArray<st
         const lines = goods.filter((row) => row['ownerGuid'] === guid);
         const totals = lines.map((row) => Number(row['total']));
         const refunds = new Map<string, number>();
-        const identities = lines.map((line) => ({ name: String(line['name']), code: nullableText(line['code']), size: nullableText(line['size']), comment: nullableText(line['comment']), cost: Number(line['cost']), discount: line['discount'] == null ? null : Number(line['discount']), total: Number(line['total']) }));
+        const identities = lines.map((line) => ({ name: String(line['name']), code: nullableText(line['code']), size: nullableText(line['size']), comment: nullableText(line['comment']), cost: Number(line['cost']), discount: line['discount'] == null ? null : Number(line['discount']), couponPercent: line['couponPercent'] == null ? null : Number(line['couponPercent']), total: Number(line['total']) }));
         const cashRefunded = totals.map(() => 0);
         const cashlessRefunded = totals.map(() => 0);
+        const certificateRefunded = totals.map(() => 0);
         const consumed = totals.map(() => 0);
         const refundShares = new Map<string, Array<{ lineNumber: number; amount: number; cash: number; cashless: number; debt: number }>>();
         // Денежные выдачи относятся к возвращённым товарам продажи; внутри одного возврата
@@ -133,11 +141,13 @@ const saleFigures = Effect.fn('sale.figures')(function* (sales: ReadonlyArray<st
             const cashParts = allocate(settlement?.cash ?? 0, effective);
             const cashlessParts = allocate(settlement?.cashless ?? 0, effective);
             const debtParts = allocate(settlement?.debt ?? 0, effective);
+            const certificateParts = allocate(settlement?.certificate ?? 0, effective);
             refundShares.set(refund.refund, lines.map((line, index) => ({ lineNumber: Number(line['lineNumber']), amount: weights[index]!, cash: cashParts[index]!, cashless: cashlessParts[index]!, debt: debtParts[index]! })));
             for (let index = 0; index < totals.length; index++) {
                 consumed[index]! += weights[index]!;
                 cashRefunded[index]! += cashParts[index]!;
                 cashlessRefunded[index]! += cashlessParts[index]!;
+                certificateRefunded[index]! += certificateParts[index]!;
             }
         }
         // Сопоставление стоимости и денежных выдач общее: повторяющиеся товары и старые
@@ -147,17 +157,22 @@ const saleFigures = Effect.fn('sale.figures')(function* (sales: ReadonlyArray<st
         // Способы распределяются последовательно по оставшейся стоимости товара. Независимое
         // округление каждого способа могло бы дать товару стоимостью 1 копейку две копейки оплат,
         // а после полного возврата оставить в сводке лишнюю копейку.
+        // Сертификаты распределяются последней частью, как четвёртый способ оплаты.
         let remaining = [...totals];
-        const shares = [cash, cashless, installmentMethod].map((method) => {
-            const amount = payments.filter((row) => row['ownerGuid'] === guid && row['method'] === method).reduce((sum, row) => sum + Number(row['amount']), 0);
+        const paidBy = (method: string) => payments.filter((row) => row['ownerGuid'] === guid && row['method'] === method).reduce((sum, row) => sum + Number(row['amount']), 0);
+        const certificateAmount = certificates.filter((row) => row['ownerGuid'] === guid).reduce((sum, row) => sum + Number(row['amount']), 0);
+        const shares = [paidBy(cash), paidBy(cashless), paidBy(installmentMethod), certificateAmount].map((amount) => {
             const allocated = allocate(amount, remaining);
             remaining = remaining.map((total, index) => total - allocated[index]!);
             return allocated;
         });
-        const originalPayments = totals.map((_, index): SalePaymentTotals => ({ cash: shares[0]![index]!, cashless: shares[1]![index]!, installment: shares[2]![index]! }));
+        const originalPayments = totals.map((_, index): SalePaymentTotals => ({ cash: shares[0]![index]!, cashless: shares[1]![index]!, installment: shares[2]![index]!, certificate: shares[3]![index]! }));
+        // Возврат сначала пополняет сертификат (раздел «Правила учёта»): пополнение строки вычитается
+        // из её доли сертификата, а остаток возвращённой стоимости делится по остальным способам.
         const netPayments = originalPayments.map((payment, index): SalePaymentTotals => {
-            const deducted = allocate(refundedShares[index]!, [payment.cash, payment.cashless, payment.installment]);
-            return { cash: payment.cash - deducted[0]!, cashless: payment.cashless - deducted[1]!, installment: payment.installment - deducted[2]! };
+            const certificate = Math.min(certificateRefunded[index]!, payment.certificate, refundedShares[index]!);
+            const deducted = allocate(refundedShares[index]! - certificate, [payment.cash, payment.cashless, payment.installment]);
+            return { cash: payment.cash - deducted[0]!, cashless: payment.cashless - deducted[1]!, installment: payment.installment - deducted[2]!, certificate: payment.certificate - certificate };
         });
         const ownInstallments = installments.filter((row) => row['sale'] === guid);
         const ownFigures = ownInstallments.map((row) => figures.get(String(row['guid']))!);

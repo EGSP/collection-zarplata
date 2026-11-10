@@ -15,6 +15,8 @@ import { DataPolicyError } from '../../server/data/data.errors.js';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { query } from '../../server/database/sql.builder.js';
 import { movements, objectReference, type Policy, type RecordOf } from '../../server/metadata/index.js';
+import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
+import { initialPayments } from '../installment-initial-payments.js';
 import { installmentDocument } from '../installments.js';
 import { numberAndDate } from '../money.js';
 import { installmentMethod } from '../payments.js';
@@ -104,3 +106,93 @@ export const SaleInstallment = saleInstallment
         .group('Взносы', ['payments', 'balance'])
         .hide('closedAt')
         .hide('posted'));
+
+/**
+ * Взнос по рассрочке в ленте рабочего места продавца. `guid` и `number` принадлежат рассрочке:
+ * взнос не документ, а строка её табличной части, поэтому строку отличает `line`. `sales` содержит
+ * продажу рассрочки, чтобы поиск находил взнос и по её номеру.
+ */
+export interface InstallmentPaymentFeedRow {
+    readonly kind: 'payment';
+    readonly guid: string;
+    readonly line: number;
+    readonly number: string;
+    readonly date: string;
+    readonly method: string;
+    readonly holder: string | null;
+    readonly amount: number;
+    readonly sales: ReadonlyArray<{ readonly guid: string; readonly number: string; readonly date: string }>;
+}
+
+/**
+ * Первоначальные взносы продаж (`initialPayments`): сумма по каждой продаже из `sales`. Лента
+ * продавца прибавляет их к сумме продажи вместо оплаты «Рассрочка», как сводка за период: долг
+ * рассрочки денег не приносит, а первоначальный взнос пришёл в день продажи. Учитываются
+ * проведённые рассрочки без пометки удаления; продажа без них в результат не попадает.
+ */
+export const readInitialPayments = (sales: ReadonlyArray<string>) => Effect.gen(function* () {
+    const database = yield* ReadonlyDatabase;
+    const result = new Map<string, number>();
+    if (sales.length === 0) return result;
+    const installments = yield* database.all(query(SaleInstallment).select({
+        columns: ['guid', 'date', 'type', 'sale'],
+        where: [{ column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }, { column: 'sale', operator: 'IN', value: [...new Set(sales)] }],
+    }));
+    if (installments.length === 0) return result;
+    // Взносы читаются в порядке строк: правило первоначального взноса при равных моментах берёт первый.
+    const payments = yield* database.all(query(SaleInstallment).tablePart('payments').select({
+        columns: ['ownerGuid', 'lineNumber', 'date', 'amount'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: installments.map((row) => row.guid) }],
+        orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
+    }));
+    for (const installment of installments) {
+        const initial = initialPayments(installment, payments.filter((payment) => payment.ownerGuid === installment.guid));
+        const amount = [...initial].reduce((sum, payment) => sum + payment.amount, 0);
+        result.set(installment.sale, (result.get(installment.sale) ?? 0) + amount);
+    }
+    return result;
+});
+
+/**
+ * Взносы проведённых рассрочек для ленты продавца (`sellerFeed` возврата), новые сверху.
+ * Первоначальный взнос (`initialPayments`) строки не получает: его деньги уже показывает строка
+ * продажи. Поэтому читаются все взносы рассрочки, а не только последние: без ранних взносов нельзя
+ * определить, какой из них первоначальный. Рассрочек немного, и ограничение `limit` применяется
+ * после отбора.
+ */
+export const readInstallmentPaymentFeed = (limit: number | null) => Effect.gen(function* () {
+    const database = yield* ReadonlyDatabase;
+    const installments = yield* database.all(query(SaleInstallment).select({
+        columns: ['guid', 'number', 'date', 'type', 'sale', 'person'],
+        where: [{ column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }],
+    }));
+    if (installments.length === 0) return { rows: [], total: 0 };
+    // Взносы читаются в порядке строк: правило первоначального взноса при равных моментах берёт первый.
+    const payments = yield* database.all(query(SaleInstallment).tablePart('payments').select({
+        columns: ['ownerGuid', 'lineNumber', 'date', 'method', 'amount'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: installments.map((row) => row.guid) }],
+        orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
+    }));
+    const saleGuids = [...new Set(installments.map((row) => row.sale))];
+    const sales = yield* database.all(query(Sale).select({ columns: ['guid', 'number', 'date'], where: [{ column: 'guid', operator: 'IN', value: saleGuids }] }));
+    const personGuids = [...new Set(installments.flatMap((row) => row.person === null ? [] : [row.person]))];
+    const persons = personGuids.length === 0 ? [] : yield* database.all(query(PhysicalPersons).select({
+        columns: ['guid', 'name'],
+        where: [{ column: 'guid', operator: 'IN', value: personGuids }],
+    }));
+    const saleOf = new Map(sales.map((row) => [row.guid, row]));
+    const holderOf = new Map(persons.map((row) => [row.guid, row.name]));
+    const rows = installments.flatMap((installment) => {
+        const own = payments.filter((payment) => payment.ownerGuid === installment.guid);
+        const initial = initialPayments(installment, own);
+        const sale = saleOf.get(installment.sale);
+        return own.filter((payment) => !initial.has(payment)).map((payment): InstallmentPaymentFeedRow => ({
+            kind: 'payment', guid: installment.guid, line: payment.lineNumber, number: installment.number, date: payment.date,
+            method: payment.method, holder: installment.person === null ? null : holderOf.get(installment.person) ?? null, amount: payment.amount,
+            sales: sale === undefined ? [] : [{ guid: sale.guid, number: sale.number, date: sale.date }],
+        }));
+    });
+    // Даты сравниваются моментами: строки хранятся с часовым поясом клиента.
+    rows.sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime());
+    return { rows: limit === null ? rows : rows.slice(0, limit), total: rows.length };
+});

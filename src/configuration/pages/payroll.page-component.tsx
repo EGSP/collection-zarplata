@@ -102,7 +102,7 @@ function LinesTable({ lines, installments }: { readonly lines: ReadonlyArray<Pay
 
             rowKey={(line) => `${line.document.guid}-${line.goods}-${line.kind}-${line.date}-${line.base}-${line.rule}`}
             rows={[...lines]}
-            layouts={{ sm: [['date', 'installmentDate', 'installmentClosedAt'], ['kind', 'document'], ['goods', 'rule'], 'base', 'rate', 'amount'], lg: [] }}
+            layouts={{ sm: [{ line: [{ group: ['date', 'installmentDate', 'installmentClosedAt'] }, { group: ['kind', 'document'] }, { group: ['goods', 'rule'] }, 'base', 'rate', 'amount'] }], lg: [] }}
             columns={[
                 ...installments ? [
                     { title: 'Рассрочка открыта', key: 'installmentDate', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (line: PayrollLine) => <Moment value={line.installmentDate} /> },
@@ -167,7 +167,7 @@ function PayrollTable({ result }: { readonly result: PayrollResult }) {
             rowKey={(row) => row.employee}
             rows={[...result.employees]}
             expansion={{ isExpandable: () => true, isExpanded: (row) => expanded.has(row.employee), onToggle: (row, _index, open) => setExpanded((previous) => { const next = new Set(previous); if (open) next.add(row.employee); else next.delete(row.employee); return next; }), render: (row) => <EmployeeLines lines={result.lines.filter((line) => line.employee === row.employee)} /> }}
-            layouts={{ sm: ['employee', 'sales', 'installments', 'amount'], lg: ['employee', 'sales', 'installments', 'amount'] }}
+            layouts={{ sm: [{ line: ['employee', 'sales', 'installments', 'amount'] }], lg: [{ line: ['employee', 'sales', 'installments', 'amount'] }] }}
             columns={[
                 // Без права читать сотрудников сервер их описание не отдаёт.
                 { title: 'Сотрудник', key: 'employee', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (row) => employees === undefined ? 'Нет доступа' : <EmployeeName view={employees} guid={row.employee} /> },

@@ -32,7 +32,8 @@ covers:
 | `drawerDefaultPlacement` | Сторона выезда [выезжающей панели](components.md#выезжающая-панель) по умолчанию: `{ sm: 'bottom', md: 'right' }` |
 | `useAccountingColors` | [Смысловые цвета учёта](hooks.md#поверхность-и-цвета) текущей темы |
 | `useLayer` | [Уровень и фоны](hooks.md#поверхность-и-цвета) ближайшей поверхности |
-| `columnGroups`, `tableLayoutAt` | Правила [схем отображения](../components.md#составные-колонки-и-схемы-отображения): колонки по схеме и схема для точки перелома |
+| `columnLines`, `screenOrder`, `tableLayoutAt` | Правила [схем отображения](../components.md#составные-колонки-и-схемы-отображения): линии и группы колонок по схеме, порядок колонок на экране и схема для точки перелома |
+| `compactPageSize` | Размер неявной страницы таблицы просмотра на `sm` (10 строк), [правило `pagination`](../components.md#таблица-данных) |
 | `fieldCellType`, `fieldColumn`, `fieldColumnSize` | [Тип ячейки и размер колонки](../components.md#размер-колонки-в-знаках-и-долях) по виду поля: `fieldColumn` отдаёт тип и размер вместе, `fieldColumnSize` размер либо `undefined`, если подходит размер типа |
 | `cellTypes`, `cellAlign`, `cellColumnSize`, `formatCell`, `hasTextInput` | Правила [типов ячеек](../components.md#типы-ячеек): выравнивание, размер по типу и заголовку, текст значения, вводится ли тип текстом |
 | `cellTextRules`, `listCellMinimum` | Правила ввода типа текстом (`TextConversion`) для полей поверх собственного `input` и наименьший размер колонки со списком, 16 знаков |
@@ -80,10 +81,10 @@ covers:
 | `TextTone`, `TextHeadingVariant`, `TextProperties`, `TextHeadingProperties`, `TextCommonProperties` | Цвет и ступень заголовка [ролей текста](components.md#роли-текста) и их свойства |
 | `AccountingTone`, `AccountingColor` | Смысловой цвет учёта (`total`, `debt`, `overpayment`, `warning`) и его оттенки: `text`, `solid`, `solidHover`, `background`, `backgroundStrong` |
 | `TablePartOptions` | [Настройки вида табличной части](components.md#табличная-часть) |
-| `DataTableProperties`, `DataTableColumn`, `DataTableSelection`, `DataTableExpansion`, `DataTableRowState`, `DataTableSortDirection`, `DataTableGrouping`, `DataTableScroll`, `DataTableSearch` | Свойства и части [таблицы данных](../components.md#таблица-данных), в том числе разрезы, прокрутка и поиск |
-| `ColumnSize`, `ControlColumnSize`, `TableLayout`, `TableLayouts` | Размер колонки в знаках и долях, размер служебной колонки `'control'`, схема отображения и схемы по точкам перелома |
+| `DataTableProperties`, `DataTableColumn`, `DataTableSelection`, `DataTableExpansion`, `DataTableRowState`, `DataTableSortDirection`, `DataTablePagination`, `DataTablePinning` | Свойства и части [таблицы данных](../components.md#таблица-данных), в том числе страницы |
+| `ColumnSize`, `ControlColumnSize`, `TableLayout`, `TableLayouts`, `TableLine`, `TableGroup`, `TableLayoutColumn` | Размер колонки в знаках и долях, размер служебной колонки `'control'`, схема отображения из линий и групп и схемы по точкам перелома |
 | `CellType`, `PrimitiveCellType`, `CellInputOptions`, `CellTextInputHandle`, `CellTextInputProperties`, `TextConversion`, `CellComboInputProperties`, `CellOption`, `CellField` | Тип ячейки (`string`, `number`, `money`, `date`, `dateTime`, `boolean`, `free`) и его примитивная часть, ограничения ввода (`integer`, `maximumLength`), управление и свойства поля ячейки, перевод значения в текст и обратно, свойства поля со списком и его вариант (`key`, `label`), поле для расчёта типа |
 | `ReadOnlyTablePartProperties` | Свойства `ReadOnlyTablePart` |
 | `StickyRailProperties` | Порог `from`, шаг верхнего отступа `offset`, содержимое [рельса](components.md#прилипающий-рельс) |
-| `FeedTableProperties`, `FeedTableColumn` | Строки, связи, оформление, открытие и колонки [таблицы-фида](components.md#таблица-фид) |
+| `FeedProperties`, `FeedGroup`, `FeedScroll`, `FeedItemProperties`, `FeedCellProperties` | Свойства [ленты документов](../components.md#лента-документов), её групп, прокрутки, строки и ячейки |
 | `<Компонент>Properties` | Свойства компонента SDK, например `TileProperties` |

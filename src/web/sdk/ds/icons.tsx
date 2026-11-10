@@ -39,6 +39,7 @@ import Icon, {
     FileTextOutlined,
     FilterOutlined,
     FolderOutlined,
+    GiftOutlined,
     GlobalOutlined,
     HomeOutlined,
     InboxOutlined,
@@ -57,6 +58,7 @@ import Icon, {
     SearchOutlined,
     SettingOutlined,
     SwapOutlined,
+    TagOutlined,
     ShopOutlined,
     ShoppingCartOutlined,
     SkinOutlined,
@@ -208,6 +210,11 @@ export const Icons = {
     installmentPayment: CalendarOutlined,
     /** Сложная оплата: несколько оплат разными способами. */
     complexPayment: PartitionOutlined,
+    // Сертификаты и купоны: значки в продаже, ленте продавца и на кнопках их окон.
+    /** Сертификат: оплата продажи с остатка сертификата и его оформление. */
+    certificate: GiftOutlined,
+    /** Купон: скидка по акции на товар продажи. */
+    coupon: TagOutlined,
     // Типы рассрочки: кто ведёт долг покупателя.
     /** Собственная рассрочка: долг ведёт магазин. */
     ownInstallment: ShopOutlined,

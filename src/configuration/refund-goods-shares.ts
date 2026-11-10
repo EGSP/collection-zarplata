@@ -8,12 +8,14 @@ interface GoodsIdentity {
     readonly comment: string | null;
     readonly cost: number;
     readonly discount: number | null;
+    /** Процент купона, скопированный в строку: купон меняет итог товара так же, как скидка. */
+    readonly couponPercent: number | null;
     readonly total: number;
 }
 
 /** Повторяющиеся товары заполняются по порядку. Исправленные старые реквизиты не теряют сумму. */
 export function refundGoodsWeights(originals: ReadonlyArray<GoodsIdentity>, returned: ReadonlyArray<GoodsIdentity>): number[] {
-    const key = (line: GoodsIdentity) => JSON.stringify([line.name, line.code, line.size, line.comment, line.cost, line.discount]);
+    const key = (line: GoodsIdentity) => JSON.stringify([line.name, line.code, line.size, line.comment, line.cost, line.discount, line.couponPercent]);
     const weights = originals.map(() => 0);
     let unmatched = 0;
     for (const line of returned) {

@@ -81,6 +81,8 @@ export interface PayrollGoods {
     readonly name: string;
     /** Скидка в процентах; без скидки 0. */
     readonly discount: number;
+    /** Процент купона строки; без купона 0. Ступень ставки считается по скидке вместе с купоном. */
+    readonly coupon: number;
     readonly total: number;
 }
 
@@ -94,6 +96,11 @@ export interface PayrollSale {
     /** Сумма оплат способом «Рассрочка», на которую рассрочка ещё не оформлена: она не начисляется. */
     readonly unarranged: number;
     /**
+     * Сумма оплаты сертификатами. Она входит в денежную часть, но возврат по ней пополняет
+     * сертификат, поэтому остальной возврат делится по денежной части без неё.
+     */
+    readonly certificates: number;
+    /**
      * Все проведённые возвраты по продаже, в любом периоде. Собственная рассрочка начисляется при
      * закрытии за вычетом возвращённого до закрытия, даже если возврат был в прошлом периоде.
      */
@@ -105,8 +112,12 @@ export interface PayrollRefund {
     readonly guid: string;
     readonly date: string;
     readonly lines: ReadonlyArray<PayrollGoods & { readonly sale: string }>;
-    /** Погашение долга по рассрочке по продажам: сумма строк расчёта «В счёт долга» возврата. */
-    readonly credits: ReadonlyMap<string, number>;
+    /**
+     * Суммы строк расчёта, которые относятся к одной части продажи целиком, по продажам и видам
+     * частей: погашение «В счёт долга» к собственной рассрочке, пополнение «На сертификат»
+     * к денежной части. Часть задаёт обработчик вида операции (`refund-plan.ts`).
+     */
+    readonly directed: ReadonlyMap<string, ReadonlyMap<PayrollPartKind, number>>;
 }
 
 /** Смена, открытая в периоде. */

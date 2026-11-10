@@ -23,6 +23,10 @@ function destructiveChanges(previous: SchemaStructure, desired: SchemaStructure)
             if (newColumn === undefined) result.push(`${oldTable.name}.${oldColumn.name}: удалить колонку`);
             else if (newColumn.type !== oldColumn.type) {
                 result.push(`${oldTable.name}.${oldColumn.name}: сменить тип ${oldColumn.type} на ${newColumn.type}`);
+            } else if (oldColumn.required && !newColumn.required) {
+                // SQLite не снимает NOT NULL с существующей колонки: без миграции снимок разошёлся бы
+                // с таблицей, и запись пустого значения падала бы на ограничении.
+                result.push(`${oldTable.name}.${oldColumn.name}: снять обязательность`);
             }
         }
         const newIndexes = new Map(newTable.indexes.map((index) => [index.name, index]));

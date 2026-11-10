@@ -25,7 +25,9 @@ import { PaymentMethodInput } from './payment-method-input';
 function SalePaymentMode({ field, value, onChange, disabled, id, ref, fluid }: InputProperties<string> & { readonly fluid?: { readonly label: string; readonly required: boolean; readonly empty: boolean } }) {
     const sales = Objects.document.sale;
     const form = useFormData(sales);
-    const amount = useFormValue(sales, 'amount') ?? 0;
+    // Простая оплата получает сумму продажи без оплаты сертификатами: остальное покрыто сертификатами.
+    const certificates = useFormValue(sales, 'certificates');
+    const amount = Math.max(0, (useFormValue(sales, 'amount') ?? 0) - certificates.reduce((total, line) => total + (line.amount ?? 0), 0));
     const payments = useFormValue(sales, 'payments');
     const { modal } = App.useApp();
     const part = form.view.tableParts.find((candidate) => candidate.name === 'payments');

@@ -3,16 +3,16 @@ import { createContext, useContext, useImperativeHandle, useRef, type ComponentT
 import { Icons, type InputProperties } from '../../web/sdk';
 
 /** Палитра Ant Design, которой отмечен способ оплаты. */
-type MethodPalette = 'green' | 'cyan' | 'orange' | 'purple';
+type MethodPalette = 'green' | 'cyan' | 'orange' | 'purple' | 'gold';
 
 /**
  * Значки и цвета способов оплаты по их значениям. Значения совпадают со способами в `payments.ts`
  * и способом «Сложная» продажи; сами константы оттуда не импортируются, потому что это
  * серверный модуль, а компонент собирается в клиент. Способ расчёта возврата «В счёт долга»
- * отмечен как рассрочка: он гасит её долг.
+ * отмечен как рассрочка: он гасит её долг. «На сертификат» отмечен значком сертификата.
  *
  * Цвет помогает отличать способы с первого взгляда: наличные зелёные, безналичные бирюзовые,
- * сложная оплата оранжевая, рассрочка фиолетовая.
+ * сложная оплата оранжевая, рассрочка фиолетовая, сертификат жёлтый, как его строки в ленте.
  */
 const methods: { readonly [method: string]: { readonly icon: ComponentType; readonly palette: MethodPalette } } = {
     'Наличные': { icon: Icons.cashPayment, palette: 'green' },
@@ -20,6 +20,7 @@ const methods: { readonly [method: string]: { readonly icon: ComponentType; read
     'Сложная': { icon: Icons.complexPayment, palette: 'orange' },
     'Рассрочка': { icon: Icons.installmentPayment, palette: 'purple' },
     'В счёт долга': { icon: Icons.installmentPayment, palette: 'purple' },
+    'На сертификат': { icon: Icons.certificate, palette: 'gold' },
 };
 
 /** Основной цвет палитры из темы Ant Design: им окрашены значок способа и заливка выбранного способа. */
@@ -54,16 +55,19 @@ export function PaymentMethodInput({ field, value, onChange, disabled, id, ref, 
     const selected = typeof value === 'string' ? methods[value] : undefined;
     const options = (field.choices ?? []).map((method) => {
         const description = methods[method];
+        const blocked = method !== value && unavailable.includes(method);
+        // Выбранный вариант окрашивает тема, недоступный приглушён: цвет палитры выглядел бы активным.
+        const iconStyle = method === value ? {} : { color: blocked ? token.colorTextDisabled : description === undefined ? undefined : paletteColor(token, description.palette) };
         return {
             value: method,
-            disabled: method !== value && unavailable.includes(method),
+            disabled: blocked,
             label: iconsOnly && description !== undefined ? (
                 <Tooltip title={method}>
-                    <span aria-label={method} style={method === value ? {} : { color: paletteColor(token, description.palette) }}><description.icon /></span>
+                    <span aria-label={method} style={iconStyle}><description.icon /></span>
                 </Tooltip>
             ) : (
                 <Flex gap={6} align="center">
-                    {description !== undefined && <span style={method === value ? {} : { color: paletteColor(token, description.palette) }}><description.icon /></span>}
+                    {description !== undefined && <span style={iconStyle}><description.icon /></span>}
                     {method}
                 </Flex>
             ),

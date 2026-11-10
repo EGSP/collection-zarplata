@@ -1,10 +1,9 @@
-import { PeriodSummaryFeed, SummaryTotalsPanel } from './period-summary-feed';
-import { StickyRail } from '../../web/sdk';
-import { DataTable } from '../../web/sdk';
-import { Alert, Button, Divider, Flex, Typography } from 'antd';
+import { CertificatesTable, Money, OperationsTable, summaryScroll, SummaryTotalsPanel } from './period-summary-tables';
+import { DataTable, StickyRail } from '../../web/sdk';
+import { Alert, Button } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { Column, FieldDisplay, FieldInput, FluidField, isEmptyFieldValue, Grid, Layer, Page, Panel, RecordLink, spacing, Stack, Text, useActionResult, useRecordList, type AccountingTone } from '../../web/sdk';
+import { Column, FieldDisplay, FieldInput, FluidField, isEmptyFieldValue, Grid, Layer, Page, Panel, RecordLink, Stack, Text, useActionResult, useRecordList, type AccountingTone } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PeriodSummary } from '../period-summary';
 
@@ -24,11 +23,6 @@ function nextDay(day: string): string {
 /** Поле дня периода: дата без времени. */
 const dayField = { kind: 'date', target: null } as const;
 
-/** Денежная сумма в том же виде, что в формах. */
-function Money({ value }: { readonly value: number }) {
-    return <FieldDisplay field={{ kind: 'money', target: null }} value={value} />;
-}
-
 /** Дата и время события. */
 function Moment({ value }: { readonly value: string }) {
     return <FieldDisplay field={{ kind: 'dateTime', target: null }} value={value} />;
@@ -44,10 +38,13 @@ function Reference({ kind, name, guid }: { readonly kind: 'catalog' | 'document'
 function Block({ title, empty, children }: { readonly title: string; readonly empty: boolean; readonly children: ReactNode }) {
     return (
         <Panel title={title}>
-            {empty ? <Typography.Text type="secondary">Строк нет</Typography.Text> : children}
+            {empty ? <Text tone="secondary">Строк нет</Text> : children}
         </Panel>
     );
 }
+
+/** Способ взноса наличными: остальные взносы безналичные. Значение совпадает с перечнем способов оплаты. */
+const cashMethod = 'Наличные';
 
 /** Непогашенная часть долга должника: цвета долга, как незакрытая рассрочка выше. */
 function Debt({ value }: { readonly value: number }) {
@@ -58,13 +55,13 @@ function Debt({ value }: { readonly value: number }) {
  * Зона продаж с заливкой: подзаголовок и таблица на одной поверхности. Без `tone` зона берёт фон
  * следующего уровня и отличается от панели серым; со смысловым цветом залита им.
  */
-function FilledZone({ title, tone, empty, children }: { readonly title: string; readonly tone?: AccountingTone; readonly empty: boolean; readonly children: ReactNode }) {
+function FilledZone({ title, tone, children }: { readonly title: string; readonly tone?: AccountingTone; readonly children: ReactNode }) {
     return (
         <Layer padding={4} {...(tone === undefined ? {} : { tone })}>
-            <Flex vertical gap={spacing[3]}>
+            <Stack gap={3}>
                 <Text strong>{title}</Text>
-                {empty ? <Text tone="secondary">Строк нет</Text> : children}
-            </Flex>
+                {children}
+            </Stack>
         </Layer>
     );
 }
@@ -74,91 +71,101 @@ function FilledZone({ title, tone, empty, children }: { readonly title: string; 
  * Отчёт за период: продажи, взносы и должники, товары в отвесе. Продажи и возвраты сгруппированы в две зоны:
  * проведённое в 1С залито цветом предупреждения, непроведённое — серым фоном вложенной поверхности,
  * чтобы их нельзя было спутать. Итоги обеих зон стоят на рельсе справа, на узкой области под ними. Взносы
- * и должники — одна группа о рассрочках, их таблицы разделены линией.
+ * и должники — одна группа о рассрочках. Сертификаты стоят отдельной панелью со своим итогом:
+ * их деньги во «Всего» не входят и на рельсе показаны отдельной строкой.
  */
 function Summary({ summary }: { readonly summary: PeriodSummary }) {
     const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-    const { payments, weighings, debtors } = summary;
+    const { payments, weighings, debtors, certificates } = summary;
     return (
-        <Flex vertical gap="middle">
+        <Stack gap={5}>
             <Grid>
                 <Column span={{ lg: 12 }}>
                     <Panel title="Продажи и возвраты">
                         <Stack gap={5}>
-                            <FilledZone title="Проведено в 1С" tone="warning" empty={false}>
-                                <PeriodSummaryFeed title="Проведено в 1С" rows={summary.operations.posted.rows} totals={summary.operations.posted.totals} />
+                            <FilledZone title="Проведено в 1С" tone="warning">
+                                <OperationsTable rows={summary.operations.posted.rows} totals={summary.operations.posted.totals} />
                             </FilledZone>
-                            <FilledZone title="Не проведено в 1С" empty={false}>
-                                <PeriodSummaryFeed title="Не проведено в 1С" rows={summary.operations.notPosted.rows} totals={summary.operations.notPosted.totals} />
+                            <FilledZone title="Не проведено в 1С">
+                                <OperationsTable rows={summary.operations.notPosted.rows} totals={summary.operations.notPosted.totals} />
                             </FilledZone>
                         </Stack>
                     </Panel>
                 </Column>
                 <Column span={{ lg: 4 }}>
-                    <StickyRail from="lg"><SummaryTotalsPanel amounts={summary.operations.totals} /></StickyRail>
+                    <StickyRail from="lg"><SummaryTotalsPanel amounts={summary.totals} certificates={certificates.totals} /></StickyRail>
                 </Column>
             </Grid>
+            <Panel title="Сертификаты">
+                <CertificatesTable rows={certificates.rows} totals={certificates.totals} />
+            </Panel>
             <Panel title="Рассрочки">
-                <Typography.Text strong>Взносы</Typography.Text>
-                {payments.rows.length === 0 ? <div><Typography.Text type="secondary">Строк нет</Typography.Text></div> : (
-                    <DataTable
-
-                        rowKey={(row) => `${row.installment}-${row.date}-${row.amount}`}
-                        rows={[...payments.rows]}
-                        layouts={{ sm: [['person', 'date'], ['installment', 'method'], 'amount'], lg: [['person', 'date'], ['installment', 'method'], 'amount'] }}
-                        columns={[
-                            { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
-                            { title: 'Рассрочка', key: 'installment', type: 'free' as const, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
-                            { title: 'Покупатель', key: 'person', type: 'free' as const, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                            { title: 'Способ', key: 'method', type: 'string' as const, value: (row) => row.method },
-                            { title: 'Сумма', key: 'amount', type: 'money' as const, render: (row) => <Money value={row.amount} /> },
-                        ]}
-                        summary={{ date: 'Итого', method: <>Наличные <Money value={payments.totals.cash} />, безналичные <Money value={payments.totals.cashless} /></>, amount: <Money value={payments.totals.cash + payments.totals.cashless} /> }}
-                    />
-                )}
-                <Divider style={{ marginBlock: spacing[5] }} />
-                <Typography.Text strong>Должники</Typography.Text>
-                {debtors.rows.length === 0 ? <div><Typography.Text type="secondary">Строк нет</Typography.Text></div> : (
-                    <DataTable
-
-                        rowKey={(row) => row.person}
-                        rows={[...debtors.rows]}
-                        layouts={{ sm: [['person', 'count'], 'debt'], lg: [] }}
-                        expansion={{
-                            isExpandable: () => true,
-                            isExpanded: (row) => expanded.has(row.person),
-                            onToggle: (row, _index, open) => setExpanded((previous) => { const next = new Set(previous); if (open) next.add(row.person); else next.delete(row.person); return next; }),
-                            render: (debtor) => (
-                                <DataTable
-
-                                    rowKey={(row) => row.installment}
-                                    rows={[...debtor.installments]}
-                                    layouts={{ sm: [['installment', 'date'], ['sale', 'amount'], 'debt'], lg: [['installment', 'date'], ['sale', 'amount'], 'debt'] }}
-                                    columns={[
-                                        { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
-                                        { title: 'Продажа', key: 'sale', type: 'free' as const, render: (row) => <Reference kind="document" name="sale" guid={row.sale} /> },
-                                        { title: 'Рассрочка', key: 'installment', type: 'free' as const, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
-                                        { title: 'Сумма рассрочки', key: 'amount', type: 'money' as const, render: (row) => <Money value={row.amount} /> },
-                                        { title: 'Долг', key: 'debt', type: 'money' as const, render: (row) => <Debt value={row.debt} /> },
-                                    ]}
-                                />
-                            ),
-                        }}
-                        columns={[
-                            { title: 'Покупатель', key: 'person', type: 'free' as const, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                            { title: 'Рассрочек', key: 'count', type: 'number' as const, render: (row) => row.installments.length },
-                            { title: 'Долг', key: 'debt', type: 'money' as const, render: (row) => <Debt value={row.debt} /> },
-                        ]}
-                        summary={{ person: 'Итого', debt: <Text tone="debt" strong><Money value={debtors.total} /></Text> }}
-                    />
-                )}
+                <Stack gap={5}>
+                    <Stack gap={3}>
+                        <Text strong>Взносы</Text>
+                        {payments.rows.length === 0 ? <Text tone="secondary">Строк нет</Text> : (
+                            <DataTable
+                                {...summaryScroll}
+                                rowKey={(row, index) => `${row.installment}-${row.date}-${index}`}
+                                rows={[...payments.rows]}
+                                // Взнос занимает одну строку на любой ширине: колонок немного, и все суммы видны сразу.
+                                layouts={{ sm: [{ line: [{ group: ['date', 'person'] }, 'installment', { group: ['cash', 'cashless'] }] }], lg: [] }}
+                                columns={[
+                                    { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
+                                    { title: 'Покупатель', key: 'person', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                                    { title: 'Рассрочка', key: 'installment', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
+                                    // Взнос принят одним способом, поэтому его сумма стоит в одной из двух колонок.
+                                    { title: 'Наличные', key: 'cash', type: 'money' as const, value: (row) => row.method === cashMethod ? row.amount : null },
+                                    { title: 'Безналичные', key: 'cashless', type: 'money' as const, value: (row) => row.method === cashMethod ? null : row.amount },
+                                ]}
+                                summary={{ date: 'Итого', cash: payments.totals.cash, cashless: payments.totals.cashless }}
+                            />
+                        )}
+                    </Stack>
+                    <Stack gap={3}>
+                        <Text strong>Должники</Text>
+                        {debtors.rows.length === 0 ? <Text tone="secondary">Строк нет</Text> : (
+                            <DataTable
+                                {...summaryScroll}
+                                rowKey={(row) => row.person}
+                                rows={[...debtors.rows]}
+                                layouts={{ sm: [{ line: [{ group: ['person', 'count'] }, 'debt'] }], lg: [] }}
+                                expansion={{
+                                    isExpandable: () => true,
+                                    isExpanded: (row) => expanded.has(row.person),
+                                    onToggle: (row, _index, open) => setExpanded((previous) => { const next = new Set(previous); if (open) next.add(row.person); else next.delete(row.person); return next; }),
+                                    render: (debtor) => (
+                                        <DataTable
+                                            rowKey={(row) => row.installment}
+                                            rows={[...debtor.installments]}
+                                            layouts={{ sm: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }], lg: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }] }}
+                                            columns={[
+                                                { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
+                                                { title: 'Продажа', key: 'sale', type: 'free' as const, render: (row) => <Reference kind="document" name="sale" guid={row.sale} /> },
+                                                { title: 'Рассрочка', key: 'installment', type: 'free' as const, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
+                                                { title: 'Сумма рассрочки', key: 'amount', type: 'money' as const, render: (row) => <Money value={row.amount} /> },
+                                                { title: 'Долг', key: 'debt', type: 'money' as const, render: (row) => <Debt value={row.debt} /> },
+                                            ]}
+                                        />
+                                    ),
+                                }}
+                                columns={[
+                                    { title: 'Покупатель', key: 'person', type: 'free' as const, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                                    { title: 'Рассрочек', key: 'count', type: 'number' as const, render: (row) => row.installments.length },
+                                    { title: 'Долг', key: 'debt', type: 'money' as const, render: (row) => <Debt value={row.debt} /> },
+                                ]}
+                                summary={{ person: 'Итого', debt: <Text tone="debt" strong><Money value={debtors.total} /></Text> }}
+                            />
+                        )}
+                    </Stack>
+                </Stack>
             </Panel>
             <Block title="Товары в отвесе" empty={weighings.rows.length === 0}>
                 <DataTable
-
+                    {...summaryScroll}
                     rowKey={(row) => `${row.weighing}-${weighings.rows.indexOf(row)}`}
                     rows={[...weighings.rows]}
-                    layouts={{ sm: [['code', 'name', 'size'], ['person', 'date', 'weighing']], lg: [['name', 'code', 'size'], ['person', 'date', 'weighing']] }}
+                    layouts={{ sm: [{ line: [{ group: ['code', 'name', 'size'] }, { group: ['person', 'date', 'weighing'] }] }], lg: [{ line: [{ group: ['name', 'code', 'size'] }, { group: ['person', 'date', 'weighing'] }] }] }}
                     columns={[
                         { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
                         { title: 'Отвес', key: 'weighing', type: 'free' as const, render: (row) => <Reference kind="document" name="weighing" guid={row.weighing} /> },
@@ -170,7 +177,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                     ]}
                 />
             </Block>
-        </Flex>
+        </Stack>
     );
 }
 
@@ -201,7 +208,7 @@ export default function PeriodSummaryPage() {
     const report = useActionResult<PeriodSummary>({ object: Objects.document.periodClosing, action: 'periodSummary', payload: { periodStart: from, periodEnd: to }, enabled: from <= to });
     return (
         <Page title="Сводка за период">
-            <Flex vertical gap="middle">
+            <Stack gap={5}>
                 <Panel>
                     {/* Поля периода стоят в колонках сетки, как поля форм, кнопки выбора — в оставшихся колонках строки. */}
                     <Grid gutter="narrow">
@@ -229,10 +236,10 @@ export default function PeriodSummaryPage() {
                     <Alert type="warning" showIcon title="Начало периода позже его конца" />
                 ) : report.data === undefined ? (
                     report.loading
-                        ? <Typography.Text type="secondary">Загрузка…</Typography.Text>
+                        ? <Text tone="secondary">Загрузка…</Text>
                         : <Alert type="error" showIcon title="Не удалось построить отчёт" description="Нет права на отчёт, или сервер отклонил запрос" />
                 ) : <Summary summary={report.data} />}
-            </Flex>
+            </Stack>
         </Page>
     );
 }

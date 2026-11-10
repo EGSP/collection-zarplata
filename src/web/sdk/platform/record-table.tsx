@@ -197,6 +197,9 @@ function DescribedTable({ object, list, columns: columnNames, hiddenRowActions, 
                     rows={list.records}
                     rowKey={(record) => rowKey(object, record)}
                     layouts={layouts}
+                    // Страницы списка ведёт `useRecordList` и выводит переключатель под таблицей:
+                    // таблица показывает загруженную страницу целиком и своих страниц не добавляет.
+                    pagination="external"
                     loading={list.loading}
                     emptyText="Записей нет"
                     sort={primarySort === undefined ? null : { key: primarySort.field, direction: primarySort.direction }}

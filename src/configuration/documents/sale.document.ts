@@ -16,17 +16,22 @@ import { ActionDispatcher, callFunction } from '../../server/data/action-context
 import { DataPolicyError, DataValidationError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
-import { document, formula, Metadata, movements, type LookupInput, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
+import { document, formula, Metadata, movements, tablePart, type LookupInput, type ObjectTarget, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { formatDateTime, formatMoney, normalizeSearchText } from '../../server/ui/value-format.js';
 import { Employees } from '../catalogs/employees.catalog.js';
 import { InstallmentRates } from '../catalogs/installment-rates.catalog.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
 import { installmentTypes, ownInstallment, ownInstallmentRate } from '../installments.js';
+import { checkCouponActive, checkCouponUsage, couponNumberKey, couponTerms } from '../coupons.js';
+import { checkSaleCertificates } from '../certificates.js';
+import { Certificate } from './certificate.document.js';
 import { figuresFunction, periodFiguresFunction } from './sale.functions.js';
 import { SaleInstallmentFunctions } from './sale-installment.functions.js';
 import { numberAndDate, rubles } from '../money.js';
 import { cash, installmentMethod, paymentColumns, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from '../payments.js';
+import { AppliedCoupons } from '../registers/applied-coupons.register.js';
+import { CertificateBalances } from '../registers/certificate-balances.register.js';
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
 import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
@@ -36,6 +41,14 @@ import { Weighing } from './weighing.document.js';
 
 /** Способ оплаты продажи, при котором оплат несколько и у каждой свой способ. */
 const complexPayment = 'Сложная';
+
+/**
+ * Колонки оплаты сертификатами: сертификат и списываемая с него сумма. Объявлены отдельно:
+ * те же колонки принимает действие «Внести изменения».
+ */
+const certificateColumns = tablePart((part) => part
+    .field('certificate', (field) => field.reference(Certificate).title('Сертификат').required())
+    .field('amount', (field) => field.money().title('Сумма').minimum(1).required()));
 
 /**
  * Описание без политики и действия. Они читают запись продажи, а ссылка на `Sale` из его же
@@ -49,6 +62,11 @@ const complexPayment = 'Сложная';
  * Строка оплаты допускает способ «Рассрочка»: деньги по ней не приняты, на её сумму оформляется
  * рассрочка по продаже. Способ оплаты всей продажи «Рассрочка» простой: у продажи одна оплата
  * этим способом на всю сумму.
+ *
+ * Сертификаты хранятся отдельной табличной частью, а не способом оплаты: правила оплат («один
+ * способ на продажу», «Куда оплачено») к ним не относятся, а сертификатов в продаже может быть
+ * несколько. Способ оплаты продажи необязателен: он пуст, когда сертификаты покрывают всю сумму
+ * и оплат нет. В остальных случаях его требует политика `sale-payments`.
  */
 const sale = document('sale')
     .title('Продажа')
@@ -57,12 +75,15 @@ const sale = document('sale')
     // Тип результата указан явно: иначе тип продажи выводился бы через тип отвеса и обратно.
     .field('basis', (field) => field.reference((): ObjectTarget => Weighing).title('Основание'))
     .field('amount', (field) => field.money().title('Сумма').required().computed(formula.sum('goods', 'total')))
-    .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, installmentMethod, complexPayment]).initial(cash).required())
+    .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, installmentMethod, complexPayment]).initial(cash))
     .field('paid', (field) => field.money().title('Оплачено').required().computed(formula.sum('payments', 'amount')))
+    .field('paidByCertificates', (field) => field.money().title('Оплачено сертификатами').required().computed(formula.sum('certificates', 'amount')))
     // Строка отвеса заполнена у товара, взятого из отвеса-основания: по ней проведение отмечает товар проданным.
     .tablePart('goods', (part) => part.title('Товары').include(Goods)
         .field('weighingLine', (field) => field.number().title('Строка отвеса').integer().minimum(1)))
     .tablePart('payments', (part) => part.title('Оплаты').include(paymentColumns([...paymentMethods, installmentMethod])))
+    // Каждый сертификат указывается одной строкой, сумма строки не больше его остатка (`checkSaleCertificates`).
+    .tablePart('certificates', (part) => part.title('Сертификаты').include(certificateColumns))
     .listTableParts(['goods']);
 
 type SaleRecord = RecordOf<typeof sale>;
@@ -93,9 +114,22 @@ const installmentAmount = (record: SaleRecord) => record.payments.filter(byInsta
  * рассрочки. У остальных новых и изменённых строк «Куда оплачено» обязательно; строки прежней
  * записи `existing` не проверяются (`paymentsWithoutReceiver`). Отказ называет поле строки,
  * и форма отмечает незаполненную ячейку.
+ *
+ * Сертификаты входят в сумму наравне с оплатами. Если они покрывают всю сумму продажи, оплат
+ * и способа оплаты нет: покупатель ничего не доплачивает. Иначе способ оплаты обязателен
+ * и описывает доплату.
  */
 const checkPayments = (record: SaleRecord, existing: SaleRecord | null) => {
-    const mode = record.paymentMode;
+    const certificates = record.certificates.reduce((total, line) => total + line.amount, 0);
+    // Необязательное поле, не переданное в запросе, приходит как `undefined`.
+    const mode = record.paymentMode ?? null;
+    if (certificates > 0 && certificates >= record.amount) {
+        if (certificates > record.amount) return rejected(`Сертификаты больше суммы продажи на ${rubles(certificates - record.amount)}`);
+        if (record.payments.length > 0) return rejected('Сертификаты покрывают всю сумму продажи: оплаты не указываются');
+        if (mode !== null) return rejected('Сертификаты покрывают всю сумму продажи: способ оплаты не указывается');
+        return Effect.void;
+    }
+    if (mode === null) return Effect.fail(new DataValidationError({ message: 'Укажите способ оплаты продажи', fields: ['payload.fields.paymentMode'] }));
     // Рассрочка по продаже оформляется на одну сумму, поэтому и оплата рассрочкой у продажи одна.
     const methods = new Set<string>();
     for (const [index, payment] of record.payments.entries()) {
@@ -123,10 +157,21 @@ const checkPayments = (record: SaleRecord, existing: SaleRecord | null) => {
         const method = record.payments[0]?.method ?? mode;
         if (method !== mode) return rejected(`Способ оплаты «${method}» в строке оплаты не совпадает со способом оплаты продажи «${mode}»`);
     }
-    const paid = record.payments.reduce((total, payment) => total + payment.amount, 0);
-    if (paid < record.amount) return rejected(`Оплаты меньше суммы продажи на ${rubles(record.amount - paid)}`);
-    if (paid > record.amount) return rejected(`Оплаты больше суммы продажи на ${rubles(paid - record.amount)}`);
+    const paid = record.payments.reduce((total, payment) => total + payment.amount, 0) + certificates;
+    const subject = certificates > 0 ? 'Оплаты и сертификаты' : 'Оплаты';
+    if (paid < record.amount) return rejected(`${subject} меньше суммы продажи на ${rubles(record.amount - paid)}`);
+    if (paid > record.amount) return rejected(`${subject} больше суммы продажи на ${rubles(paid - record.amount)}`);
     return Effect.void;
+};
+
+/**
+ * Сертификаты продажи проверяются при записи и проведении (`checkSaleCertificates`): сумма строки
+ * не больше остатка сертификата без списания этой же продажи.
+ */
+const saleCertificatesPolicy: Policy<SaleRecord> = {
+    name: 'sale-certificates',
+    save: ({ proposedRecord }) => checkSaleCertificates(proposedRecord.certificates, proposedRecord.guid),
+    post: ({ document }) => checkSaleCertificates(document.certificates, document.guid),
 };
 
 /**
@@ -145,13 +190,78 @@ const salePaymentsPolicy: Policy<SaleRecord> = {
 
 /**
  * Проверяет сумму продажи (раздел «Правила учёта»): продажа с нулевой суммой допустима, только если
- * у какого-нибудь товара указана скидка. Иначе ноль означает, что стоимость не заполнили, например
- * у товара, перенесённого из отвеса: отвес стоимость не хранит.
+ * у какого-нибудь товара указана скидка или применён купон. Иначе ноль означает, что стоимость
+ * не заполнили, например у товара, перенесённого из отвеса: отвес стоимость не хранит.
  */
 const checkAmount = (record: SaleRecord) => {
     if (record.amount !== 0) return Effect.void;
-    if (record.goods.some((line) => (line.discount ?? 0) > 0)) return Effect.void;
+    if (record.goods.some((line) => (line.discount ?? 0) > 0 || (line.couponPercent ?? 0) > 0)) return Effect.void;
     return rejected('Сумма продажи равна нулю: укажите стоимость товаров. Нулевая сумма допустима только со скидкой');
+};
+
+type GoodsLine = SaleRecord['goods'][number];
+
+/** Строка товара с применённым купоном. Необязательное поле, не переданное в запросе, приходит как `undefined`. */
+const withCoupon = (line: GoodsLine): line is GoodsLine & { readonly coupon: string } => (line.coupon ?? null) !== null;
+
+/** Купон строки для сравнения с прежней записью: акция, номер и скопированный процент. */
+const couponKey = (line: GoodsLine) => JSON.stringify([line.coupon ?? null, couponNumberKey(line.couponNumber ?? ''), line.couponPercent ?? null]);
+
+/**
+ * Проверяет купоны в товарах продажи (раздел «Правила учёта», подраздел «Купон»).
+ *
+ * У строки с купоном указаны номер и процент, у строки без купона их нет. Скидка вместе
+ * с купоном не больше 100 %. Один купон, то есть акция и номер, применяется в продаже один раз.
+ *
+ * Срок действия и процент акции проверяются только у новых и изменённых купонов, если `existing`
+ * задана: купон, применённый в срок, остаётся в проведённой продаже и после окончания срока,
+ * а процент строки сохраняет значение на день применения. Смена даты продажи проверяет все купоны.
+ *
+ * Номера и количество проверяются всегда: применения других продаж могли появиться после записи
+ * черновика. Собственные движения продажи из проверки исключаются.
+ */
+const checkCoupons = (record: SaleRecord, existing: SaleRecord | null, checkTerms: boolean) => Effect.gen(function* () {
+    const byCoupon = new Map<string, string[]>();
+    for (const [index, line] of record.goods.entries()) {
+        const place = `Строка товара ${index + 1}`;
+        if (!withCoupon(line)) {
+            if ((line.couponNumber ?? null) !== null || (line.couponPercent ?? null) !== null) return yield* rejected(`${place}: номер и процент купона указаны без купона`);
+            continue;
+        }
+        const number = couponNumberKey(line.couponNumber ?? '');
+        if (number === '') return yield* rejected(`${place}: укажите номер купона`);
+        const percent = line.couponPercent ?? 0;
+        if (percent <= 0) return yield* rejected(`${place}: процент купона должен быть больше нуля`);
+        if (Math.round((line.discount ?? 0) * 100) + Math.round(percent * 100) > 10000) return yield* rejected(`${place}: скидка вместе с купоном больше 100 %`);
+        const numbers = byCoupon.get(line.coupon) ?? [];
+        if (numbers.includes(number)) return yield* rejected(`${place}: купон с номером ${number} уже применён к другому товару этой продажи`);
+        byCoupon.set(line.coupon, [...numbers, number]);
+    }
+    if (checkTerms) {
+        const dateChanged = existing === null || existing.date !== record.date;
+        const previous = new Set((existing?.goods ?? []).filter(withCoupon).map(couponKey));
+        for (const [index, line] of record.goods.entries()) {
+            if (!withCoupon(line) || (!dateChanged && previous.has(couponKey(line)))) continue;
+            const terms = yield* checkCouponActive(line.coupon, record.date);
+            if (line.couponPercent !== terms.percentage) return yield* rejected(`Строка товара ${index + 1}: процент купона ${line.couponPercent ?? 0} % не совпадает с процентом акции «${terms.name}» ${terms.percentage} %`);
+        }
+    }
+    for (const [coupon, numbers] of byCoupon) {
+        const terms = yield* couponTerms(coupon);
+        if (terms === null) return yield* rejected('Купон не найден');
+        yield* checkCouponUsage(terms, numbers, record.guid);
+    }
+});
+
+/**
+ * Правила купонов действуют при записи и при проведении, как правила оплат: продавец узнаёт
+ * о занятом номере или истёкшей акции, пока оформляет продажу. При проведении строки не меняются,
+ * поэтому срок и процент повторно не проверяются, а номера и количество проверяются заново.
+ */
+const saleCouponsPolicy: Policy<SaleRecord> = {
+    name: 'sale-coupons',
+    save: ({ existingRecord, proposedRecord }) => checkCoupons(proposedRecord, existingRecord, true),
+    post: ({ document }) => checkCoupons(document, document, false),
 };
 
 /**
@@ -270,7 +380,8 @@ const searchSales = ({ search, pageSize, offset }: LookupInput) => Effect.gen(fu
             codes.set(line.ownerGuid, [...codes.get(line.ownerGuid) ?? [], line.code]);
         }
     }
-    const rows = found.map((row) => ({ guid: row.guid, number: row.number, date: row.date, paymentMode: row.paymentMode, goodsCodes: (codes.get(row.guid) ?? []).join(', '), goods: (names.get(row.guid) ?? []).join(', '), amount: row.amount }));
+    // У продажи, целиком оплаченной сертификатами, способа оплаты нет: колонка «Оплата» называет сертификат.
+    const rows = found.map((row) => ({ guid: row.guid, number: row.number, date: row.date, paymentMode: row.paymentMode ?? 'Сертификат', goodsCodes: (codes.get(row.guid) ?? []).join(', '), goods: (names.get(row.guid) ?? []).join(', '), amount: row.amount }));
     // Номер нужен только поиску: колонки номера в подборе нет, и в строку ответа он не входит.
     const visible = (row: typeof rows[number]) => ({ guid: row.guid, date: row.date, paymentMode: row.paymentMode, goodsCodes: row.goodsCodes, goods: row.goods, amount: row.amount });
     if (words.length === 0) {
@@ -641,10 +752,15 @@ const saleWithHandlers = sale
         .group('Продажа', ['number', 'date', 'shift'])
         .group('Товары', ['goods', 'amount'])
         .group('Оплата', ['paymentMode', 'payments', 'paid'])
+        // Сертификаты выводит макет формы продажи блоком под товарами, а итог по ним нужен только расчётам.
+        .group('Сертификаты', ['certificates'])
+        .hide('paidByCertificates')
         .hide('basis')
         .hide('posted'))
     .policy(salePaymentsPolicy)
     .policy(saleAmountPolicy)
+    .policy(saleCouponsPolicy)
+    .policy(saleCertificatesPolicy)
     .policy(saleWeighingPolicy)
     .policy(saleInstallmentsPolicy)
     // Продажа закрытого периода вошла в зафиксированное начисление зарплаты и больше не меняется.
@@ -696,7 +812,7 @@ const saleWithHandlers = sale
         .input((input) => input
             .field('sale', (field) => field.reference(sale).title('Продажа').required())
             .field('version', (field) => field.string().title('Версия данных').maximumLength(50).required())
-            .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, installmentMethod, complexPayment]).required())
+            .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, installmentMethod, complexPayment]))
             // Условия новой рассрочки: заполняются, когда у продажи рассрочки нет, а оплата «Рассрочка» есть.
             .field('newInstallmentType', (field) => field.string().title('Тип новой рассрочки').choices(installmentTypes))
             .field('newInstallmentPerson', (field) => field.reference(PhysicalPersons).title('Покупатель'))
@@ -708,7 +824,8 @@ const saleWithHandlers = sale
             .tablePart('goods', (part) => part.title('Товары').include(Goods)
                 .field('weighingLine', (field) => field.number().title('Строка отвеса').integer().minimum(1)))
             .tablePart('payments', (part) => part.title('Оплаты').include(paymentColumns([...paymentMethods, installmentMethod])))
-            .tablePart('installments', (part) => part.title('Рассрочки')
+            .tablePart('certificates', (part) => part.title('Сертификаты').include(certificateColumns))
+            .tablePart('installments',(part) => part.title('Рассрочки')
                 .field('installment', (field) => field.reference((): ObjectTarget => installmentTarget).title('Рассрочка').required())
                 .field('type', (field) => field.string().title('Тип').choices(installmentTypes))
                 .field('amount', (field) => field.money().title('Сумма').minimum(1).required())
@@ -732,7 +849,7 @@ const saleWithHandlers = sale
             const record = state.sale;
             if (record.deletedAt !== null) return yield* rejected('Продажа помечена на удаление, изменить её нельзя');
             if (!record.posted) return yield* rejected('Продажа не проведена: измените её на форме и проведите');
-            const proposed: SaleRecord = { ...record, paymentMode: input.paymentMode, goods: input.goods, payments: input.payments };
+            const proposed: SaleRecord = { ...record, paymentMode: input.paymentMode ?? null, goods: input.goods, payments: input.payments, certificates: input.certificates };
             // Сравниваются все записываемые поля и части по метаданным. Вычисляемые значения
             // пересчитывает запись: их отсутствие во входе не означает изменение товара.
             // Порядок строк значим, порядок ключей составного значения значимым не является.
@@ -866,8 +983,12 @@ const saleWithHandlers = sale
         movements(MoneyReceipts, record.payments.filter((payment) => !byInstallment(payment)).map((payment) => ({ shift: record.shift, method: payment.method, amount: payment.amount }))),
         // Оплаты способом «Рассрочка» записаны одной суммой: рассрочки оформляются на продажу, а не на строку.
         movements(UnarrangedInstallments, installmentAmount(record) > 0 ? [{ sale: record.guid, amount: installmentAmount(record) }] : []),
+        // Применение на каждую строку с купоном: итог по акции равен числу применённых купонов.
+        movements(AppliedCoupons, record.goods.filter(withCoupon).map((line) => ({ coupon: line.coupon, number: couponNumberKey(line.couponNumber ?? ''), count: 1 }))),
+        // Оплата сертификатом списывает его остаток: движение с минусом на сумму строки.
+        movements(CertificateBalances, record.certificates.map((line) => ({ certificate: line.certificate, amount: 0 - line.amount }))),
     ]));
 
 /** Группа полномочий объединяет суммы и оплаты независимо от расположения на форме. */
 const saleWithFunctions = saleWithHandlers.function('figures', figuresFunction).function('periodFigures', periodFiguresFunction);
-export const Sale = saleWithFunctions.withAccess(accessSchema(saleWithFunctions).defineGroup('financial', ['amount', 'paid', 'payments', 'goods.cost', 'goods.discount', 'goods.total'], 'Финансы'));
+export const Sale = saleWithFunctions.withAccess(accessSchema(saleWithFunctions).defineGroup('financial', ['amount', 'paid', 'payments', 'paidByCertificates', 'certificates', 'goods.cost', 'goods.discount', 'goods.couponPercent', 'goods.total'], 'Финансы'));
