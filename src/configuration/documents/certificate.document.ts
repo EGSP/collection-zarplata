@@ -59,6 +59,11 @@ const certificate = document('certificate')
         .field('method', (field) => field.string().title('Способ').choices(paymentMethods).required())
         .field('amount', (field) => field.money().title('Сумма').minimum(1).required())
         .field('receiver', (field) => receiverField(field).title('Откуда выдано').required()))
+    // Продавец ищет сертификат по покупателю, поэтому представление начинается с держателя: поиск
+    // подсказок идёт по представлению. Номер без ведущих нулей различает сертификаты одного
+    // человека и оставляет поиск по номеру. Остаток в представление не входит: его показывает
+    // окно оплаты под полем выбора.
+    .presentation([{ field: 'person' }, { text: ', № ' }, { field: 'number', format: 'number' }])
     // Сертификат движется в регистр номиналом при проведении и обменом на деньги со знаком минус.
     // Период обмена — его время: в истории движений обмен стоит позже выдачи.
     .posting((record) => Effect.succeed([movements(CertificateBalances, [

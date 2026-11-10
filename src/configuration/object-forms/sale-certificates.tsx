@@ -10,7 +10,7 @@
  */
 import { useState } from 'react';
 import { App, Flex, Form, type FormInstance } from 'antd';
-import { ActionDialog, Button, DataTable, Icons, RecordLink, Stack, TablePartTitle, useAction, useObjectView, type FormValues } from '../../web/sdk';
+import { ActionDialog, Button, DataTable, FieldDisplay, FieldInput, Icons, RecordLink, Stack, TablePartTitle, Text, useAction, useObjectView, useRecord, type FormValues, type InputProperties } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 
 /** Строка сертификата на форме: до записи ячейки могут быть пустыми. */
@@ -43,6 +43,27 @@ export const certificatesTotal = (value: unknown) => certificateLines(value).red
 const certificateRows = (value: unknown): ReadonlyArray<CertificateRow> => certificateLines(value).flatMap((line, index) => typeof line.certificate === 'string' && typeof line.amount === 'number'
     ? [{ line: index + 1, certificate: line.certificate, amount: line.amount }]
     : []);
+
+/**
+ * Поле выбора сертификата с остатком под ним. Представление сертификата остатка не содержит:
+ * остаток нужен только при выборе, чтобы продавец видел, сколько можно списать. Остаток читается
+ * из записи сертификата и обновляется при выборе другого.
+ */
+function CertificateInput(properties: InputProperties<unknown>) {
+    const certificate = typeof properties.value === 'string' ? properties.value : null;
+    const balance = useRecord(Objects.document.certificate, certificate).record?.balance;
+    return (
+        <Stack gap={2} align="stretch">
+            <FieldInput {...properties} />
+            {certificate !== null && typeof balance === 'number' && (
+                <Text.Helper>Остаток: <FieldDisplay field={{ kind: 'money', target: null }} value={balance} /></Text.Helper>
+            )}
+        </Stack>
+    );
+}
+
+/** Компонент поля имеет постоянный тип, чтобы окно не пересоздавало ввод при каждой отрисовке. */
+const fieldInputs = { certificate: CertificateInput };
 
 /** Свойства сертификатов продажи. */
 interface SaleCertificatesProperties {
@@ -124,6 +145,7 @@ export function SaleCertificates({ form, sale, amount, disabled }: SaleCertifica
                 <ActionDialog
                     // Продажу подставляет форма: продавец её не вводит.
                     action={{ ...action, input: action.input.filter((field) => field.name !== 'sale') }}
+                    fieldInputs={fieldInputs}
                     initialValues={initialValues}
                     onExecute={run}
                     onClose={() => setEditedLine(null)}
