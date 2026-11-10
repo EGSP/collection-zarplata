@@ -47,9 +47,9 @@ const goodsOptions: TablePartOptions = {
     columnSizes: goodsColumnSizes,
     columnOrder: ['code', 'name', 'size', 'cost', 'discount', 'total', 'comment', 'sale'],
     layouts: {
-        sm: [['code', 'name'], 'size', ['cost', 'discount'], 'total', ['comment', 'sale']],
-        lg: [['code', 'name'], 'size', 'cost', 'discount', 'total', 'comment', 'sale'],
-        xlg: ['code', 'name', 'size', 'cost', 'discount', 'total', 'comment', 'sale'],
+        sm: [{ line: [{ group: ['code', 'name'] }, 'size', { group: ['cost', 'discount'] }, 'total', { group: ['comment', 'sale'] }] }],
+        lg: [{ line: [{ group: ['code', 'name'] }, 'size', 'cost', 'discount', 'total', 'comment', 'sale'] }],
+        xlg: [{ line: ['code', 'name', 'size', 'cost', 'discount', 'total', 'comment', 'sale'] }],
     },
     hiddenColumns: ['postedIn1C', 'coupon', 'couponNumber', 'couponPercent'],
     readOnlyColumns: ['name', 'code', 'size', 'comment', 'cost', 'discount', 'total', 'sale'],

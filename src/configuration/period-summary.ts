@@ -12,6 +12,7 @@ import { Effect } from 'effect';
 import { callFunction } from '../server/data/action-context.js';
 import { ReadonlyDatabase } from '../server/database/database.effect.js';
 import { query } from '../server/database/sql.builder.js';
+import { Certificate, purchasedCertificate } from './documents/certificate.document.js';
 import { SaleInstallment } from './documents/sale-installment.document.js';
 import { Sale } from './documents/sale.document.js';
 import { Weighing } from './documents/weighing.document.js';
@@ -39,6 +40,20 @@ export interface SummaryPaymentRow {
     readonly date: string;
     readonly method: string;
     readonly amount: number;
+}
+
+/**
+ * Деньги сертификатов периода: покупка добавляет номинал в колонку своего способа оплаты, обмен
+ * на деньги вычитает строки обмена в колонках их способов. Эти деньги не входят в «Всего»:
+ * у них свой итог (раздел «Правила учёта», «Сводка за период»).
+ */
+export interface SummaryCertificateRow {
+    readonly certificate: string;
+    readonly kind: 'purchase' | 'exchange';
+    readonly person: string;
+    readonly date: string;
+    readonly cash: number;
+    readonly cashless: number;
 }
 
 /** Товар в отвесе. */
@@ -81,6 +96,8 @@ export interface PeriodSummary {
     readonly from: string;
     readonly to: string;
     readonly payments: { readonly rows: ReadonlyArray<SummaryPaymentRow>; readonly totals: PaymentTotals };
+    /** Покупки и обмены сертификатов со своим итогом вне «Всего». */
+    readonly certificates: { readonly rows: ReadonlyArray<SummaryCertificateRow>; readonly totals: PaymentTotals };
     readonly weighings: { readonly rows: ReadonlyArray<SummaryWeighingRow>; readonly total: number };
     readonly debtors: { readonly rows: ReadonlyArray<SummaryDebtor>; readonly total: number };
 }
@@ -104,6 +121,9 @@ const moment = (value: string): number => new Date(value).getTime();
  *   периода (`initialPayments`): те уже стоят в строке продажи.
  * - Отвесы: строки, которые сейчас в состоянии «В отвесе», у отвесов с датой не позже конца
  *   периода. Отвес не хранит историю состояний строк, поэтому берётся текущее.
+ * - Сертификаты: купленные сертификаты с датой в периоде дают номинал со знаком плюс, обмены
+ *   на деньги со временем обмена в периоде дают строки обмена со знаком минус. Выданные без оплаты
+ *   не входят: денег при выдаче не было. Итог сертификатов не входит во «Всего».
  * - Должники: проведённые рассрочки, оформленные не позже конца периода, с долгом на его конец:
  *   сумма рассрочки за вычетом взносов и погашений возвратами по этот день. Сумму рассрочки
  *   должник видит уже за вычетом погашений возвратами: её разница с долгом — только взносы.
@@ -180,6 +200,40 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         person, debt: debts.reduce((sum, item) => sum + item.debt, 0), installments: debts.sort((first, second) => moment(first.date) - moment(second.date)),
     })).sort((first, second) => second.debt - first.debt);
 
+    // Сертификаты: покупки периода по дате документа, обмены по времени обмена. Оба отбора
+    // читаются с запасом по строке даты и уточняются днём события, как продажи.
+    const purchased = (yield* database.all(query(Certificate).select({
+        columns: ['guid', 'date', 'person', 'denomination', 'paymentMethod'],
+        where: [...active, { column: 'kind', operator: '=', value: purchasedCertificate }, { column: 'date', operator: '>=', value: dayStart(from) }, { column: 'date', operator: '<', value: end }],
+    }))).filter((row) => inPeriod(row.date));
+    const exchanged = (yield* database.all(query(Certificate).select({
+        columns: ['guid', 'exchangedAt', 'person'],
+        where: [...active, { column: 'exchangedAt', operator: '>=', value: dayStart(from) }, { column: 'exchangedAt', operator: '<', value: end }],
+    }))).filter((row) => row.exchangedAt !== null && inPeriod(row.exchangedAt));
+    const exchangeLines = exchanged.length === 0 ? [] : yield* database.all(query(Certificate).tablePart('exchanges').select({
+        columns: ['ownerGuid', 'method', 'amount'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: exchanged.map((row) => row.guid) }],
+    }));
+    // Сумма строк обмена одним способом: обмен может выдать деньги и наличными, и безналичными.
+    const exchangedBy = (guid: string, method: string) => exchangeLines
+        .filter((line) => line.ownerGuid === guid && line.method === method)
+        .reduce((sum, line) => sum + line.amount, 0);
+    const certificateRows: SummaryCertificateRow[] = [
+        ...purchased.map((row): SummaryCertificateRow => ({
+            certificate: row.guid, kind: 'purchase', person: row.person, date: row.date,
+            cash: row.paymentMethod === cash ? row.denomination : 0,
+            cashless: row.paymentMethod === cashless ? row.denomination : 0,
+        })),
+        ...exchanged.map((row): SummaryCertificateRow => ({
+            certificate: row.guid, kind: 'exchange', person: row.person, date: row.exchangedAt!,
+            cash: 0 - exchangedBy(row.guid, cash), cashless: 0 - exchangedBy(row.guid, cashless),
+        })),
+    ].sort((first, second) => moment(first.date) - moment(second.date));
+    const certificateTotals: PaymentTotals = {
+        cash: certificateRows.reduce((sum, row) => sum + row.cash, 0),
+        cashless: certificateRows.reduce((sum, row) => sum + row.cashless, 0),
+    };
+
     // Товары в отвесе у отвесов, оформленных не позже конца периода.
     const weighings = (yield* database.all(query(Weighing).select({
         columns: ['guid', 'date', 'person'],
@@ -201,6 +255,7 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         from, to, operations,
         totals: addSummaryAmounts(operations.totals, { ...paymentTotals, installment: 0 }),
         payments: { rows: paymentRows, totals: paymentTotals },
+        certificates: { rows: certificateRows, totals: certificateTotals },
         weighings: { rows: weighingRows, total: weighingRows.reduce((sum, row) => sum + row.total, 0) },
         debtors: { rows: debtorRows, total: debtorRows.reduce((sum, row) => sum + row.debt, 0) },
     };

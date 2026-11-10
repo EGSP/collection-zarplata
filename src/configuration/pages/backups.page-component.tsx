@@ -128,7 +128,7 @@ export default function BackupsPage() {
                 </Stack>
             </Card>
             {running.length > 0 && <Card size="small" title={<Space><Spin size="small" />Идёт копирование</Space>}>
-                <DataTable<RunningBackup> rowKey={(row) => row.id} layouts={{ sm: [['startedAt', 'source'], 'status', 'cancel'], lg: [] }} rows={running} columns={[
+                <DataTable<RunningBackup> rowKey={(row) => row.id} layouts={{ sm: [{ line: [{ group: ['startedAt', 'source'] }, 'status', 'cancel'] }], lg: [] }} rows={running} columns={[
                     { title: 'Начата', key: 'startedAt', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (backup) => formatTime(backup.startedAt) },
                     { title: 'Источник', key: 'source', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (backup) => sourceTitles[backup.source] },
                     { title: 'Состояние', key: 'status', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (backup) => backup.cancelling ? 'Прерывается' : 'Пишется' },
@@ -141,7 +141,7 @@ export default function BackupsPage() {
                 type={overview.lastOutcome.kind === 'succeeded' ? 'success' : overview.lastOutcome.kind === 'failed' ? 'error' : 'warning'}
                 title={`${overview.lastOutcome.kind === 'succeeded' ? 'Последняя копия записана' : overview.lastOutcome.kind === 'failed' ? 'Последняя копия не записана' : 'Последняя копия прервана'}: ${formatTime(overview.lastOutcome.finishedAt)}`}
                 description={overview.lastOutcome.message ?? overview.lastOutcome.file ?? undefined} />}
-            <DataTable<BackupFile> pagination={{ pageSize: 10 }} rowKey={(row) => row.name} loading={result.loading && running.length === 0} layouts={{ sm: [['createdAt', 'source'], ['name', 'size']], lg: [] }} rows={[...overview.files]} emptyText={'Копий пока нет'} columns={[
+            <DataTable<BackupFile> pagination={{ pageSize: 10 }} rowKey={(row) => row.name} loading={result.loading && running.length === 0} layouts={{ sm: [{ line: [{ group: ['createdAt', 'source'] }, { group: ['name', 'size'] }] }], lg: [] }} rows={[...overview.files]} emptyText={'Копий пока нет'} columns={[
                 { title: 'Создана', key: 'createdAt', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (file) => formatTime(file.createdAt) },
                 { title: 'Источник', key: 'source', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (file) => sourceTitles[file.source] },
                 { title: 'Размер', key: 'size', type: 'free' as const, size: { minimum: 16, weight: 1 }, render: (file) => formatSize(file.size) },

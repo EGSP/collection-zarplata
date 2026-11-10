@@ -31,9 +31,9 @@ const goodsOptions: TablePartOptions = {
     // Переключатель «Проведено в 1С» шире флажка: подписи «Да» и «Нет» должны читаться целиком.
     columnSizes: { ...goodsColumnSizes, postedIn1C: { minimum: 12 } },
     layouts: {
-        sm: [['code', 'name'], ['size', 'postedIn1C'], ['cost', 'discount'], 'total', 'comment'],
-        lg: [['code', 'name'], 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
-        xlg: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
+        sm: [{ line: [{ group: ['code', 'name'] }, { group: ['size', 'postedIn1C'] }, { group: ['cost', 'discount'] }, 'total', 'comment'] }],
+        lg: [{ line: [{ group: ['code', 'name'] }, 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'] }],
+        xlg: [{ line: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'] }],
     },
     columnOrder: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', 'total', 'comment'],
     columnInputs: { postedIn1C: PostedIn1CSwitch },

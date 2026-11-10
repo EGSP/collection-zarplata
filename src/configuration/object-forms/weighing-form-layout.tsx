@@ -28,8 +28,8 @@ const hung = 'Вывешено';
 const newGoodsOptions: TablePartOptions = {
     columnSizes: goodsColumnSizes,
     layouts: {
-        sm: [['code', 'name'], ['size', 'state'], 'sale', 'comment'],
-        lg: ['code', 'name', 'size', 'state', 'sale', 'comment'],
+        sm: [{ line: [{ group: ['code', 'name'] }, { group: ['size', 'state'] }, 'sale', 'comment'] }],
+        lg: [{ line: ['code', 'name', 'size', 'state', 'sale', 'comment'] }],
     },
     columnOrder: ['code', 'name', 'size', 'state', 'sale', 'comment'],
     hiddenColumns: ['postedIn1C', 'cost', 'discount', 'coupon', 'couponNumber', 'couponPercent', 'total'],
@@ -129,7 +129,7 @@ function HeldLinesDialog({ open, title, confirm, lines, loading = false, onConfi
                         { key: 'comment', title: 'Комментарий', type: 'string', size: goodsColumnSizes['comment'], value: (line) => line.comment },
                     ]}
                     // В окне код стоит над названием, как в таблице товаров отвеса на узком месте.
-                    layouts={{ sm: ['lineNumber', ['code', 'name'], 'comment'] }}
+                    layouts={{ sm: [{ line: ['lineNumber', { group: ['code', 'name'] }, 'comment'] }] }}
                     emptyText="Товаров в отвесе нет"
                 />
             </BreakpointContainer>

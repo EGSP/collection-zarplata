@@ -72,6 +72,8 @@ export function LookupDialog({ object, value, onSelect, onClose }: LookupDialogP
                 {error !== null && <Alert type="error" showIcon title="Не удалось выполнить подбор" description={error instanceof ApiError ? error.message : String(error)} />}
                 <DataTable<LookupPage['rows'][number]>
                     rowKey={(row) => row.guid}
+                    // Страницы подбора читает сервер, переключатель стоит под таблицей.
+                    pagination="external"
                     loading={isFetching}
                     rows={data?.rows ?? []}
                     columns={lookup.columns.map((column) => ({

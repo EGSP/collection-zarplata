@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { DataTable, FieldDisplay, Icons, Panel, RecordLink, Stack, Text, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { SummaryAmounts, SummaryLink, SummaryOperation } from '../period-summary-operations';
+import type { PaymentTotals, SummaryCertificateRow } from '../period-summary';
 import { documentNumber, feedDate, feedGoods } from '../shell-components/seller-feed-format';
 
 /** Денежная сумма в том же виде, что в формах. */
@@ -14,18 +15,21 @@ export function Money({ value }: { readonly value: number }) {
     return <FieldDisplay field={{ kind: 'money', target: null }} value={value} />;
 }
 
+/**
+ * Таблица сводки показывает десять записей и прокручивается внутри: длинный день не растягивает
+ * страницу. Заголовок и итоги закреплены, поэтому при прокрутке видны подписи колонок и суммы.
+ */
+export const summaryScroll = { visibleRows: 10, pinned: { header: true, summary: true } } as const;
+
 /** Все деньги строки или итога: в сводке нет долга, поэтому сумма колонок фактическая. */
 const totalOf = (amounts: SummaryAmounts) => amounts.cash + amounts.cashless + amounts.installment;
 
-/** Документ строки: значок, вид и номер, дата и товары зоны. */
+/**
+ * Документ строки: значок вида, номер и дата. Значок уже отличает продажу от возврата, поэтому
+ * слово вида не пишется. Товары стоят в соседней колонке.
+ */
 function OperationTitle({ row }: { readonly row: SummaryOperation }) {
-    const goods = feedGoods(row.goods);
-    return (
-        <Stack gap={2}>
-            <Text noWrap>{row.kind === 'sale' ? <Icons.sell /> : <Icons.refund />} {row.kind === 'sale' ? 'Продажа' : 'Возврат'} № {documentNumber(row.number)} от {feedDate(row.date)}</Text>
-            {goods !== '' && <Text.Helper>{goods}</Text.Helper>}
-        </Stack>
-    );
+    return <Text noWrap>{row.kind === 'sale' ? <Icons.sell /> : <Icons.refund />} № {documentNumber(row.number)} от {feedDate(row.date)}</Text>;
 }
 
 /** Связанный документ в раскрытой строке. У взноса ссылка ведёт на его рассрочку. */
@@ -49,7 +53,9 @@ export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray
             rowKey={(row) => row.key}
             rows={rows}
             emptyText="Продаж и возвратов нет"
-            layouts={{ sm: ['document', ['cash', 'cashless'], ['installment', 'total']], lg: [] }}
+            // На узком экране документ и товары занимают первую линию, четыре суммы вторую.
+            layouts={{ sm: [{ line: ['document', 'goods'] }, { line: ['cash', 'cashless', 'installment', 'total'] }], lg: [] }}
+            {...summaryScroll}
             onRowClick={(row) => { void open(row.kind === 'sale' ? Objects.document.sale : Objects.document.refund, row.guid, 'tab'); }}
             expansion={{
                 isExpandable: (row) => row.links.length > 0,
@@ -58,7 +64,9 @@ export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray
                 render: (row) => <Stack gap={2}>{row.links.map((link) => <LinkLine key={`${link.kind}-${link.guid}-${link.date}`} link={link} />)}</Stack>,
             }}
             columns={[
-                { key: 'document', title: 'Документ и товары', type: 'free', size: { minimum: 24, weight: 1 }, render: (row) => <OperationTitle row={row} /> },
+                { key: 'document', title: 'Документ', type: 'free', size: { minimum: 22 }, render: (row) => <OperationTitle row={row} /> },
+                // Товары сжимаются первыми: длинный список укорачивается многоточием, целиком он в подсказке.
+                { key: 'goods', title: 'Товары', type: 'free', size: { minimum: 8, weight: 1 }, render: (row) => <Text ellipsis>{feedGoods(row.goods)}</Text> },
                 { key: 'cash', title: 'Наличные', type: 'money', value: (row) => row.amounts.cash },
                 { key: 'cashless', title: 'Безналичные', type: 'money', value: (row) => row.amounts.cashless },
                 { key: 'installment', title: 'Рассрочка', type: 'money', value: (row) => row.amounts.installment },
@@ -69,8 +77,35 @@ export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray
     );
 }
 
-/** Итог «Всего» на рельсе: обе зоны и взносы. Каждая сумма входит в него один раз. */
-export function SummaryTotalsPanel({ amounts }: { readonly amounts: SummaryAmounts }) {
+/**
+ * Покупки и обмены сертификатов периода. Покупка стоит номиналом со знаком плюс, обмен на деньги
+ * строками обмена со знаком минус; сумма стоит в колонке способа. Итог под таблицей не входит во «Всего».
+ */
+export function CertificatesTable({ rows, totals }: { readonly rows: ReadonlyArray<SummaryCertificateRow>; readonly totals: PaymentTotals }) {
+    return (
+        <DataTable<SummaryCertificateRow>
+            rowKey={(row) => `${row.kind}-${row.certificate}`}
+            rows={rows}
+            emptyText="Покупок и обменов сертификатов нет"
+            layouts={{ sm: [{ line: [{ group: ['date', 'person'] }, 'certificate'] }, { line: ['cash', 'cashless'] }], lg: [] }}
+            {...summaryScroll}
+            columns={[
+                { key: 'date', title: 'Дата', type: 'dateTime', render: (row) => <FieldDisplay field={{ kind: 'dateTime', target: null }} value={row.date} /> },
+                { key: 'person', title: 'Держатель', type: 'free', size: { minimum: 12, weight: 1 }, render: (row) => <RecordLink reference={{ kind: 'catalog', name: 'physicalPersons', guid: row.person }} /> },
+                { key: 'certificate', title: 'Сертификат', type: 'free', size: { minimum: 12, weight: 1 }, render: (row) => <Text noWrap>{row.kind === 'exchange' ? 'Обмен: ' : ''}<RecordLink reference={{ kind: 'document', name: 'certificate', guid: row.certificate }} /></Text> },
+                { key: 'cash', title: 'Наличные', type: 'money', value: (row) => row.cash === 0 ? null : row.cash },
+                { key: 'cashless', title: 'Безналичные', type: 'money', value: (row) => row.cashless === 0 ? null : row.cashless },
+            ]}
+            summary={{ date: <Text strong>Итого</Text>, cash: totals.cash, cashless: totals.cashless }}
+        />
+    );
+}
+
+/**
+ * Итог «Всего» на рельсе: обе зоны и взносы, каждая сумма входит в него один раз. Ниже отдельной
+ * строкой стоят сертификаты: их деньги во «Всего» не входят.
+ */
+export function SummaryTotalsPanel({ amounts, certificates }: { readonly amounts: SummaryAmounts; readonly certificates: PaymentTotals }) {
     return (
         <Panel title="Всего">
             <Stack gap={5}>
@@ -78,6 +113,7 @@ export function SummaryTotalsPanel({ amounts }: { readonly amounts: SummaryAmoun
                 <Text expressive noWrap>Безналичные: <Money value={amounts.cashless} /></Text>
                 <Text expressive noWrap>Рассрочка: <Money value={amounts.installment} /></Text>
                 <Text expressive strong noWrap>Итого: <Money value={totalOf(amounts)} /></Text>
+                <Text expressive noWrap>Сертификаты: <Money value={certificates.cash + certificates.cashless} /></Text>
             </Stack>
         </Panel>
     );

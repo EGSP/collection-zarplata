@@ -7,8 +7,8 @@ import { Objects } from '../objects.generated';
  * кроме купона и его номера: они заполнены редко и не стоят отдельными колонками.
  */
 const saleGoodsLayouts: TableLayouts = {
-    sm: [['code', 'name'], ['size', 'postedIn1C'], ['cost', 'discount'], ['coupon', 'couponNumber'], ['couponPercent', 'total'], ['comment', 'weighingLine']],
-    xlg: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', ['coupon', 'couponNumber'], 'couponPercent', 'total', 'comment', 'weighingLine'],
+    sm: [{ line: [{ group: ['code', 'name'] }, { group: ['size', 'postedIn1C'] }, { group: ['cost', 'discount'] }, { group: ['coupon', 'couponNumber'] }, { group: ['couponPercent', 'total'] }, { group: ['comment', 'weighingLine'] }] }],
+    xlg: [{ line: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', { group: ['coupon', 'couponNumber'] }, 'couponPercent', 'total', 'comment', 'weighingLine'] }],
 };
 
 /** Поля товара, по которым строка возврата признаётся копией строки продажи. */

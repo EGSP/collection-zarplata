@@ -125,6 +125,35 @@ export interface InstallmentPaymentFeedRow {
 }
 
 /**
+ * Первоначальные взносы продаж (`initialPayments`): сумма по каждой продаже из `sales`. Лента
+ * продавца прибавляет их к сумме продажи вместо оплаты «Рассрочка», как сводка за период: долг
+ * рассрочки денег не приносит, а первоначальный взнос пришёл в день продажи. Учитываются
+ * проведённые рассрочки без пометки удаления; продажа без них в результат не попадает.
+ */
+export const readInitialPayments = (sales: ReadonlyArray<string>) => Effect.gen(function* () {
+    const database = yield* ReadonlyDatabase;
+    const result = new Map<string, number>();
+    if (sales.length === 0) return result;
+    const installments = yield* database.all(query(SaleInstallment).select({
+        columns: ['guid', 'date', 'type', 'sale'],
+        where: [{ column: 'posted', operator: '=', value: true }, { column: 'deletedAt', operator: '=', value: null }, { column: 'sale', operator: 'IN', value: [...new Set(sales)] }],
+    }));
+    if (installments.length === 0) return result;
+    // Взносы читаются в порядке строк: правило первоначального взноса при равных моментах берёт первый.
+    const payments = yield* database.all(query(SaleInstallment).tablePart('payments').select({
+        columns: ['ownerGuid', 'lineNumber', 'date', 'amount'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: installments.map((row) => row.guid) }],
+        orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
+    }));
+    for (const installment of installments) {
+        const initial = initialPayments(installment, payments.filter((payment) => payment.ownerGuid === installment.guid));
+        const amount = [...initial].reduce((sum, payment) => sum + payment.amount, 0);
+        result.set(installment.sale, (result.get(installment.sale) ?? 0) + amount);
+    }
+    return result;
+});
+
+/**
  * Взносы проведённых рассрочек для ленты продавца (`sellerFeed` возврата), новые сверху.
  * Первоначальный взнос (`initialPayments`) строки не получает: его деньги уже показывает строка
  * продажи. Поэтому читаются все взносы рассрочки, а не только последние: без ранних взносов нельзя

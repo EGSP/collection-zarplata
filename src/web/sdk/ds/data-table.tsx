@@ -11,8 +11,9 @@ import { useOverflowShadows } from './overflow-shadows';
  * колонки совпадают без измерений. Минимумы не сжимаются: если места не хватает, таблица
  * прокручивается по горизонтали, а у края с невидимыми колонками появляется лёгкая тень.
  *
- * Схема отображения (`layouts`) объединяет колонки в составные по точке перелома ближайшего
- * `BreakpointContainer`: на узком месте код стоит над названием, а не в отдельной колонке.
+ * Схема отображения (`layouts`) по точке перелома ближайшего `BreakpointContainer` делит запись
+ * на строки (`line`) и ставит поля группы (`group`) друг под другом в одной колонке: на узком месте
+ * код стоит над названием, а суммы могут встать второй строкой под длинным названием.
  *
  * ```tsx
  * <DataTable
@@ -23,13 +24,13 @@ import { useOverflowShadows } from './overflow-shadows';
  *     ]}
  *     rows={lines}
  *     rowKey={(row) => row.lineNumber}
- *     layouts={{ sm: [['code', 'name'], 'total'], lg: ['code', 'name', 'total'] }}
+ *     layouts={{ sm: [{ line: [{ group: ['code', 'name'] }, 'total'] }], lg: [{ line: ['code', 'name', 'total'] }] }}
  * />
  * ```
  *
- * Высота строки — 40 px (размер `md` у Carbon), отступ ячейки — 16 px. Поля составной колонки
- * стоят по 32 px (размер `sm`), поэтому строка из двух полей — 64 px, как строка `xl` у Carbon,
- * предназначенная для двух строк значения. Заголовок той же высоты, что строки.
+ * Высота строки — 40 px (размер `md` у Carbon), отступ ячейки — 16 px. Поля группы и строки
+ * схемы стоят по 32 px (размер `sm`), поэтому запись из двух уровней — 64 px, как строка `xl`
+ * у Carbon, предназначенная для двух строк значения. Заголовок раскладывается так же, как записи.
  *
  * Ячейка с двумя режимами рисует рамку фокуса сама, поэтому содержимое при фокусе не сдвигается.
  * Ячейка с элементом без режимов, например переключателем или кнопками способа оплаты, рамки
@@ -41,14 +42,15 @@ import { useOverflowShadows } from './overflow-shadows';
  * Элемент с атрибутом `data-cell-target` получает щелчок по отступу ячейки вокруг него.
  */
 import { Checkbox, Pagination, Radio, Spin, theme } from 'antd';
-import { Fragment, isValidElement, useState, useRef, type CSSProperties, type Key, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, isValidElement, useLayoutEffect, useState, useRef, type CSSProperties, type Key, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { useBreakpoint } from './breakpoints';
 import { Button } from './button';
 import { cellAlign, cellColumnSize, cellInputClass, formatCell, type CellType } from './cell-types';
 import { Icons } from './icons';
 import { useLayer } from './layer';
+import { isRendered } from './rendered';
 import { spacing } from './layout';
-import { columnGroups, columnTrack, groupSize, tableLayoutAt, type ColumnSize, type ControlColumnSize, type TableLayouts } from './table-layout';
+import { columnLines, columnTrack, groupSize, tableLayoutAt, trackMinimum, type ColumnSize, type ControlColumnSize, type TableLayouts } from './table-layout';
 
 /**
  * Колонка таблицы со строками типа `Row`. Колонка сообщает тип своих значений (`cell-types.tsx`):
@@ -124,6 +126,28 @@ export interface DataTableExpansion<Row> {
  */
 export type DataTableRowState = 'muted' | 'locked';
 
+/** Страницы строк таблицы: размер страницы, текущая страница и, при серверных страницах, число строк. */
+export interface DataTablePagination {
+    readonly current?: number;
+    readonly pageSize: number;
+    readonly total?: number;
+    readonly onChange?: (page: number) => void;
+}
+
+/**
+ * Закреплённые строки остаются у края видимой области, пока таблица прокручивается. `header`
+ * и `summary` закрепляют заголовок сверху и итоги снизу, `rows` закрепляет отдельные записи
+ * у верхнего (`top`) или нижнего (`bottom`) края; остальные записи функция отмечает `undefined`.
+ */
+export interface DataTablePinning<Row> {
+    readonly header?: boolean | undefined;
+    readonly summary?: boolean | undefined;
+    readonly rows?: ((row: Row, index: number) => 'top' | 'bottom' | undefined) | undefined;
+}
+
+/** Размер страницы таблицы просмотра на `sm`, если экран не задал `pagination`. */
+export const compactPageSize = 10;
+
 /** Свойства таблицы данных. */
 export interface DataTableProperties<Row> {
     readonly columns: ReadonlyArray<DataTableColumn<Row>>;
@@ -143,8 +167,31 @@ export interface DataTableProperties<Row> {
      * Колонке свободного типа передают готовое содержимое. Без свойства строки итогов нет.
      */
     readonly summary?: { readonly [key: string]: unknown } | undefined;
-    /** Без total страницы нарезаются локально; с total экран передаёт уже выбранную страницу. */
-    readonly pagination?: { readonly current?: number; readonly pageSize: number; readonly total?: number; readonly onChange?: (page: number) => void } | undefined;
+    /**
+     * Страницы строк. Без `total` таблица нарезает `rows` сама и не показывает переключатель,
+     * пока строки помещаются на одну страницу; с `total` экран передаёт уже выбранную страницу. `'external'` означает, что страницы выводит экран своим переключателем,
+     * как список записей с выбором размера страницы: таблица тогда показывает `rows` целиком.
+     *
+     * Без свойства таблица просмотра на `sm` всё равно выводит строки страницами по
+     * `compactPageSize`: на узком экране длинная таблица растягивала бы страницу, и итоги и
+     * соседние блоки уходили бы далеко вниз. Таблица с полями ввода (`interactive`) этого правила
+     * не получает: страницы мешали бы обходу ячеек и добавлению строки за последней.
+     */
+    readonly pagination?: DataTablePagination | 'external' | undefined;
+    /**
+     * Высота таблицы в записях: таблица показывает столько записей, остальные прокручиваются
+     * внутри неё. Высоту записи таблица считает по схеме текущей точки перелома; раскрытая запись
+     * выше расчётной, и лишнее уходит в прокрутку. Прокрутка заменяет страницы: с этим свойством
+     * правило страниц на `sm` не действует.
+     */
+    readonly visibleRows?: number | undefined;
+    /**
+     * Закреплённые строки (`DataTablePinning`). При `visibleRows` строки прилипают к краям самой
+     * таблицы, без него к краям прокручиваемой страницы. К странице строки прилипают, только пока
+     * таблица помещается по ширине: таблица с прокруткой вбок сама становится областью прокрутки,
+     * и браузер закрепляет строки в ней, а не на странице.
+     */
+    readonly pinned?: DataTablePinning<Row> | undefined;
     readonly loading?: boolean | undefined;
     /** Текст пустой таблицы, по умолчанию «Строк нет». */
     readonly emptyText?: ReactNode;
@@ -166,6 +213,8 @@ const classes = {
     row: 'data-table-row',
     header: 'data-table-header',
     cell: 'data-table-cell',
+    lines: 'data-table-lines',
+    line: 'data-table-line',
     expanded: 'data-table-expanded',
     empty: 'data-table-empty',
     // Поле ячейки ставится прямо в ячейку и само несёт её отступ: класс общий с `CellTextInput`.
@@ -177,32 +226,51 @@ const classes = {
  * общие для всех таблиц, а тема Ant Design задаёт значения при отрисовке.
  */
 function dataTableStyleSheet(): string {
-    const { frame, scroll, body, row, header, cell, expanded, empty, input } = classes;
+    const { frame, scroll, body, row, lines, line, header, cell, expanded, empty, input } = classes;
     return [
         `.${frame} { position: relative; min-width: 0; max-width: 100%; }`,
         `.${scroll} { overflow-x: auto; }`,
+        // Закрепление к странице: `clip` обрезает, но не создаёт области прокрутки, и прилипание
+        // отсчитывается от страницы. Ставится, только пока таблица помещается по ширине.
+        `.${scroll}[data-page-pinning] { overflow-x: clip; }`,
+        // Таблица высотой в `visibleRows` записей прокручивается сама по обеим осям.
+        `.${scroll}[data-visible-rows] { overflow: auto; max-height: var(--data-table-visible-height); }`,
+        // Закреплённые строки непрозрачны: прокручиваемые записи проходят под ними. Заголовок и итоги
+        // лежат выше закреплённых записей, а итоги отделены от записей линией над ними.
+        `.${row}[data-pinned] { position: sticky; z-index: 1; background-color: var(--data-table-pinned-background); }`,
+        `.${header}[data-pinned], .${row}[data-summary][data-pinned] { z-index: 2; }`,
+        `.${row}[data-summary][data-pinned] { box-shadow: 0 -1px 0 var(--data-table-row-border); }`,
         // Тело не уже суммы минимумов колонок: остальное место браузер делит по долям.
         `.${body} { min-width: min-content; }`,
-        // Строка — сетка из колонок и уровней. Поля составной колонки стоят на уровнях строки,
-        // поэтому высота уровня общая для всех колонок, и подстроки соседних колонок стоят на одной
-        // линии. Колонка из одного поля занимает все уровни.
-        `.${row} { display: grid; grid-template-columns: var(--data-table-template); grid-template-rows: var(--data-table-levels); border-bottom: 1px solid var(--data-table-border); }`,
-        `.${row}[data-summary] { grid-template-rows: minmax(var(--data-table-row-height), auto); }`,
+        // Запись таблицы — сетка из служебных колонок (раскрытие, выбор) и области строк схемы.
+        // Область не уже своего содержимого: при нехватке места таблица прокручивается, а не сжимает значения.
+        `.${row} { display: grid; grid-template-columns: var(--data-table-template); border-bottom: 1px solid var(--data-table-border); }`,
+        // Ширину области строк задают минимумы колонок, а не содержимое: `contain` не даёт длинному
+        // значению без переноса (товары с многоточием) расширить колонку. Под минимумом таблица
+        // прокручивается, остальное место колонки делят по долям.
+        `.${lines} { display: flex; flex-direction: column; min-width: var(--data-table-lines-minimum); contain: inline-size; }`,
+        // Строка схемы — своя сетка из колонок и уровней: колонки и уровни задаёт стиль строки. Поля
+        // группы стоят на уровнях строки, поэтому подстроки соседних колонок стоят на одной линии.
+        // Колонка из одного поля занимает все уровни. Строки схемы разделены пунктиром, как уровни.
+        `.${line} { display: grid; }`,
+        `.${line} + .${line} { border-top: 1px dashed var(--data-table-subrow-border); }`,
         // Полужирный шрифт задаётся ячейкам, а не строке: минимумы колонок в `ch` считаются по шрифту
         // строки, и у полужирной строки заголовка колонки вышли бы шире, чем у строк данных.
-        `.${header} { background: var(--data-table-header-background); }`,
+        // Заливки строк кладутся слоем поверх цвета фона: у закреплённой строки цвет фона непрозрачный,
+        // и полупрозрачная заливка не открывает записи, проходящие под ней.
+        `.${header} { background-image: linear-gradient(var(--data-table-header-background), var(--data-table-header-background)); }`,
         // Разделители. Строки таблицы разделены сплошной линией, поля составной колонки внутри
         // строки — пунктиром светлее: так видно, что поля под пунктиром относятся к той же строке.
         // У таблицы с составными колонками граница строк темнее, а строки чередуют фон (zebra
         // у Carbon): строка в две подстроки читается одним блоком даже при беглом взгляде.
         `.${frame}[data-stacked] .${row} { border-bottom-color: var(--data-table-row-border); }`,
-        `.${row}[data-striped] { background: var(--data-table-stripe); }`,
+        `.${row}[data-striped] { background-image: linear-gradient(var(--data-table-stripe), var(--data-table-stripe)); }`,
         `.${header} .${cell}, .${row}[data-summary] .${cell} { font-weight: var(--data-table-header-weight); }`,
         `.${body} > .${row}:not(.${header})[data-clickable] { cursor: pointer; }`,
-        `.${body} > .${row}:not(.${header}):not([data-state="locked"]):hover { background: var(--data-table-hover); }`,
-        `.${row}[data-selected] { background: var(--data-table-selected); }`,
+        `.${body} > .${row}:not(.${header}):not([data-state="locked"]):hover { background-image: linear-gradient(var(--data-table-hover), var(--data-table-hover)); }`,
+        `.${row}[data-selected] { background-image: linear-gradient(var(--data-table-selected), var(--data-table-selected)); }`,
         `.${row}[data-state="muted"] { color: var(--data-table-muted); }`,
-        `.${row}[data-state="locked"] { background: var(--data-table-locked-background); color: var(--data-table-locked-text); }`,
+        `.${row}[data-state="locked"] { background-image: linear-gradient(var(--data-table-locked-background), var(--data-table-locked-background)); color: var(--data-table-locked-text); }`,
         // Длинное значение переносится, а не обрезается: таблица показывает значение целиком.
         // Высоту ячейке задаёт уровень строки, поэтому своей наименьшей высоты у ячейки нет.
         `.${cell} { display: flex; align-items: center; gap: ${spacing[3]}px; min-width: 0; padding-inline: var(--data-table-cell-padding); overflow-wrap: anywhere; }`,
@@ -228,6 +296,8 @@ function dataTableStyleSheet(): string {
         `.${cell}:has([data-cell-invalid]) { outline: 2px solid var(--data-table-error); outline-offset: -2px; }`,
         // Содержимое ячейки с двумя режимами занимает её целиком: щелчок в любом месте ячейки
         // попадает в него, а рамку фокуса рисует сама ячейка.
+        // Содержимое ячейки не шире самой ячейки: значение с многоточием сжимается вместе с колонкой.
+        `.${cell} > * { min-width: 0; }`,
         `.${cell} > [data-cell-target], .${cell} > [data-cell-state] { align-self: stretch; flex: 1; display: flex; align-items: center; gap: ${spacing[3]}px; min-width: 0; outline: none; }`,
         `.${cell} > [data-cell-target] { cursor: text; }`,
         `.${cell}[data-align="end"] > [data-cell-target] { justify-content: flex-end; }`,
@@ -244,8 +314,12 @@ function dataTableStyleSheet(): string {
         `.${cell} .ant-select { --ant-select-padding-horizontal: 0px; }`,
         `.${cell} .ant-input, .${cell} .ant-input-number, .${cell} .ant-input-number-input, .${cell} .ant-picker, .${cell} .ant-input-affix-wrapper { padding-inline: 0; }`,
         // Содержимое раскрытой строки не раздвигает таблицу: вложенная таблица прокручивается сама,
-        // а не заставляет прокручиваться внешнюю вместе с её заголовком.
-        `.${expanded} { padding: var(--data-table-cell-padding); border-bottom: 1px solid var(--data-table-border); contain: inline-size; }`,
+        // а не заставляет прокручиваться внешнюю вместе с её заголовком. Отступ слева равен ширине
+        // служебных колонок и отступу ячейки: содержимое начинается на линии первой колонки данных,
+        // и экрану не нужно его вычислять. Запись и её раскрытие разделены пунктиром как одна
+        // запись, а под раскрытием стоит граница записей, чтобы оно не сливалось со следующей.
+        `.${row}[data-expanded] { border-bottom-style: dashed; border-bottom-color: var(--data-table-subrow-border); }`,
+        `.${expanded} { padding-block: var(--data-table-cell-padding); padding-inline: calc(var(--data-table-service-width) + var(--data-table-cell-padding)) var(--data-table-cell-padding); border-bottom: 1px solid var(--data-table-row-border); contain: inline-size; }`,
         // Заголовок переносится только между словами: слово не разрывается, колонка не уже него.
         `.${header} .${cell} { overflow-wrap: normal; }`,
         `.${empty} { padding: var(--data-table-cell-padding); color: var(--data-table-muted); text-align: center; border-bottom: 1px solid var(--data-table-border); }`,
@@ -267,37 +341,93 @@ const cellPadding = spacing[5];
 
 /** Таблица данных. Правила и пример описаны во вводном комментарии модуля. */
 export function DataTable<Row>(properties: DataTableProperties<Row>) {
-    const { columns, rows: sourceRows, rowKey, pagination, layouts, selection, expansion, sort, onSort, summary, loading = false, emptyText = 'Строк нет', rowState, onRowClick, onRowDoubleClick, interactive = false } = properties;
+    const { columns, rows: sourceRows, rowKey, pagination, visibleRows, pinned, layouts, selection, expansion, sort, onSort, summary, loading = false, emptyText = 'Строк нет', rowState, onRowClick, onRowDoubleClick, interactive = false } = properties;
     const [localPage, setLocalPage] = useState(1);
-    const total = pagination?.total ?? sourceRows.length;
+    const point = useBreakpoint();
+    // Страницы по умолчанию получает только таблица просмотра на `sm` (правило у свойства `pagination`).
+    const implicit = pagination === undefined && visibleRows === undefined && point === 'sm' && !interactive;
+    const paging = pagination === 'external' ? undefined : implicit ? { pageSize: compactPageSize } : pagination;
+    const total = paging?.total ?? sourceRows.length;
     // Поиск и удаление могут уменьшить список: недоступная последняя страница сбрасывается.
-    const page = Math.max(1, Math.min(pagination?.current ?? localPage, Math.ceil(total / (pagination?.pageSize ?? 10)) || 1));
-    const rows = pagination === undefined || pagination.total !== undefined ? sourceRows : sourceRows.slice((page - 1) * pagination.pageSize, page * pagination.pageSize);
+    const page = Math.max(1, Math.min(paging?.current ?? localPage, Math.ceil(total / (paging?.pageSize ?? compactPageSize)) || 1));
+    const rows = paging === undefined || paging.total !== undefined ? sourceRows : sourceRows.slice((page - 1) * paging.pageSize, page * paging.pageSize);
     const { token } = theme.useToken();
     const layer = useLayer();
-    const point = useBreakpoint();
     const frame = useRef<HTMLDivElement>(null);
     const scroller = useRef<HTMLDivElement>(null);
+    const headerRow = useRef<HTMLDivElement>(null);
+    const summaryRow = useRef<HTMLDivElement>(null);
     useOverflowShadows(frame, scroller);
+    // Закрепление к странице действует, пока таблица помещается по ширине (свойство `pinned`).
+    const pagePinning = pinned !== undefined && visibleRows === undefined;
+    const [fitsWidth, setFitsWidth] = useState(true);
+    useLayoutEffect(() => {
+        const area = scroller.current;
+        const content = area?.firstElementChild;
+        if (!pagePinning || area === null || content === null || content === undefined) return;
+        // Ширина тела не меньше суммы минимумов колонок и не зависит от `overflow`, поэтому
+        // переключение между `clip` и прокруткой не меняет результат сравнения.
+        const update = () => { if (isRendered(area)) setFitsWidth(content.getBoundingClientRect().width <= area.clientWidth + 1); };
+        const observer = new ResizeObserver(update);
+        observer.observe(area);
+        observer.observe(content);
+        update();
+        return () => observer.disconnect();
+    }, [pagePinning]);
+    // Высоты заголовка и итогов измеряются: заголовок может переноситься, а от этих высот
+    // отсчитываются закреплённые записи и высота таблицы в `visibleRows` записей.
+    useLayoutEffect(() => {
+        const outer = frame.current;
+        if (outer === null) return;
+        const update = () => {
+            if (!isRendered(outer)) return;
+            outer.style.setProperty('--data-table-header-height', `${headerRow.current?.offsetHeight ?? 0}px`);
+            outer.style.setProperty('--data-table-summary-height', `${summaryRow.current?.offsetHeight ?? 0}px`);
+        };
+        const observer = new ResizeObserver(update);
+        if (headerRow.current !== null) observer.observe(headerRow.current);
+        if (summaryRow.current !== null) observer.observe(summaryRow.current);
+        update();
+        return () => observer.disconnect();
+    });
 
     const byKey = new Map(columns.map((column) => [column.key, column]));
-    const groups = columnGroups(columns.map((column) => column.key), tableLayoutAt(layouts, point))
-        .map((keys) => keys.map((key) => byKey.get(key)!));
-    // Уровни строки: столько, сколько полей в самой высокой составной колонке. Таблица с составными
-    // колонками разделяет строки заметнее и чередует их фон.
-    const levels = Math.max(1, ...groups.map((group) => group.length));
-    const stacked = levels > 1;
+    // Строки схемы: в строке колонки, в колонке поля группы сверху вниз.
+    const lines = columnLines(columns.map((column) => column.key), tableLayoutAt(layouts, point))
+        .map((line) => line.map((group) => group.map((key) => byKey.get(key)!)));
+    // Уровни строки схемы: столько, сколько полей в самой высокой её группе. Таблица с группами или
+    // несколькими строками схемы разделяет записи заметнее и чередует их фон.
+    const levelsOf = (line: ReadonlyArray<ReadonlyArray<DataTableColumn<Row>>>) => Math.max(1, ...line.map((group) => group.length));
+    const stacked = lines.length > 1 || lines.some((line) => levelsOf(line) > 1);
     // Колонки служебных элементов стоят перед колонками данных: раскрытие строки, затем выбор.
     const serviceColumns = (expansion === undefined ? 0 : 1) + (selection === undefined ? 0 : 1);
-    // Служебные колонки стоят перед колонками данных: раскрытие строки, затем выбор.
-    const tracks = [
-        ...(expansion === undefined ? [] : [columnTrack('control')]),
-        ...(selection === undefined ? [] : [columnTrack('control')]),
-        ...groups.map((group) => columnTrack(groupSize(group.map(columnSize)))),
-    ];
+    const tracks = [...Array.from({ length: serviceColumns }, () => columnTrack('control')), 'minmax(var(--data-table-lines-minimum), 1fr)'];
+    // Наименьшая ширина области строк: самая широкая из строк схемы по сумме минимумов её колонок.
+    const linesMinimum = `max(${lines.map((line) => line.length === 0 ? '0px' : `calc(${line.map((group) => trackMinimum(groupSize(group.map(columnSize)))).join(' + ')})`).join(', ')})`;
+    /**
+     * Сетка строки схемы: колонки по размерам полей и уровни. Строка итогов выводит каждую строку
+     * схемы в один уровень: высотой обычной строки, а при нескольких строках схемы — подстроки.
+     */
+    const lineStyle = (line: ReadonlyArray<ReadonlyArray<DataTableColumn<Row>>>, summaryRow: boolean): CSSProperties => ({
+        gridTemplateColumns: line.map((group) => columnTrack(groupSize(group.map(columnSize)))).join(' '),
+        gridTemplateRows: summaryRow
+            ? `minmax(${lines.length > 1 ? stackedHeight : rowHeight}px, auto)`
+            : stacked ? `repeat(${levelsOf(line)}, minmax(${stackedHeight}px, auto))` : `minmax(${rowHeight}px, auto)`,
+    });
+    /** Область строк схемы у записи, заголовка или итогов: `cells` выводит ячейки одной строки схемы. */
+    const linesOf = (cells: (line: ReadonlyArray<ReadonlyArray<DataTableColumn<Row>>>) => ReactNode, summaryRow = false) => (
+        <div className={classes.lines}>
+            {lines.map((line, lineIndex) => <div key={lineIndex} className={classes.line} style={lineStyle(line, summaryRow)}>{cells(line)}</div>)}
+        </div>
+    );
+    // Расчётная высота записи без раскрытия: уровни всех строк схемы и граница под записью.
+    const recordHeight = (stacked ? lines.reduce((sum, line) => sum + levelsOf(line) * stackedHeight, 0) : rowHeight) + 1;
     const variables = {
+        ...(visibleRows === undefined ? {} : { '--data-table-visible-height': `calc(var(--data-table-header-height, ${recordHeight}px) + ${visibleRows * recordHeight}px + var(--data-table-summary-height, 0px))` }),
+        '--data-table-pinned-background': layer.background,
         '--data-table-template': tracks.join(' '),
-        '--data-table-levels': stacked ? `repeat(${levels}, minmax(${stackedHeight}px, auto))` : `minmax(${rowHeight}px, auto)`,
+        '--data-table-lines-minimum': linesMinimum,
+        '--data-table-service-width': `${serviceColumns * rowHeight}px`,
         '--data-table-row-height': `${rowHeight}px`,
         '--data-table-stacked-height': `${stackedHeight}px`,
         '--data-table-cell-padding': `${cellPadding}px`,
@@ -329,12 +459,12 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         };
     };
     /**
-     * Место ячейки в сетке строки: колонка группы и уровень поля. Колонка из одного поля занимает
-     * все уровни; последнее поле составной колонки, в которой полей меньше уровней, — оставшиеся.
+     * Место ячейки в сетке строки схемы: колонка группы и уровень поля. Колонка из одного поля
+     * занимает все уровни; последнее поле группы, в которой полей меньше уровней, — оставшиеся.
      */
     const placement = (groupIndex: number, level: number, groupLength: number) => ({
         style: {
-            gridColumn: serviceColumns + groupIndex + 1,
+            gridColumn: groupIndex + 1,
             gridRow: groupLength === 1 ? '1 / -1' : level === groupLength - 1 ? `${level + 1} / -1` : level + 1,
         },
         ...(groupLength > 1 && level > 0 ? { 'data-level': level } : {}),
@@ -375,7 +505,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     };
 
     const header = (
-        <div role="row" className={`${classes.row} ${classes.header}`}>
+        <div ref={headerRow} role="row" className={`${classes.row} ${classes.header}`} {...(pinned?.header === true ? { 'data-pinned': true, style: { top: 0 } } : {})}>
             {expansion !== undefined && <div role="columnheader" {...serviceCell} aria-label="Раскрытие строки" />}
             {selection !== undefined && (
                 <div role="columnheader" {...serviceCell}>
@@ -390,10 +520,24 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                     )}
                 </div>
             )}
-            {groups.flatMap((group, groupIndex) => group.map((column, level) => headerCell(column, groupIndex, level, group.length)))}
+            {linesOf((line) => line.flatMap((group, groupIndex) => group.map((column, level) => headerCell(column, groupIndex, level, group.length))))}
         </div>
     );
 
+    // Место закреплённой записи: под заголовком (над итогами) и под закреплёнными перед ней (после
+    // неё) записями того же края. Отступы считаются по расчётной высоте записи.
+    const edges = rows.map((row, index) => pinned?.rows?.(row, index));
+    const pinStyle = (index: number): CSSProperties | undefined => {
+        if (edges[index] === 'top') {
+            const before = edges.slice(0, index).filter((edge) => edge === 'top').length;
+            return { top: `calc(${pinned?.header === true ? 'var(--data-table-header-height)' : '0px'} + ${before * recordHeight}px)` };
+        }
+        if (edges[index] === 'bottom') {
+            const after = edges.slice(index + 1).filter((edge) => edge === 'bottom').length;
+            return { bottom: `calc(${pinned?.summary === true && summary !== undefined ? 'var(--data-table-summary-height)' : '0px'} + ${after * recordHeight}px)` };
+        }
+        return undefined;
+    };
     const body = rows.map((row, index) => {
         const key = rowKey(row, index);
         const expandable = expansion?.isExpandable(row, index) === true;
@@ -401,6 +545,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         const selected = selection?.isSelected(row, index) === true;
         const state = rowState?.(row, index);
         const disabled = selection?.isDisabled?.(row, index) === true;
+        const pinStyleOfRow = pinStyle(index);
         // Щелчок по элементу управления в строке не считается щелчком по строке: иначе выбор
         // флажком или нажатие кнопки ещё и открывали бы запись.
         const fromControl = (event: MouseEvent) => event.target instanceof Element && event.target.closest('button, a, input, label, [role="button"], [data-cell-target]') !== null;
@@ -410,8 +555,10 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                     role="row"
                     className={classes.row}
                     {...(stacked && index % 2 === 1 ? { 'data-striped': true } : {})}
+                    {...(expanded ? { 'data-expanded': true } : {})}
                     {...(selected ? { 'data-selected': true, 'aria-selected': true } : {})}
                     {...(state === undefined ? {} : { 'data-state': state })}
+                    {...(pinStyleOfRow === undefined ? {} : { 'data-pinned': true, style: pinStyleOfRow })}
                     {...(onRowClick === undefined ? {} : { 'data-clickable': true, onClick: (event: MouseEvent) => { if (!fromControl(event)) onRowClick(row, index); } })}
                     {...(onRowDoubleClick === undefined ? {} : { onDoubleClick: (event: MouseEvent) => { if (!fromControl(event)) onRowDoubleClick(row, index); } })}
                 >
@@ -434,11 +581,11 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                                 : <Radio aria-label="Выбрать строку" checked={selected} disabled={disabled} onChange={() => selection.onChange(row, index, true)} />}
                         </div>
                     )}
-                    {groups.flatMap((group, groupIndex) => group.map((column, level) => (
+                    {linesOf((line) => line.flatMap((group, groupIndex) => group.map((column, level) => (
                         <div key={column.key} role={role} {...cellProperties(column)} {...placement(groupIndex, level, group.length)} onMouseDown={focusContent}>
                             {cellContent(column, row, index)}
                         </div>
-                    )))}
+                    ))))}
                 </div>
                 {expanded && <div className={classes.expanded}>{expansion.render(row, index)}</div>}
             </Fragment>
@@ -446,22 +593,27 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     });
 
     const totals = summary !== undefined && rows.length > 0 && (
-        <div role="row" className={classes.row} data-summary>
+        <div ref={summaryRow} role="row" className={classes.row} data-summary {...(pinned?.summary === true ? { 'data-pinned': true, style: { bottom: 0 } } : {})}>
             {expansion !== undefined && <div role={role} {...serviceCell} />}
             {selection !== undefined && <div role={role} {...serviceCell} />}
-            {groups.map((group, groupIndex) => {
-                // Строка итогов в один уровень: составная колонка выводит поле с итогом, а без итога —
-                // первое поле, поэтому подпись «Итого» и сумма стоят на одной линии.
+            {linesOf((line) => line.map((group, groupIndex) => {
+                // Строка итогов в один уровень: группа выводит поле с итогом, а без итога — первое
+                // поле, поэтому подпись «Итого» и сумма стоят на одной линии.
                 const column = group.find((candidate) => summary[candidate.key] !== undefined) ?? group[0]!;
                 return <div key={column.key} role={role} {...cellProperties(column)} {...placement(groupIndex, 0, 1)}>{summaryContent(column, summary[column.key])}</div>;
-            })}
+            }), true)}
         </div>
     );
 
     return (
         <Spin spinning={loading}>
             <div ref={frame} className={classes.frame} style={variables} {...(stacked ? { 'data-stacked': true } : {})}>
-                <div ref={scroller} className={classes.scroll}>
+                <div
+                    ref={scroller}
+                    className={classes.scroll}
+                    {...(visibleRows === undefined ? {} : { 'data-visible-rows': true })}
+                    {...(pagePinning && fitsWidth ? { 'data-page-pinning': true } : {})}
+                >
                     <div className={classes.body} role={interactive ? 'grid' : 'table'}>
                         {header}
                         {body}
@@ -470,7 +622,9 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                     </div>
                 </div>
             </div>
-            {pagination !== undefined && <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBlock: spacing[3] }}><Pagination size="small" current={page} pageSize={pagination.pageSize} total={total} showSizeChanger={false} onChange={(next) => { setLocalPage(next); pagination.onChange?.(next); }} /></div>}
+            {/* Переключатель страниц по умолчанию не выводится, пока все строки помещаются на одну страницу. */}
+            {/* Переключатель с одной страницей нужен только при серверных страницах: там `total` задаёт экран. */}
+            {paging !== undefined && !(paging.total === undefined && total <= paging.pageSize) && <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBlock: spacing[3] }}><Pagination size="small" current={page} pageSize={paging.pageSize} total={total} showSizeChanger={false} onChange={(next) => { setLocalPage(next); paging.onChange?.(next); }} /></div>}
         </Spin>
     );
 }

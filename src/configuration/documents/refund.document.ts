@@ -32,7 +32,7 @@ import { operationMovements, operationOf, planRefund, plannedTotal, refundOperat
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
 import { Certificate, readCertificateFeed } from './certificate.document.js';
 import { Sale } from './sale.document.js';
-import { readInstallmentPaymentFeed, SaleInstallment } from './sale-installment.document.js';
+import { readInitialPayments, readInstallmentPaymentFeed, SaleInstallment } from './sale-installment.document.js';
 import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
 import { closedPeriodByDocumentDatePolicy } from '../policies/closed-period.js';
 import { Shift } from './shift.document.js';
@@ -102,7 +102,9 @@ interface FeedRow {
  * новые сверху, страницами. Сертификаты стоят в ленте своими строками в момент оформления и в момент
  * обмена на деньги (`readCertificateFeed`): деньги за них проходят через продавца, хотя кассу смены
  * не меняют. Последующие взносы по рассрочкам стоят своими строками в день внесения
- * (`readInstallmentPaymentFeed`); первоначальный взнос уже входит в продажу. Все виды стоят в одной последовательности по дате, поэтому
+ * (`readInstallmentPaymentFeed`). Сумма продажи считается по правилу сводки за период: из неё
+ * вычитается оплата «Рассрочка» и прибавляются первоначальные взносы (`readInitialPayments`), а доля
+ * сертификатов остаётся в сумме. Все виды стоят в одной последовательности по дате, поэтому
  * страницы нарезаются здесь: две ленты по отдельности, склеенные на клиенте, давали бы на второй
  * странице разные дни.
  *
@@ -132,10 +134,16 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     const saleFigures = new Map((yield* callFunction(Sale, 'figures', { date: null, sales: sales.map((row) => ({ guid: row.guid })) })).map((row) => [row.sale, row]));
     const refundFigures = yield* readRefundFigures(refunds.map((row) => row.guid), null);
     const goodsOf = new Map([...saleFigures.values()].map((sale) => [sale.sale, sale.goods]));
+    const initialOf = yield* readInitialPayments(sales.map((row) => row.guid));
+    // Деньги продажи: долг рассрочки не входит, первоначальный взнос входит, как в сводке за период.
+    const saleAmount = (guid: string) => {
+        const figures = saleFigures.get(guid)!;
+        return figures.amount - figures.payments.installment + (initialOf.get(guid) ?? 0);
+    };
     const rows: FeedRow[] = [
         // У продажи, целиком оплаченной сертификатами, способа нет: строка показывает только значок сертификата.
         ...sales.map((row): FeedRow => ({
-            kind: 'sale', guid: row.guid, number: row.number, date: row.date, method: row.paymentMode ?? '', goods: goodsOf.get(row.guid) ?? [], amount: saleFigures.get(row.guid)!.amount, sales: [],
+            kind: 'sale', guid: row.guid, number: row.number, date: row.date, method: row.paymentMode ?? '', goods: goodsOf.get(row.guid) ?? [], amount: saleAmount(row.guid), sales: [],
             coupon: (goodsOf.get(row.guid) ?? []).some((line) => (line.couponPercent ?? 0) > 0), certificate: (row.paidByCertificates ?? 0) > 0, holder: null,
         })),
         ...refundFigures.map((row): FeedRow => {

@@ -14,7 +14,7 @@ import { Button } from '../ds/button';
 import { DataTable, type DataTableColumn, type DataTableExpansion } from '../ds/data-table';
 import { Icons } from '../ds/icons';
 import { Stack } from '../ds/stack';
-import { columnGroups, tableLayoutAt, type ColumnSize, type TableLayouts } from '../ds/table-layout';
+import { columnLines, screenOrder as orderOnScreen, tableLayoutAt, type ColumnSize, type TableLayout, type TableLayouts } from '../ds/table-layout';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
 import { newRowValues } from './record-values';
 
@@ -234,7 +234,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     }, []);
     // Порядок обхода следует за порядком на экране: по схеме отображения текущей точки перелома.
     const point = useBreakpoint();
-    const screenOrder = columnGroups(part.columns.map((column) => column.name), tableLayoutAt(layouts, point)).flat();
+    const screenOrder = orderOnScreen(columnLines(part.columns.map((column) => column.name), tableLayoutAt(layouts, point)));
     const inputColumns = screenOrder
         .flatMap((name) => part.columns.find((column) => column.name === name) ?? [])
         .filter((column) => !column.readOnly && hasInput(column));
@@ -357,9 +357,13 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
         } else nextCell(rowIndex, columnIndex);
     };
 
-    // Схемы конфигурации называют только колонки данных: номер строки всегда первый, удаление — последнее.
+    // Схемы конфигурации называют только колонки данных: номер строки открывает первую строку схемы,
+    // удаление закрывает последнюю. Пустая схема выводит колонки по порядку, где они уже первая и последняя.
+    const withService = (layout: TableLayout): TableLayout => layout.map(({ line }, index) => ({
+        line: [...(index === 0 ? ['lineNumber'] : []), ...line, ...(index === layout.length - 1 ? ['remove'] : [])],
+    }));
     const layoutsWithService = layouts === undefined ? undefined : Object.fromEntries(Object.entries(layouts)
-        .map(([point, layout]) => [point, ['lineNumber', ...layout, 'remove']])) as TableLayouts;
+        .map(([point, layout]) => [point, withService(layout)])) as TableLayouts;
     // Колонка удаления строки есть, только если строки можно удалять.
     const removable = !disabled && !fixedRows;
     const columns: DataTableColumn<Row>[] = [
