@@ -1,17 +1,34 @@
-/** Связанные строки сводки: продажа до возвратов, возвраты отдельными вычетами, старая продажа только как основание. */
+/**
+ * Строки продаж и возвратов сводки за период по зонам 1С (раздел «Правила учёта», «Сводка за период»).
+ *
+ * Сводка показывает только фактические деньги: оплаты продажи, первоначальный взнос и выдачи возвратов.
+ * Долг рассрочки и списание долга возвратом в суммы не входят. Строки плоские: продажа и возврат стоят
+ * отдельно, а связь между ними передаётся списком ссылок `links`, который страница показывает
+ * в раскрытой строке без сумм. Так каждый рубль учитывается в итоге ровно один раз.
+ */
 import type { SaleFigures } from './documents/sale.functions.js';
 import type { RefundFigures } from './documents/refund.functions.js';
+import { allocate } from './money-shares.js';
 
+/** Деньги строки в копейках. `installment` — первоначальный взнос рассрочки, в том числе оплата банком. */
 export interface SummaryAmounts {
     readonly cash: number;
     readonly cashless: number;
-    readonly bank: number;
-    readonly advance: number;
-    /** Полная собственная рассрочка без вычета взносов; списание учитывается только для продажи того же периода. */
-    readonly own: number;
-    readonly debt: number;
+    readonly installment: number;
 }
 
+/**
+ * Связанный документ в раскрытой строке. У продажи это её возвраты и взносы за период, у возврата —
+ * его продажи. У взноса `guid` указывает на рассрочку, а `number` пуст: взнос не документ.
+ */
+export interface SummaryLink {
+    readonly kind: 'sale' | 'refund' | 'payment';
+    readonly guid: string;
+    readonly number: string | null;
+    readonly date: string;
+}
+
+/** Строка продажи или возврата в одной зоне 1С: товары этой зоны и их доля денег. */
 export interface SummaryOperation {
     readonly key: string;
     readonly kind: 'sale' | 'refund';
@@ -20,80 +37,83 @@ export interface SummaryOperation {
     readonly date: string;
     readonly goods: ReadonlyArray<{ readonly name: string; readonly code: string | null; readonly size: string | null }>;
     readonly amounts: SummaryAmounts;
-    /** Продажа другого периода дана только для связи, без чисел в денежных колонках. */
-    readonly context: boolean;
-    readonly children: ReadonlyArray<SummaryOperation>;
+    readonly links: ReadonlyArray<SummaryLink>;
 }
 
-export const emptySummaryAmounts = (): SummaryAmounts => ({ cash: 0, cashless: 0, bank: 0, advance: 0, own: 0, debt: 0 });
+/** Взнос, показанный в таблице «Взносы»: по нему продажа получает ссылку в раскрытой строке. */
+export interface SummaryPaymentLink {
+    readonly sale: string;
+    readonly installment: string;
+    readonly date: string;
+}
+
+export const emptySummaryAmounts = (): SummaryAmounts => ({ cash: 0, cashless: 0, installment: 0 });
 export const addSummaryAmounts = (first: SummaryAmounts, second: SummaryAmounts): SummaryAmounts => ({
-    cash: first.cash + second.cash, cashless: first.cashless + second.cashless,
-    bank: first.bank + second.bank, advance: first.advance + second.advance, own: first.own + second.own, debt: first.debt + second.debt,
+    cash: first.cash + second.cash, cashless: first.cashless + second.cashless, installment: first.installment + second.installment,
 });
 
-/** Сохраняет две зоны 1С. Смешанная продажа имеет строку в каждой зоне со своей частью товаров и сумм. */
-export function summaryOperations(sales: ReadonlyArray<SaleFigures>, refunds: ReadonlyArray<RefundFigures>, from: string) {
+/** Порядок строк: по моменту, затем по номеру. Даты хранятся с часовым поясом клиента, поэтому сравниваются моменты. */
+const byMoment = (first: { readonly date: string; readonly number: string | null }, second: { readonly date: string; readonly number: string | null }) =>
+    new Date(first.date).getTime() - new Date(second.date).getTime() || (first.number ?? '').localeCompare(second.number ?? '');
+
+/**
+ * Строит две зоны 1С. Смешанная продажа и возврат имеют строку в каждой зоне со своими товарами
+ * и долями денег.
+ *
+ * - `sales` — продажи периода и продажи-основания его возвратов; строку получают только продажи
+ *   с днём в периоде (`from` и позже).
+ * - `refunds` — возвраты периода. Возврат по нескольким продажам даёт одну строку в зоне.
+ * - `initial` — первоначальные взносы продаж периода, внесённые в периоде. Они делятся между товарами
+ *   по долям оплаты «Рассрочка», как оплаты продажи.
+ * - `payments` — взносы таблицы «Взносы»: они дают ссылки в раскрытой строке своей продажи.
+ */
+export function summaryOperations(sales: ReadonlyArray<SaleFigures>, refunds: ReadonlyArray<RefundFigures>, from: string,
+    initial: ReadonlyMap<string, number>, payments: ReadonlyArray<SummaryPaymentLink>) {
+    const periodRefunds = new Set(refunds.map((refund) => refund.refund));
     const build = (posted: boolean) => {
         const rows: SummaryOperation[] = [];
-        const saleRow = (sale: SaleFigures, context: boolean): SummaryOperation => {
-            const goods = sale.goods.filter((line) => line.postedIn1C === posted);
-            return {
-                key: `sale-${sale.sale}-${posted}`, kind: 'sale', guid: sale.sale, number: sale.number, date: sale.date, goods, context,
-                // Возвраты периода будут отдельными денежными строками. Возвращаем их доли
-                // в числа родительской продажи, чтобы пользователь видел оба слагаемых.
-                amounts: goods.reduce((sum, line) => {
-                    const returned = sale.refunds.filter((item) => refunds.some((refund) => refund.refund === item.refund))
-                        .flatMap((item) => item.goods.filter((item) => item.lineNumber === line.lineNumber));
-                    return addSummaryAmounts(sum, {
-                        cash: line.actualCash + returned.reduce((total, item) => total + item.cash, 0),
-                        cashless: line.actualCashless + returned.reduce((total, item) => total + item.cashless, 0),
-                        bank: line.bankPaid, advance: line.advancePaid, own: line.ownAmount,
-                        debt: line.debt + returned.reduce((total, item) => total + item.debt, 0),
-                    });
-                }, emptySummaryAmounts()), children: [],
-            };
-        };
-        // Возврат может относиться к нескольким продажам: в каждой связи показывается только её часть.
-        const refundRow = (refund: RefundFigures, sale: SaleFigures): SummaryOperation | null => {
-            const shares = sale.refunds.find((row) => row.refund === refund.refund)?.goods ?? [];
-            const selected = shares.filter((share) => sale.goods.some((line) => line.lineNumber === share.lineNumber && line.postedIn1C === posted));
-            if (!selected.some((line) => line.amount > 0)) return null;
-            const sum = (field: 'cash' | 'cashless' | 'debt') => -selected.reduce((total, line) => total + line[field], 0);
-            // Списание старого долга не уменьшает новые рассрочки периода. Истинный долг
-            // сохраняется в figures и таблице должников; здесь меняется только показ сводки.
-            const debt = sale.date.slice(0, 10) >= from ? sum('debt') : 0;
-            return {
-                key: `refund-${refund.refund}-${sale.sale}-${posted}`, kind: 'refund', guid: refund.refund, number: refund.number, date: refund.date,
-                goods: sale.goods.filter((line) => selected.some((share) => share.lineNumber === line.lineNumber && share.amount > 0)),
-                amounts: { cash: sum('cash'), cashless: sum('cashless'), debt, own: debt, bank: 0, advance: 0 },
-                context: false, children: [],
-            };
-        };
         for (const sale of sales) {
-            const own = saleRow(sale, false);
-            const related = refunds.flatMap((refund) => { const row = refundRow(refund, sale); return row === null ? [] : [row]; });
-            if (sale.date.slice(0, 10) >= from) {
-                if (own.goods.length > 0) rows.push({ ...own, children: related });
-            } else {
-                for (const refund of related) {
-                    const existing = rows.findIndex((row) => row.kind === 'refund' && row.guid === refund.guid);
-                    const basis = { ...own, key: `${refund.key}-basis`, context: true };
-                    if (existing < 0) rows.push({ ...refund, children: [basis] });
-                    else {
-                        const previous = rows[existing]!;
-                        rows[existing] = { ...previous, goods: [...previous.goods, ...refund.goods], amounts: addSummaryAmounts(previous.amounts, refund.amounts), children: [...previous.children, basis] };
-                    }
-                }
-            }
+            if (sale.date.slice(0, 10) < from) continue;
+            const zone = sale.goods.map((line) => line.postedIn1C === posted);
+            if (!zone.some(Boolean)) continue;
+            // Первоначальный взнос делится по исходным долям оплаты «Рассрочка» всех товаров продажи,
+            // чтобы сумма зон давала ровно взнос.
+            const initialShares = allocate(initial.get(sale.sale) ?? 0, sale.goods.map((line) => line.payments.installment));
+            const amounts = sale.goods.reduce((sum, line, index) => zone[index] ? addSummaryAmounts(sum, {
+                cash: line.payments.cash, cashless: line.payments.cashless, installment: initialShares[index]!,
+            }) : sum, emptySummaryAmounts());
+            const links: SummaryLink[] = [
+                ...sale.refunds.filter((item) => periodRefunds.has(item.refund)).map((item): SummaryLink => ({
+                    kind: 'refund', guid: item.refund, number: refunds.find((refund) => refund.refund === item.refund)?.number ?? null, date: item.date,
+                })),
+                ...payments.filter((payment) => payment.sale === sale.sale).map((payment): SummaryLink => ({ kind: 'payment', guid: payment.installment, number: null, date: payment.date })),
+            ].sort(byMoment);
+            rows.push({
+                key: `sale-${sale.sale}-${posted}`, kind: 'sale', guid: sale.sale, number: sale.number, date: sale.date,
+                goods: sale.goods.filter((_, index) => zone[index]), amounts, links,
+            });
         }
-        rows.sort((first, second) => first.date.localeCompare(second.date) || first.number.localeCompare(second.number) || first.key.localeCompare(second.key));
-        // У продажи считаются и родительская строка, и её возвраты. У отдельного возврата
-        // подчинённая старая продажа контекстная и в итог не входит.
-        const totalOf = (row: SummaryOperation): SummaryAmounts => row.context ? emptySummaryAmounts()
-            : row.children.reduce((sum, child) => addSummaryAmounts(sum, child.context ? emptySummaryAmounts() : child.amounts), row.amounts);
-        return { rows, totals: rows.reduce((sum, row) => addSummaryAmounts(sum, totalOf(row)), emptySummaryAmounts()) };
+        for (const refund of refunds) {
+            // Доли возврата по товарам каждой продажи-основания; в строку зоны входят только товары зоны.
+            const parts = sales.flatMap((sale) => {
+                const shares = sale.refunds.find((item) => item.refund === refund.refund)?.goods ?? [];
+                const selected = shares.filter((share) => share.amount > 0 && sale.goods.some((line) => line.lineNumber === share.lineNumber && line.postedIn1C === posted));
+                return selected.length === 0 ? [] : [{ sale, selected }];
+            });
+            if (parts.length === 0) continue;
+            // Списание долга «В счёт долга» денег не выдаёт, поэтому в строку возврата не входит.
+            const sum = (field: 'cash' | 'cashless') => -parts.reduce((total, part) => total + part.selected.reduce((subtotal, line) => subtotal + line[field], 0), 0);
+            rows.push({
+                key: `refund-${refund.refund}-${posted}`, kind: 'refund', guid: refund.refund, number: refund.number, date: refund.date,
+                goods: parts.flatMap((part) => part.sale.goods.filter((line) => part.selected.some((share) => share.lineNumber === line.lineNumber))),
+                amounts: { cash: sum('cash'), cashless: sum('cashless'), installment: 0 },
+                links: parts.map((part): SummaryLink => ({ kind: 'sale', guid: part.sale.sale, number: part.sale.number, date: part.sale.date })),
+            });
+        }
+        rows.sort(byMoment);
+        return { rows, totals: rows.reduce((sum, row) => addSummaryAmounts(sum, row.amounts), emptySummaryAmounts()) };
     };
-    const posted = build(true);
-    const notPosted = build(false);
-    return { posted, notPosted, totals: addSummaryAmounts(posted.totals, notPosted.totals) };
+    const postedZone = build(true);
+    const notPostedZone = build(false);
+    return { posted: postedZone, notPosted: notPostedZone, totals: addSummaryAmounts(postedZone.totals, notPostedZone.totals) };
 }

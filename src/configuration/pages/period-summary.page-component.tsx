@@ -1,4 +1,4 @@
-import { PeriodSummaryFeed, SummaryTotalsPanel } from './period-summary-feed';
+import { Money, OperationsTable, SummaryTotalsPanel } from './period-summary-tables';
 import { StickyRail } from '../../web/sdk';
 import { DataTable } from '../../web/sdk';
 import { Alert, Button, Divider, Flex, Typography } from 'antd';
@@ -24,11 +24,6 @@ function nextDay(day: string): string {
 /** Поле дня периода: дата без времени. */
 const dayField = { kind: 'date', target: null } as const;
 
-/** Денежная сумма в том же виде, что в формах. */
-function Money({ value }: { readonly value: number }) {
-    return <FieldDisplay field={{ kind: 'money', target: null }} value={value} />;
-}
-
 /** Дата и время события. */
 function Moment({ value }: { readonly value: string }) {
     return <FieldDisplay field={{ kind: 'dateTime', target: null }} value={value} />;
@@ -48,6 +43,9 @@ function Block({ title, empty, children }: { readonly title: string; readonly em
         </Panel>
     );
 }
+
+/** Способ взноса наличными: остальные взносы безналичные. Значение совпадает с перечнем способов оплаты. */
+const cashMethod = 'Наличные';
 
 /** Непогашенная часть долга должника: цвета долга, как незакрытая рассрочка выше. */
 function Debt({ value }: { readonly value: number }) {
@@ -86,16 +84,16 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                     <Panel title="Продажи и возвраты">
                         <Stack gap={5}>
                             <FilledZone title="Проведено в 1С" tone="warning" empty={false}>
-                                <PeriodSummaryFeed title="Проведено в 1С" rows={summary.operations.posted.rows} totals={summary.operations.posted.totals} />
+                                <OperationsTable rows={summary.operations.posted.rows} totals={summary.operations.posted.totals} />
                             </FilledZone>
                             <FilledZone title="Не проведено в 1С" empty={false}>
-                                <PeriodSummaryFeed title="Не проведено в 1С" rows={summary.operations.notPosted.rows} totals={summary.operations.notPosted.totals} />
+                                <OperationsTable rows={summary.operations.notPosted.rows} totals={summary.operations.notPosted.totals} />
                             </FilledZone>
                         </Stack>
                     </Panel>
                 </Column>
                 <Column span={{ lg: 4 }}>
-                    <StickyRail from="lg"><SummaryTotalsPanel amounts={summary.operations.totals} /></StickyRail>
+                    <StickyRail from="lg"><SummaryTotalsPanel amounts={summary.totals} /></StickyRail>
                 </Column>
             </Grid>
             <Panel title="Рассрочки">
@@ -103,17 +101,19 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                 {payments.rows.length === 0 ? <div><Typography.Text type="secondary">Строк нет</Typography.Text></div> : (
                     <DataTable
 
-                        rowKey={(row) => `${row.installment}-${row.date}-${row.amount}`}
+                        rowKey={(row, index) => `${row.installment}-${row.date}-${index}`}
                         rows={[...payments.rows]}
-                        layouts={{ sm: [['person', 'date'], ['installment', 'method'], 'amount'], lg: [['person', 'date'], ['installment', 'method'], 'amount'] }}
+                        // Взнос занимает одну строку на любой ширине: колонок немного, и все суммы видны сразу.
+                        layouts={{ sm: [['date', 'person'], 'installment', ['cash', 'cashless']], lg: [] }}
                         columns={[
                             { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
-                            { title: 'Рассрочка', key: 'installment', type: 'free' as const, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
-                            { title: 'Покупатель', key: 'person', type: 'free' as const, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                            { title: 'Способ', key: 'method', type: 'string' as const, value: (row) => row.method },
-                            { title: 'Сумма', key: 'amount', type: 'money' as const, render: (row) => <Money value={row.amount} /> },
+                            { title: 'Покупатель', key: 'person', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                            { title: 'Рассрочка', key: 'installment', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
+                            // Взнос принят одним способом, поэтому его сумма стоит в одной из двух колонок.
+                            { title: 'Наличные', key: 'cash', type: 'money' as const, value: (row) => row.method === cashMethod ? row.amount : null },
+                            { title: 'Безналичные', key: 'cashless', type: 'money' as const, value: (row) => row.method === cashMethod ? null : row.amount },
                         ]}
-                        summary={{ date: 'Итого', method: <>Наличные <Money value={payments.totals.cash} />, безналичные <Money value={payments.totals.cashless} /></>, amount: <Money value={payments.totals.cash + payments.totals.cashless} /> }}
+                        summary={{ date: 'Итого', cash: payments.totals.cash, cashless: payments.totals.cashless }}
                     />
                 )}
                 <Divider style={{ marginBlock: spacing[5] }} />

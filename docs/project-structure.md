@@ -6,6 +6,7 @@ covers:
   - src/configuration/money-shares.ts
   - src/configuration/period-summary.ts
   - src/configuration/period-summary-operations.ts
+  - src/configuration/installment-initial-payments.ts
   - src/configuration/refund-plan.ts
   - src/configuration/coupons.ts
   - src/configuration/certificates.ts
@@ -57,7 +58,7 @@ repos/                исходники внешних библиотек дл�
 | `documents/sale.functions.ts` | Пакетные сведения о продажах: доли оплат, возвраты и состояние рассрочки на день; общий источник для ленты продавца и сводки | [Сведения о продаже](accounting-rules.md#сведения-о-продаже-на-день) |
 | `refund-plan.ts` | План расчётов возврата по продаже: стратегии планирования (сертификат, долг рассрочки, деньги) и обработчики видов операций с движениями, частью продажи для зарплаты и признаком снятия закрытия | [Расчёты возврата](accounting-rules.md#расчёты-возврата) |
 | `coupons.ts`, `certificates.ts` | Общие правила купонов (срок, число применений, уникальность номера) и оплаты сертификатами (остаток без движений документа, проверка строк); их используют политики продажи и действия справочника и документа | [Купон](accounting-rules.md#купон), [Сертификат](accounting-rules.md#сертификат) |
-| `period-summary.ts` | Отчёт «Сводка за период»: читает документы периода и группирует остатки продаж из функции `figures` (с совокупными итогами в поле `allSales`), взносы, отвесы и должников; его вызывает действие закрытия периода | [Сводка за период](accounting-rules.md#сводка-за-период) |
+| `period-summary.ts` | Отчёт «Сводка за период»: читает документы периода и строит плоские строки продаж и возвратов по зонам 1С, таблицу последующих взносов, отвесы и должников и фактические итоги денег; его вызывает действие закрытия периода | [Сводка за период](accounting-rules.md#сводка-за-период) |
 | `roles.ts` | Роли конфигурации | [Права](authorization.md) |
 | `pages/` | Объявления `*.page.ts` и компоненты `*.page-component.tsx` собственных страниц | [Страницы конфигурации](metadata.md#страницы-конфигурации) |
 | `form-elements/` | Объявления `*.form-element.ts` и компоненты `*.form-element-component.tsx` блоков стандартной формы | [Элементы формы](metadata.md#элементы-формы) |
@@ -121,4 +122,4 @@ repos/                исходники внешних библиотек дл�
 
 Каталоги результатов сборки, такие как `dist/`, не предназначены для правки; состав поставки описан в [«Поставке»](delivery.md).
 
-Связанные строки сводки и их итоги собирает `src/configuration/period-summary-operations.ts`. Общие пакетные расчёты документов находятся в `documents/sale.functions.ts` и `documents/refund.functions.ts`; раскладка таблицы-фида в `pages/period-summary-feed.tsx`.
+Связанные строки сводки и их итоги собирает `src/configuration/period-summary-operations.ts`. Общие пакетные расчёты документов находятся в `documents/sale.functions.ts` и `documents/refund.functions.ts`; раскладка таблиц на `DataTable` в `pages/period-summary-tables.tsx`. Первоначальный взнос рассрочки выводит `installment-initial-payments.ts`.

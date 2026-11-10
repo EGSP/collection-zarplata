@@ -32,7 +32,7 @@ import { operationMovements, operationOf, planRefund, plannedTotal, refundOperat
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
 import { Certificate, readCertificateFeed } from './certificate.document.js';
 import { Sale } from './sale.document.js';
-import { SaleInstallment } from './sale-installment.document.js';
+import { readInstallmentPaymentFeed, SaleInstallment } from './sale-installment.document.js';
 import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
 import { closedPeriodByDocumentDatePolicy } from '../policies/closed-period.js';
 import { Shift } from './shift.document.js';
@@ -54,9 +54,10 @@ const complexMethod = 'Сложная';
 
 /**
  * Вид строки словами: поиск ленты находит возвраты по слову «возврат», продажи — по слову «продажа»,
- * оформление и обмен сертификатов — по слову «сертификат», обмен ещё и по слову «обмен».
+ * оформление и обмен сертификатов — по слову «сертификат», обмен ещё и по слову «обмен»,
+ * взносы — по словам «взнос» и «рассрочка».
  */
-const kindTitles = { sale: 'Продажа', refund: 'Возврат', certificate: 'Сертификат', certificateExchange: 'Сертификат обмен' } as const;
+const kindTitles = { sale: 'Продажа', refund: 'Возврат', certificate: 'Сертификат', certificateExchange: 'Сертификат обмен', payment: 'Взнос рассрочка' } as const;
 
 /** Товар строки ленты: код необязателен, ведущие нули сохраняются как текст. */
 interface FeedGoods {
@@ -76,10 +77,12 @@ interface FeedSale {
  * способ оплаты продажи, способ выдачи возврата или способ оплаты и обмена сертификата, `amount` —
  * сумма продажи, итог возвращённых товаров или номинал сертификата в копейках. `sales` —
  * продажи-основания возврата; у остальных строк список пуст. `holder` — ФИО держателя сертификата,
- * у продаж и возвратов `null`. Строки сертификата не содержат товаров.
+ * у продаж и возвратов `null`. Строки сертификата и взноса не содержат товаров. У взноса `guid`
+ * и `number` принадлежат рассрочке, `sales` содержит её продажу, а `line` номер строки взноса.
  */
 interface FeedRow {
-    readonly kind: 'sale' | 'refund' | 'certificate' | 'certificateExchange';
+    readonly kind: 'sale' | 'refund' | 'certificate' | 'certificateExchange' | 'payment';
+    readonly line?: number;
     readonly guid: string;
     readonly number: string;
     readonly date: string;
@@ -98,7 +101,8 @@ interface FeedRow {
  * Лента продаж и возвратов для рабочего места продавца: проведённые документы без пометки удаления,
  * новые сверху, страницами. Сертификаты стоят в ленте своими строками в момент оформления и в момент
  * обмена на деньги (`readCertificateFeed`): деньги за них проходят через продавца, хотя кассу смены
- * не меняют. Продажи и возвраты стоят в одной последовательности по дате, поэтому
+ * не меняют. Последующие взносы по рассрочкам стоят своими строками в день внесения
+ * (`readInstallmentPaymentFeed`); первоначальный взнос уже входит в продажу. Все виды стоят в одной последовательности по дате, поэтому
  * страницы нарезаются здесь: две ленты по отдельности, склеенные на клиенте, давали бы на второй
  * странице разные дни.
  *
@@ -121,6 +125,7 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     const sales = yield* database.all(query(Sale).select({ columns: ['guid', 'number', 'date', 'paymentMode', 'paidByCertificates'], where, orderBy, ...limit }));
     const refunds = yield* database.all(query(refund).select({ columns: ['guid', 'number', 'date'], where, orderBy, ...limit }));
     const certificates = yield* readCertificateFeed(words.length === 0 ? offset + pageSize : null);
+    const payments = yield* readInstallmentPaymentFeed(words.length === 0 ? offset + pageSize : null);
 
     // Табличные части читаются только у прочитанных документов, по порядку строк.
     // Исходные суммы и товары продаж берёт общая функция; возвраты остаются отдельными строками ленты.
@@ -138,6 +143,7 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
             return { kind: 'refund', guid: row.refund, number: row.number, date: row.date, method: methods.length === 1 ? methods[0]! : methods.length === 0 ? '' : complexMethod, goods: row.goods, amount: row.amount, sales: row.sales, coupon: false, certificate: false, holder: null };
         }),
         ...certificates.rows.map((row): FeedRow => ({ ...row, goods: [], sales: [], coupon: false, certificate: false })),
+        ...payments.rows.map((row): FeedRow => ({ ...row, goods: [], coupon: false, certificate: false })),
     ];
     // Даты хранятся строками ISO одного вида, поэтому сравниваются как текст.
     rows.sort((left, right) => right.date.localeCompare(left.date) || right.number.localeCompare(left.number));
@@ -145,7 +151,7 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
     if (words.length === 0) {
         const saleCount = yield* database.get(query(Sale).count({ where }));
         const refundCount = yield* database.get(query(refund).count({ where }));
-        return { total: (saleCount?.total ?? 0) + (refundCount?.total ?? 0) + certificates.total, rows: rows.slice(offset, offset + pageSize) };
+        return { total: (saleCount?.total ?? 0) + (refundCount?.total ?? 0) + certificates.total + payments.total, rows: rows.slice(offset, offset + pageSize) };
     }
     const matched = rows.filter((row) => {
         // Сумма добавлена и без пробелов разрядов: «13256» и «13 256» находят один документ.

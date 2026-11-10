@@ -6,7 +6,8 @@
  * Период задаётся днями включительно. День события сравнивается по первым десяти знакам даты,
  * как в политике закрытого периода и в расчёте зарплаты.
  */
-import { summaryOperations } from './period-summary-operations.js';
+import { addSummaryAmounts, summaryOperations, type SummaryAmounts } from './period-summary-operations.js';
+import { initialPayments } from './installment-initial-payments.js';
 import { Effect } from 'effect';
 import { callFunction } from '../server/data/action-context.js';
 import { ReadonlyDatabase } from '../server/database/database.effect.js';
@@ -21,38 +22,16 @@ import { dayOf } from './policies/closed-period.js';
 /** Безналичная оплата: второй способ, которым принимаются деньги. */
 const cashless = paymentMethods.find((method) => method !== cash)!;
 
-/** Суммы по способам оплаты. */
+/** Суммы взносов по способам. */
 export interface PaymentTotals {
     readonly cash: number;
     readonly cashless: number;
-    readonly installment: number;
 }
 
-/** Товар проведённой продажи. Суммы оплат — доли оплат продажи, приходящиеся на товар. */
-export interface SummaryGoodsRow {
-    readonly sale: string;
-    readonly date: string;
-    readonly name: string;
-    readonly code: string | null;
-    readonly size: string | null;
-    readonly total: number;
-    readonly payments: PaymentTotals;
-    /** Доля взносов по рассрочкам продажи, внесённых по конец периода, приходящаяся на товар. Погашения возвратами сюда не входят. */
-    readonly installmentPaid: number;
-    /** На конец периода у рассрочки продажи есть долг или рассрочка оформлена не на всю сумму в рассрочку. */
-    readonly installmentOpen: boolean;
-}
-
-/** Блок товаров с итогом по способам оплаты. */
-export interface SummaryGoodsBlock {
-    readonly rows: ReadonlyArray<SummaryGoodsRow>;
-    readonly totals: PaymentTotals;
-    readonly total: number;
-    /** Внесённая часть сумм в рассрочку: взносы по конец периода. */
-    readonly installmentPaid: number;
-}
-
-/** Взнос по рассрочке. */
+/**
+ * Взнос таблицы «Взносы»: последующий взнос либо первоначальный взнос продажи вне периода.
+ * Первоначальные взносы продаж периода стоят в строках продаж и сюда не входят.
+ */
 export interface SummaryPaymentRow {
     readonly installment: string;
     readonly sale: string;
@@ -95,13 +74,12 @@ export interface SummaryDebtor {
 
 /** Сводка за период. */
 export interface PeriodSummary {
+    /** Продажи и возвраты двух зон 1С. */
     readonly operations: ReturnType<typeof summaryOperations>;
+    /** Все деньги периода: обе зоны и таблица «Взносы». Каждая сумма входит ровно в одно слагаемое. */
+    readonly totals: SummaryAmounts;
     readonly from: string;
     readonly to: string;
-    readonly postedIn1C: SummaryGoodsBlock;
-    readonly notPostedIn1C: SummaryGoodsBlock;
-    /** Совокупные итоги продаж: проведённые и не проведённые в 1С товары вместе. */
-    readonly allSales: { readonly count: number; readonly totals: PaymentTotals; readonly total: number; readonly installmentPaid: number };
     readonly payments: { readonly rows: ReadonlyArray<SummaryPaymentRow>; readonly totals: PaymentTotals };
     readonly weighings: { readonly rows: ReadonlyArray<SummaryWeighingRow>; readonly total: number };
     readonly debtors: { readonly rows: ReadonlyArray<SummaryDebtor>; readonly total: number };
@@ -113,21 +91,17 @@ const active = [
     { column: 'deletedAt', operator: '=', value: null },
 ] as const;
 
-const noPayments: PaymentTotals = { cash: 0, cashless: 0, installment: 0 };
-
-const addTotals = (first: PaymentTotals, second: PaymentTotals): PaymentTotals => ({
-    cash: first.cash + second.cash, cashless: first.cashless + second.cashless, installment: first.installment + second.installment,
-});
-
 /** Момент даты: строки хранятся с часовым поясом клиента, поэтому сортировка идёт по моментам. */
 const moment = (value: string): number => new Date(value).getTime();
 
 /**
  * Строит сводку с дня `from` по день `to` включительно.
  *
- * - Продажи: функция продажи `figures` отдаёт товары с вычетом возвратов по конец периода,
- *   оставшиеся доли оплат и состояние рассрочки. Здесь строки только группируются по отметке 1С.
- * - Взносы: взносы проведённых рассрочек с датой в периоде.
+ * - Продажи и возвраты: функция продажи `periodFigures` отдаёт товары, доли оплат и выдачи возвратов,
+ *   `summaryOperations` раскладывает их по зонам 1С. В суммы входят только деньги: оплаты,
+ *   первоначальный взнос и выдачи возвратов; долг рассрочки и его списание возвратом не входят.
+ * - Взносы: взносы проведённых рассрочек с датой в периоде, кроме первоначальных взносов продаж
+ *   периода (`initialPayments`): те уже стоят в строке продажи.
  * - Отвесы: строки, которые сейчас в состоянии «В отвесе», у отвесов с датой не позже конца
  *   периода. Отвес не хранит историю состояний строк, поэтому берётся текущее.
  * - Должники: проведённые рассрочки, оформленные не позже конца периода, с долгом на его конец:
@@ -151,11 +125,10 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
     }))).filter((sale) => inPeriod(sale.date)).sort((first, second) => moment(first.date) - moment(second.date));
     const saleGuids = sales.map((sale) => sale.guid);
     const periodFigures = yield* callFunction(Sale, 'periodFigures', { periodStart: from, periodEnd: to });
-    const saleFigures = periodFigures.sales.filter((sale) => saleGuids.includes(sale.sale));
     // Рассрочки, оформленные не позже конца периода, и их суммы на его конец: по ним считаются
     // внесённая часть продаж периода, взносы периода и долги.
     const installments = (yield* database.all(query(SaleInstallment).select({
-        columns: ['guid', 'date', 'sale', 'person', 'amount'],
+        columns: ['guid', 'date', 'sale', 'type', 'person', 'amount'],
         where: [...active, { column: 'date', operator: '<', value: end }],
     }))).filter((installment) => dayOf(installment.date) <= to);
     const figures = new Map((yield* callFunction(SaleInstallment, 'figures', {
@@ -163,45 +136,36 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         installments: installments.map((installment) => ({ guid: installment.guid })),
     })).map((item) => [item.installment, item]));
     const figuresOf = (guid: string) => figures.get(guid)!;
-    const posted: SummaryGoodsRow[] = [];
-    const notPosted: SummaryGoodsRow[] = [];
-    // Деление оплат и вычет возвратов выполняет функция продажи; сводка только группирует её строки.
-    // Доля сертификатов в сводку не входит: она показывает только фактическую оплату деньгами
-    // и рассрочкой (раздел «Правила учёта», подраздел «Сводка за период»).
-    for (const sale of saleFigures) {
-        for (const line of sale.goods) {
-            const { cash: lineCash, cashless, installment } = line.netPayments;
-            const row: SummaryGoodsRow = {
-                sale: sale.sale, date: sale.date, name: line.name, code: line.code, size: line.size, total: line.netTotal,
-                payments: { cash: lineCash, cashless, installment }, installmentPaid: line.installmentPaid, installmentOpen: line.installmentOpen,
-            };
-            (line.postedIn1C ? posted : notPosted).push(row);
+
+    // Взносы читаются строками в порядке строк: по нему правило первоначального взноса выбирает
+    // первый из взносов с равным моментом.
+    const installmentPayments = installments.length === 0 ? [] : yield* database.all(query(SaleInstallment).tablePart('payments').select({
+        columns: ['ownerGuid', 'lineNumber', 'date', 'method', 'amount'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: installments.map((installment) => installment.guid) }],
+        orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
+    }));
+    // Первоначальный взнос продажи периода стоит в строке продажи (колонка «Рассрочка»), остальные
+    // взносы периода — в таблице «Взносы». Первоначальный взнос продажи вне периода тоже идёт
+    // в таблицу: строки этой продажи в сводке нет, и иначе деньги пропали бы из итога.
+    const periodSales = new Set(saleGuids);
+    const initial = new Map<string, number>();
+    const paymentRows: SummaryPaymentRow[] = [];
+    for (const installment of installments) {
+        const payments = installmentPayments.filter((payment) => payment.ownerGuid === installment.guid);
+        const initialOfInstallment = initialPayments(installment, payments);
+        for (const payment of payments) {
+            if (!inPeriod(payment.date)) continue;
+            if (initialOfInstallment.has(payment) && periodSales.has(installment.sale)) {
+                initial.set(installment.sale, (initial.get(installment.sale) ?? 0) + payment.amount);
+                continue;
+            }
+            paymentRows.push({ installment: installment.guid, sale: installment.sale, person: installment.person, date: payment.date, method: payment.method, amount: payment.amount });
         }
     }
-    const block = (rows: ReadonlyArray<SummaryGoodsRow>): SummaryGoodsBlock => ({
-        rows,
-        totals: rows.reduce((sum, row) => addTotals(sum, row.payments), noPayments),
-        total: rows.reduce((sum, row) => sum + row.total, 0),
-        installmentPaid: rows.reduce((sum, row) => sum + row.installmentPaid, 0),
-    });
-
-    // Взносы периода перечисляются строками, поэтому читаются из рассрочек, а не из итогов.
-    const installmentPayments = installments.length === 0 ? [] : yield* database.all(query(SaleInstallment).tablePart('payments').select({
-        columns: ['ownerGuid', 'date', 'method', 'amount'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: installments.map((installment) => installment.guid) }],
-    }));
-    const installmentByGuid = new Map(installments.map((installment) => [installment.guid, installment]));
-    const paymentRows: SummaryPaymentRow[] = installmentPayments
-        .filter((payment) => inPeriod(payment.date))
-        .sort((first, second) => moment(first.date) - moment(second.date))
-        .map((payment) => {
-            const installment = installmentByGuid.get(payment.ownerGuid)!;
-            return { installment: installment.guid, sale: installment.sale, person: installment.person, date: payment.date, method: payment.method, amount: payment.amount };
-        });
+    paymentRows.sort((first, second) => moment(first.date) - moment(second.date));
     const paymentTotals: PaymentTotals = {
         cash: paymentRows.filter((row) => row.method === cash).reduce((sum, row) => sum + row.amount, 0),
         cashless: paymentRows.filter((row) => row.method === cashless).reduce((sum, row) => sum + row.amount, 0),
-        installment: 0,
     };
 
     // Долг рассрочки на конец периода: взносы и погашения после него ещё не учтены.
@@ -232,19 +196,10 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
             weighing: weighing.guid, person: weighing.person, date: weighing.date, name: line.name, code: line.code, size: line.size, total: line.total,
         })));
 
-    const postedBlock = block(posted);
-    const notPostedBlock = block(notPosted);
+    const operations = summaryOperations(periodFigures.sales, periodFigures.refunds, from, initial, paymentRows);
     const result: PeriodSummary = {
-        from, to,
-        operations: summaryOperations(periodFigures.sales, periodFigures.refunds, from),
-        postedIn1C: postedBlock,
-        notPostedIn1C: notPostedBlock,
-        allSales: {
-            count: posted.length + notPosted.length,
-            totals: addTotals(postedBlock.totals, notPostedBlock.totals),
-            total: postedBlock.total + notPostedBlock.total,
-            installmentPaid: postedBlock.installmentPaid + notPostedBlock.installmentPaid,
-        },
+        from, to, operations,
+        totals: addSummaryAmounts(operations.totals, { ...paymentTotals, installment: 0 }),
         payments: { rows: paymentRows, totals: paymentTotals },
         weighings: { rows: weighingRows, total: weighingRows.reduce((sum, row) => sum + row.total, 0) },
         debtors: { rows: debtorRows, total: debtorRows.reduce((sum, row) => sum + row.debt, 0) },
