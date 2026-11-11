@@ -26,7 +26,7 @@ export interface ApplicationReleaseVersions {
 }
 
 /** Версия платформы: сервера, клиента и SDK. Увеличивается только в коммите релиза. */
-export const platformVersion: ReleaseVersion = { version: '1.1.0', compatibleFrom: '1.0.0' };
+export const platformVersion: ReleaseVersion = { version: '1.1.1', compatibleFrom: '1.0.0' };
 
 /** Версии текущей сборки. */
 export const applicationVersions: ApplicationVersions = { platform: platformVersion.version, configuration: configurationVersion.version };
