@@ -387,12 +387,59 @@ export class PlatformQuery<Row extends Record<string, unknown>, Parts extends Re
         };
         if (filter.operator === 'IN') {
             if (!Array.isArray(filter.value) || filter.value.length === 0) throw new Error('IN требует непустой список значений');
-            return `(${filter.value.map((value: unknown) => compare(value, '=')).join(' OR ')})`;
+            return this.inFilter(filter.value, expression, storage, description.name, parameters, compare);
         }
         return compare(filter.value, filter.operator);
     }
 
-    private where(filters: readonly QueryFilter<Row>[] | undefined, parameters: SqlValue[]): string {
+    /**
+     * Условие `IN` строится настоящим списком `IN (?, …)`, а не цепочкой `OR`. Каждое `OR`
+     * углубляет дерево выражения на уровень, и Turso отклоняет запрос глубже ста уровней, то есть
+     * список примерно из ста значений. Глубина `IN` от длины списка не зависит.
+     *
+     * Набор столбцов у значения поля составного типа зависит от его типа, поэтому значения
+     * группируются по набору столбцов: группа из одного столбца даёт `"столбец" IN (?, …)`, из
+     * нескольких — сравнение строк `("a", "b") IN ((?, ?), …)`. Группы соединяются через `OR`, но
+     * их столько, сколько разных типов в списке. `NULL` проверяется отдельно через `IS NULL`:
+     * `IN` с `NULL` не совпадает ни с чем.
+     */
+    private inFilter(
+        values: readonly unknown[],
+        expression: string | null,
+        storage: FieldStorage,
+        fieldName: string,
+        parameters: SqlValue[],
+        compare: (value: unknown, operator: '=') => string,
+    ): string {
+        const conditions: string[] = [];
+        if (values.includes(null)) conditions.push(compare(null, '='));
+        const filled = values.filter((value) => value !== null);
+        if (filled.length > 0 && expression !== null) {
+            // Итог всегда число, поэтому сравнивается его выражение со списком чисел.
+            if (filled.some((value) => typeof value !== 'number')) throw new Error(`Поле «${fieldName}» сравнивается только с числом`);
+            parameters.push(...(filled as number[]));
+            conditions.push(`(${expression} IN (${filled.map(() => '?').join(', ')}))`);
+        } else if (filled.length > 0) {
+            const groups = new Map<string, { readonly columns: readonly string[]; readonly rows: (readonly SqlValue[])[] }>();
+            for (const value of filled) {
+                const comparison = storage.comparison(value);
+                const columns = comparison.columns.map(sqlIdentifier);
+                const key = columns.join(',');
+                const group = groups.get(key) ?? { columns, rows: [] };
+                group.rows.push(comparison.values);
+                groups.set(key, group);
+            }
+            for (const { columns, rows } of groups.values()) {
+                for (const row of rows) parameters.push(...row);
+                conditions.push(columns.length === 1
+                    ? `(${columns[0]} IN (${rows.map(() => '?').join(', ')}))`
+                    : `((${columns.join(', ')}) IN (${rows.map(() => `(${columns.map(() => '?').join(', ')})`).join(', ')}))`);
+            }
+        }
+        return conditions.length === 1 ? conditions[0]! : `(${conditions.join(' OR ')})`;
+    }
+
+    private where(filters:readonly QueryFilter<Row>[] | undefined, parameters: SqlValue[]): string {
         if (filters === undefined) return '';
         if (!Array.isArray(filters)) throw new Error('Отбор должен быть списком условий');
         return filters.length === 0 ? '' : ` WHERE ${filters.map((filter) => this.filter(filter, parameters)).join(' AND ')}`;
