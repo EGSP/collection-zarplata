@@ -2,11 +2,15 @@
  * Таблицы сводки за период: продажи и возвраты зоны 1С и итог «Всего». Строки плоские, по одной
  * на документ; связанные документы показывает раскрытая строка ссылками без сумм, поэтому каждый
  * рубль виден в итоге один раз (раздел «Правила учёта», «Сводка за период»).
+ *
+ * Итоги делят возвраты по дням продаж: возврат в день продажи вычтен из продаж, возвраты продаж
+ * других дней стоят отдельно. Так видно, сколько принесли продажи периода и сколько ушло на возвраты
+ * прошлых продаж.
  */
-import { useState } from 'react';
-import { DataTable, FieldDisplay, Icons, Panel, RecordLink, Stack, Text, useOpenRecord } from '../../web/sdk';
+import { useState, type ReactNode } from 'react';
+import { DataTable, Divider, FieldDisplay, Icons, Panel, RecordLink, Stack, Text, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
-import type { SummaryAmounts, SummaryLink, SummaryOperation } from '../period-summary-operations';
+import type { SummaryAmounts, SummaryLink, SummaryOperation, SummaryRefundAmounts, SummaryTotals } from '../period-summary-operations';
 import type { PaymentTotals, SummaryCertificateRow } from '../period-summary';
 import { documentNumber, feedDate, feedGoods } from '../shell-components/seller-feed-format';
 
@@ -23,6 +27,24 @@ export const summaryScroll = { visibleRows: 10, pinned: { header: true, summary:
 
 /** Все деньги строки или итога: в сводке нет долга, поэтому сумма колонок фактическая. */
 const totalOf = (amounts: SummaryAmounts) => amounts.cash + amounts.cashless + amounts.installment;
+/** Все деньги возвратов: рассрочку возврат деньгами не выдаёт. */
+const refundTotalOf = (amounts: SummaryRefundAmounts) => amounts.cash + amounts.cashless;
+
+/**
+ * Две подстроки в ячейке строки итогов: «Продажи» сверху и «Возвраты» под пунктиром. Строка итогов
+ * у таблицы одна, поэтому подстроки рисует ячейка, а не таблица. Пустая подстрока сохраняет высоту,
+ * чтобы значения соседних колонок стояли на одной линии.
+ */
+function SummaryLines({ sales, refunds }: { readonly sales: ReactNode; readonly refunds: ReactNode }) {
+    return (
+        // Стек занимает всю ячейку: пунктир идёт от края до края, как граница подстрок таблицы.
+        <Stack gap={2} align="stretch" grow>
+            <Text strong noWrap>{sales}</Text>
+            <Divider dashed />
+            <Text strong noWrap>{refunds ?? <>&nbsp;</>}</Text>
+        </Stack>
+    );
+}
 
 /**
  * Документ строки: значок вида, номер и дата. Значок уже отличает продажу от возврата, поэтому
@@ -44,8 +66,11 @@ function LinkLine({ link }: { readonly link: SummaryLink }) {
  * Продажи и возвраты одной зоны 1С. Колонки «Наличные», «Безналичные», «Рассрочка» и «Итого»;
  * в «Рассрочку» попадает первоначальный взнос, чаще всего оплата банковской рассрочки. Щелчок
  * по строке открывает документ, Shift — его оригинал. Строка со связями раскрывается.
+ *
+ * Итогов две строки: «Продажи» за вычетом возвратов в день продажи и «Возвраты» по продажам
+ * других дней. Строки документов показывают деньги целиком, как и раньше.
  */
-export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray<SummaryOperation>; readonly totals: SummaryAmounts }) {
+export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray<SummaryOperation>; readonly totals: SummaryTotals }) {
     const open = useOpenRecord();
     const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
     return (
@@ -72,7 +97,14 @@ export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray
                 { key: 'installment', title: 'Рассрочка', type: 'money', value: (row) => row.amounts.installment },
                 { key: 'total', title: 'Итого', type: 'money', value: (row) => totalOf(row.amounts) },
             ]}
-            summary={{ document: <Text strong>Итого</Text>, cash: totals.cash, cashless: totals.cashless, installment: totals.installment, total: totalOf(totals) }}
+            summary={{
+                document: <SummaryLines sales="Продажи" refunds="Возвраты" />,
+                cash: <SummaryLines sales={<Money value={totals.sales.cash} />} refunds={<Money value={totals.refunds.cash} />} />,
+                cashless: <SummaryLines sales={<Money value={totals.sales.cashless} />} refunds={<Money value={totals.refunds.cashless} />} />,
+                // Возврат рассрочку деньгами не выдаёт: у возвратов эта подстрока пустая.
+                installment: <SummaryLines sales={<Money value={totals.sales.installment} />} refunds={null} />,
+                total: <SummaryLines sales={<Money value={totalOf(totals.sales)} />} refunds={<Money value={refundTotalOf(totals.refunds)} />} />,
+            }}
         />
     );
 }
@@ -101,18 +133,42 @@ export function CertificatesTable({ rows, totals }: { readonly rows: ReadonlyArr
     );
 }
 
+/** Деньги по способам и итог одной секции панели «Всего». Рассрочку показывает только секция, где она есть. */
+function TotalsLines({ amounts, installment }: { readonly amounts: SummaryRefundAmounts; readonly installment?: number | undefined }) {
+    return (
+        <>
+            <Text expressive noWrap>Наличные: <Money value={amounts.cash} /></Text>
+            <Text expressive noWrap>Безналичные: <Money value={amounts.cashless} /></Text>
+            {installment !== undefined && <Text expressive noWrap>Рассрочка: <Money value={installment} /></Text>}
+            <Text expressive strong noWrap>Итого: <Money value={refundTotalOf(amounts) + (installment ?? 0)} /></Text>
+        </>
+    );
+}
+
 /**
- * Итог «Всего» на рельсе: обе зоны и взносы, каждая сумма входит в него один раз. Ниже отдельной
- * строкой стоят сертификаты: их деньги во «Всего» не входят.
+ * Итог «Всего» на рельсе: обе зоны и взносы, каждая сумма входит в него один раз. Секции идут
+ * друг под другом на любой ширине, у каждой своя подпись:
+ *
+ * 1. «Продажи» — продажи и взносы за вычетом возвратов в день продажи.
+ * 2. «Возвраты» под пунктиром — возвраты по продажам других дней. Пунктир показывает, что это
+ *    часть того же итога, а не отдельный отчёт.
+ * 3. «Общий» под сплошной линией — полная сумма с учётом всех возвратов.
+ *
+ * Ниже отдельной строкой стоят сертификаты: их деньги во «Всего» не входят.
  */
-export function SummaryTotalsPanel({ amounts, certificates }: { readonly amounts: SummaryAmounts; readonly certificates: PaymentTotals }) {
+export function SummaryTotalsPanel({ totals, certificates }: { readonly totals: SummaryTotals; readonly certificates: PaymentTotals }) {
     return (
         <Panel title="Всего">
             <Stack gap={5}>
-                <Text expressive noWrap>Наличные: <Money value={amounts.cash} /></Text>
-                <Text expressive noWrap>Безналичные: <Money value={amounts.cashless} /></Text>
-                <Text expressive noWrap>Рассрочка: <Money value={amounts.installment} /></Text>
-                <Text expressive strong noWrap>Итого: <Money value={totalOf(amounts)} /></Text>
+                <Text.Heading variant="02">Продажи</Text.Heading>
+                <TotalsLines amounts={totals.sales} installment={totals.sales.installment} />
+                <Divider dashed />
+                <Text.Heading variant="02">Возвраты</Text.Heading>
+                <TotalsLines amounts={totals.refunds} />
+                <Divider />
+                <Text.Heading variant="02">Общий</Text.Heading>
+                <TotalsLines amounts={totals.all} installment={totals.all.installment} />
+                <Divider />
                 <Text expressive noWrap>Сертификаты: <Money value={certificates.cash + certificates.cashless} /></Text>
             </Stack>
         </Panel>

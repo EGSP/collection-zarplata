@@ -93,7 +93,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                     </Panel>
                 </Column>
                 <Column span={{ lg: 4 }}>
-                    <StickyRail from="lg"><SummaryTotalsPanel amounts={summary.totals} certificates={certificates.totals} /></StickyRail>
+                    <StickyRail from="lg"><SummaryTotalsPanel totals={summary.totals} certificates={certificates.totals} /></StickyRail>
                 </Column>
             </Grid>
             <Panel title="Сертификаты">

@@ -78,6 +78,7 @@ covers:
 | `FluidValueProperties`, `FormStackProperties` | Свойства [сегмента значения](components.md#компоновка-полей) fluid-поля (`content`) и [стека формы](components.md#форма-из-formitem) (`gap`) |
 | `ButtonSize`, `ButtonProperties`, `MainActionButtonProperties` | Размер [кнопки](components.md#кнопки) `sm`, `md`, `lg`, `xl` и свойства кнопок |
 | `LayerLevel`, `LayerColors`, `LayerProperties`, `PanelProperties` | Уровень [поверхности](components.md#поверхности) (0–3), фоны уровня и свойства `Layer` и `Panel` |
+| `DividerProperties` | Свойства [разделителя](components.md#поверхности): `dashed` |
 | `TextTone`, `TextHeadingVariant`, `TextProperties`, `TextHeadingProperties`, `TextCommonProperties` | Цвет и ступень заголовка [ролей текста](components.md#роли-текста) и их свойства |
 | `AccountingTone`, `AccountingColor` | Смысловой цвет учёта (`total`, `debt`, `overpayment`, `warning`) и его оттенки: `text`, `solid`, `solidHover`, `background`, `backgroundStrong` |
 | `TablePartOptions` | [Настройки вида табличной части](components.md#табличная-часть) |

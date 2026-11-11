@@ -6,7 +6,7 @@
  * экран импортирует только его, а остальные модули `src/web` остаются внутренними и могут меняться.
  *
  * Модули SDK разложены по слоям дизайн-системы: `ds` — основа (сетка, колонка, стек, шкала
- * отступов, иконки, плитка, кнопка, выезжающая панель, поверхности, текст, смысловые цвета, таблица данных), `derivations` —
+ * отступов, иконки, плитка, кнопка, выезжающая панель, поверхности, разделитель, текст, смысловые цвета, таблица данных), `derivations` —
  * компоненты, собранные из `ds`, например кнопка главного действия формы, `external` — компоненты,
  * которые пока не следуют правилам дизайн-системы, `platform` — блоки, которые знают о платформе:
  * данные, права, описания объектов, область окна, фокус. Раскладку экран строит компонентами `ds`;
@@ -137,8 +137,9 @@ export { FieldLabel, isEmptyFieldValue, type FieldLabelProperties } from './deri
 export { MainActionButton, type MainActionButtonProperties } from './derivations/main-action-button';
 export { ActionTile, type ActionTileProperties } from './derivations/action-tile';
 
-// Поверхности по уровням вложенности, роли текста и смысловые цвета учёта.
+// Поверхности по уровням вложенности, разделитель, роли текста и смысловые цвета учёта.
 export { Layer, Panel, useLayer, type LayerColors, type LayerLevel, type LayerProperties, type PanelProperties } from './ds/layer';
+export { Divider, type DividerProperties } from './ds/divider';
 export { Text, type TextCommonProperties, type TextHeadingProperties, type TextHeadingVariant, type TextProperties, type TextTone } from './ds/text';
 export { useAccountingColors, type AccountingColor, type AccountingTone } from './ds/colors';
 

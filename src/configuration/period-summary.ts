@@ -6,7 +6,7 @@
  * Период задаётся днями включительно. День события сравнивается по первым десяти знакам даты,
  * как в политике закрытого периода и в расчёте зарплаты.
  */
-import { addSummaryAmounts, summaryOperations, type SummaryAmounts } from './period-summary-operations.js';
+import { addSummaryTotals, summaryOperations, summaryTotals, type SummaryTotals } from './period-summary-operations.js';
 import { initialPayments } from './installment-initial-payments.js';
 import { Effect } from 'effect';
 import { callFunction } from '../server/data/action-context.js';
@@ -91,8 +91,12 @@ export interface SummaryDebtor {
 export interface PeriodSummary {
     /** Продажи и возвраты двух зон 1С. */
     readonly operations: ReturnType<typeof summaryOperations>;
-    /** Все деньги периода: обе зоны и таблица «Взносы». Каждая сумма входит ровно в одно слагаемое. */
-    readonly totals: SummaryAmounts;
+    /**
+     * Все деньги периода: обе зоны и таблица «Взносы». Взносы входят в продажи (`sales`), возвраты
+     * по продажам других дней стоят отдельно (`refunds`), `all` — их сумма. Каждая сумма входит
+     * ровно в одно слагаемое.
+     */
+    readonly totals: SummaryTotals;
     readonly from: string;
     readonly to: string;
     readonly payments: { readonly rows: ReadonlyArray<SummaryPaymentRow>; readonly totals: PaymentTotals };
@@ -253,7 +257,7 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
     const operations = summaryOperations(periodFigures.sales, periodFigures.refunds, from, initial, paymentRows);
     const result: PeriodSummary = {
         from, to, operations,
-        totals: addSummaryAmounts(operations.totals, { ...paymentTotals, installment: 0 }),
+        totals: addSummaryTotals(operations.totals, summaryTotals({ ...paymentTotals, installment: 0 }, { cash: 0, cashless: 0 })),
         payments: { rows: paymentRows, totals: paymentTotals },
         certificates: { rows: certificateRows, totals: certificateTotals },
         weighings: { rows: weighingRows, total: weighingRows.reduce((sum, row) => sum + row.total, 0) },

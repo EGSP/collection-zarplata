@@ -5,10 +5,15 @@
  * Долг рассрочки и списание долга возвратом в суммы не входят. Строки плоские: продажа и возврат стоят
  * отдельно, а связь между ними передаётся списком ссылок `links`, который страница показывает
  * в раскрытой строке без сумм. Так каждый рубль учитывается в итоге ровно один раз.
+ *
+ * Итоги зоны делят возвраты по дням их продаж (`SummaryTotals`): часть возврата по продаже того же
+ * дня вычитается из продаж, часть по продаже другого дня стоит отдельно. Строки возвратов от этого
+ * не меняются: возврат по-прежнему стоит одной строкой со всеми своими деньгами зоны.
  */
 import type { SaleFigures } from './documents/sale.functions.js';
 import type { RefundFigures } from './documents/refund.functions.js';
 import { allocate } from './money-shares.js';
+import { dayOf } from './policies/closed-period.js';
 
 /** Деньги строки в копейках. `installment` — первоначальный взнос рассрочки, в том числе оплата банком. */
 export interface SummaryAmounts {
@@ -47,6 +52,37 @@ export interface SummaryPaymentLink {
     readonly date: string;
 }
 
+/** Деньги возвратов: возврат выдаёт только наличные и безналичные, рассрочку он не возвращает деньгами. */
+export interface SummaryRefundAmounts {
+    readonly cash: number;
+    readonly cashless: number;
+}
+
+/**
+ * Итоги зоны или всей сводки.
+ *
+ * - `sales` — деньги продаж и взносов за вычетом возвратов в день продажи (строка «Продажи»).
+ * - `refunds` — возвраты по продажам других дней, со знаком минус (строка «Возвраты»).
+ * - `all` — сумма обоих слагаемых: все деньги с учётом всех возвратов.
+ */
+export interface SummaryTotals {
+    readonly sales: SummaryAmounts;
+    readonly refunds: SummaryRefundAmounts;
+    readonly all: SummaryAmounts;
+}
+
+/** Складывает итоги: каждое слагаемое отдельно. */
+export const addSummaryTotals = (first: SummaryTotals, second: SummaryTotals): SummaryTotals => ({
+    sales: addSummaryAmounts(first.sales, second.sales),
+    refunds: { cash: first.refunds.cash + second.refunds.cash, cashless: first.refunds.cashless + second.refunds.cashless },
+    all: addSummaryAmounts(first.all, second.all),
+});
+
+/** Итоги из денег продаж и возвратов других дней; полная сумма считается из них. */
+export const summaryTotals = (sales: SummaryAmounts, refunds: SummaryRefundAmounts): SummaryTotals => ({
+    sales, refunds, all: addSummaryAmounts(sales, { ...refunds, installment: 0 }),
+});
+
 export const emptySummaryAmounts = (): SummaryAmounts => ({ cash: 0, cashless: 0, installment: 0 });
 export const addSummaryAmounts = (first: SummaryAmounts, second: SummaryAmounts): SummaryAmounts => ({
     cash: first.cash + second.cash, cashless: first.cashless + second.cashless, installment: first.installment + second.installment,
@@ -72,6 +108,10 @@ export function summaryOperations(sales: ReadonlyArray<SaleFigures>, refunds: Re
     const periodRefunds = new Set(refunds.map((refund) => refund.refund));
     const build = (posted: boolean) => {
         const rows: SummaryOperation[] = [];
+        // Возвраты по продажам других дней копятся отдельно от строк: строка возврата показывает
+        // все его деньги зоны, а итог делит их по дням продаж.
+        const otherDayRefunds = { cash: 0, cashless: 0 };
+        let sameDayRefunds = emptySummaryAmounts();
         for (const sale of sales) {
             if (sale.date.slice(0, 10) < from) continue;
             const zone = sale.goods.map((line) => line.postedIn1C === posted);
@@ -102,7 +142,18 @@ export function summaryOperations(sales: ReadonlyArray<SaleFigures>, refunds: Re
             });
             if (parts.length === 0) continue;
             // Списание долга «В счёт долга» денег не выдаёт, поэтому в строку возврата не входит.
-            const sum = (field: 'cash' | 'cashless') => -parts.reduce((total, part) => total + part.selected.reduce((subtotal, line) => subtotal + line[field], 0), 0);
+            const partSum = (part: typeof parts[number], field: 'cash' | 'cashless') => part.selected.reduce((subtotal, line) => subtotal + line[field], 0);
+            const sum = (field: 'cash' | 'cashless') => -parts.reduce((total, part) => total + partSum(part, field), 0);
+            // День продажи и день возврата сравниваются по дню документа, как остальные правила сводки.
+            // Продажа прошлого периода всегда другого дня.
+            for (const part of parts) {
+                if (dayOf(part.sale.date) === dayOf(refund.date)) {
+                    sameDayRefunds = addSummaryAmounts(sameDayRefunds, { cash: -partSum(part, 'cash'), cashless: -partSum(part, 'cashless'), installment: 0 });
+                } else {
+                    otherDayRefunds.cash -= partSum(part, 'cash');
+                    otherDayRefunds.cashless -= partSum(part, 'cashless');
+                }
+            }
             rows.push({
                 key: `refund-${refund.refund}-${posted}`, kind: 'refund', guid: refund.refund, number: refund.number, date: refund.date,
                 goods: parts.flatMap((part) => part.sale.goods.filter((line) => part.selected.some((share) => share.lineNumber === line.lineNumber))),
@@ -111,9 +162,10 @@ export function summaryOperations(sales: ReadonlyArray<SaleFigures>, refunds: Re
             });
         }
         rows.sort(byMoment);
-        return { rows, totals: rows.reduce((sum, row) => addSummaryAmounts(sum, row.amounts), emptySummaryAmounts()) };
+        const salesAmounts = rows.filter((row) => row.kind === 'sale').reduce((sum, row) => addSummaryAmounts(sum, row.amounts), sameDayRefunds);
+        return { rows, totals: summaryTotals(salesAmounts, otherDayRefunds) };
     };
     const postedZone = build(true);
     const notPostedZone = build(false);
-    return { posted: postedZone, notPosted: notPostedZone, totals: addSummaryAmounts(postedZone.totals, notPostedZone.totals) };
+    return { posted: postedZone, notPosted: notPostedZone, totals: addSummaryTotals(postedZone.totals, notPostedZone.totals) };
 }
