@@ -28,7 +28,7 @@ const goodsOptions: TablePartOptions = {
     fixedRows: true,
     columnSizes: goodsColumnSizes,
     columnOrder: ['code', 'name', 'size', 'cost', 'discount', 'total', 'comment'],
-    hiddenColumns: ['sale', 'postedIn1C', 'coupon', 'couponNumber', 'couponPercent'],
+    hiddenColumns: ['sale', 'postedIn1C', 'coupon', 'couponNumber', 'couponPercent', 'couponDenomination'],
     totals: ['total'],
 };
 

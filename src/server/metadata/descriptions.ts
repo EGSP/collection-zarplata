@@ -6,10 +6,16 @@ import type { AccessDefinition } from '../authorization/access-schema.js';
 
 import type { Formula } from '../../common/formulas.js';
 
-/** Часть представления: текст, поле либо значения колонки через разделитель. */
+/**
+ * Часть представления: текст, поле либо значения колонки через разделитель.
+ *
+ * `suffix` поля шапки выводится сразу после значения и только вместе с ним. Так представление
+ * показывает одно из необязательных полей без лишних знаков: у купона «Осень 10 %» процент
+ * и «Подарок 500,00 ₽» номинал, а пустое второе поле не оставляет « %» или « ₽».
+ */
 export type PresentationPart =
     | { readonly text: string }
-    | { readonly field: string; readonly format?: 'date' | 'dateTime' | 'number' }
+    | { readonly field: string; readonly format?: 'date' | 'dateTime' | 'number'; readonly suffix?: string }
     | { readonly tablePart: string; readonly field: string; readonly separator?: string };
 
 /** Источник числовых подсказок, не сохраняющий ссылку в записи. */

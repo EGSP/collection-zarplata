@@ -18,7 +18,7 @@ export type Formula =
     | { readonly operation: 'field'; readonly field: string }
     | { readonly operation: 'sum'; readonly part: string; readonly field: string; readonly where?: RowCondition }
     | { readonly operation: 'count'; readonly part: string; readonly where?: RowCondition }
-    | { readonly operation: 'add' | 'subtract' | 'multiply' | 'divide'; readonly left: Formula; readonly right: Formula }
+    | { readonly operation: 'add' | 'subtract' | 'multiply' | 'divide' | 'maximum'; readonly left: Formula; readonly right: Formula }
     | { readonly operation: 'round'; readonly value: Formula };
 
 /** Фабрика выражений; деньги округляют в целых копейках через round(). */
@@ -34,6 +34,11 @@ export const formula = {
     multiply: (left: Formula, right: Formula): Formula => ({ operation: 'multiply', left, right }),
     divide: (left: Formula, right: Formula): Formula => ({ operation: 'divide', left, right }),
     round: (value: Formula): Formula => ({ operation: 'round', value }),
+    /**
+     * Большее из двух значений. Нужно, чтобы вычитание не уводило результат ниже границы:
+     * `maximum(value(0), …)` даёт ноль вместо отрицательной суммы.
+     */
+    maximum: (left: Formula, right: Formula): Formula => ({ operation: 'maximum', left, right }),
 };
 
 /** Поле с необязательной формулой; общий контракт серверного описания и SDUI. */
@@ -89,6 +94,7 @@ export function evaluateFormula(expression: Formula, record: Readonly<Record<str
         case 'subtract': result = evaluateFormula(expression.left, record) - evaluateFormula(expression.right, record); break;
         case 'multiply': result = evaluateFormula(expression.left, record) * evaluateFormula(expression.right, record); break;
         case 'divide': result = evaluateFormula(expression.left, record) / evaluateFormula(expression.right, record); break;
+        case 'maximum': result = Math.max(evaluateFormula(expression.left, record), evaluateFormula(expression.right, record)); break;
     }
     if (!Number.isFinite(result)) throw new Error('Формула дала бесконечное значение или деление на ноль');
     return result;

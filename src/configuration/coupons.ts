@@ -12,13 +12,28 @@ import { DataPolicyError } from '../server/data/data.errors.js';
 import { query } from '../server/database/sql.builder.js';
 import { ReadonlyDatabase } from '../server/database/database.effect.js';
 import { Metadata, type ObjectKind } from '../server/metadata/index.js';
+import { formatMoney } from '../server/ui/value-format.js';
 import { dayOf } from './policies/closed-period.js';
 
-/** Купон акции в том виде, в каком его читают правила. */
+/** Вид купона, который уменьшает итог товара на процент от стоимости. */
+export const percentageCoupon = 'Процент';
+
+/** Вид купона, который уменьшает итог товара на сумму номинала. */
+export const amountCoupon = 'Сумма';
+
+/** Виды купона в порядке выбора на форме справочника. */
+export const couponKinds = [percentageCoupon, amountCoupon] as const;
+
+/**
+ * Купон акции в том виде, в каком его читают правила. У процентного купона заполнен `percentage`,
+ * у денежного `denomination` (в копейках); второе поле пусто.
+ */
 export interface CouponTerms {
     readonly guid: string;
     readonly name: string;
-    readonly percentage: number;
+    readonly kind: string;
+    readonly percentage: number | null;
+    readonly denomination: number | null;
     readonly quantity: number;
     readonly validFrom: string;
     readonly validTo: string;
@@ -45,7 +60,7 @@ export const couponNumberKey = (value: string) => value.trim().toUpperCase();
 export const couponTerms = (coupon: string) => Effect.gen(function* () {
     const database = yield* ReadonlyDatabase;
     const row = yield* database.get(query(yield* described('catalog', 'coupons', 'Купоны')).select({
-        columns: ['guid', 'name', 'percentage', 'quantity', 'validFrom', 'validTo', 'deletedAt'],
+        columns: ['guid', 'name', 'kind', 'percentage', 'denomination', 'quantity', 'validFrom', 'validTo', 'deletedAt'],
         where: [{ column: 'guid', operator: '=', value: coupon }],
         limit: 1,
     }));
@@ -94,6 +109,41 @@ export const couponUsage = (coupon: string, sale: string | null) => Effect.gen(f
     return { numbers, used };
 });
 
+/** Применение купона на форме акции: номер, дата и продажа-регистратор. */
+export interface CouponApplication {
+    readonly number: string;
+    readonly date: string;
+    readonly sale: string;
+}
+
+/**
+ * Применения акции для формы купона: сколько купонов применено, сколько осталось и строки
+ * применений от новых к старым. Источник тот же, что у правил количества и номера, регистр
+ * «Применённые купоны», поэтому форма показывает ровно то, что проверяют политики. Дата применения
+ * это период движения, то есть дата проведённой продажи.
+ */
+export const couponApplications = (coupon: string) => Effect.gen(function* () {
+    const terms = yield* couponTerms(coupon);
+    if (terms === null) return yield* rejected('Купон не найден');
+    const database = yield* ReadonlyDatabase;
+    const rows = yield* database.all(query(yield* described('register', 'appliedCoupons', 'Применённые купоны')).select({
+        columns: ['number', 'count', 'recorder', 'period'],
+        where: [{ column: 'coupon', operator: '=', value: coupon }],
+    }));
+    const applications: CouponApplication[] = [];
+    let used = 0;
+    for (const row of rows) {
+        const count = Number(row['count']);
+        used += count;
+        // Движение с количеством 1 и есть одно применение; иных регистр сейчас не получает.
+        if (count <= 0) continue;
+        const recorder = row['recorder'] as { readonly document: string; readonly guid: string };
+        applications.push({ number: String(row['number']), date: String(row['period']), sale: recorder.guid });
+    }
+    applications.sort((left, right) => right.date.localeCompare(left.date) || left.number.localeCompare(right.number));
+    return { used, remaining: Math.max(0, terms.quantity - used), applications };
+});
+
 /**
  * Проверяет применения купона продажей `sale`: номера `numbers` этой продажи не заняты другими
  * продажами, а вместе с ними применений акции не больше её количества. Номер уникален в пределах
@@ -112,3 +162,8 @@ export const checkCouponUsage = (terms: CouponTerms, numbers: ReadonlyArray<stri
 
 /** Процент купона: больше нуля, не больше 100 и не точнее сотых долей. */
 export const validCouponPercentage = (value: number) => value > 0 && value <= 100 && Math.abs(value * 100 - Math.round(value * 100)) < 1e-6;
+
+/** Размер скидки купона словами: «10 %» у процентного, «500,00 ₽» у денежного. */
+export const couponSizeText = (terms: Pick<CouponTerms, 'kind' | 'percentage' | 'denomination'>) => terms.kind === amountCoupon
+    ? `${formatMoney(terms.denomination ?? 0)} ₽`
+    : `${(terms.percentage ?? 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} %`;

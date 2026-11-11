@@ -23,7 +23,7 @@ import { InstallmentRates } from '../catalogs/installment-rates.catalog.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
 import { installmentTypes, ownInstallment, ownInstallmentRate } from '../installments.js';
-import { checkCouponActive, checkCouponUsage, couponNumberKey, couponTerms } from '../coupons.js';
+import { amountCoupon, checkCouponActive, checkCouponUsage, couponNumberKey, couponSizeText, couponTerms, percentageCoupon } from '../coupons.js';
 import { checkSaleCertificates } from '../certificates.js';
 import { Certificate } from './certificate.document.js';
 import { figuresFunction, periodFiguresFunction } from './sale.functions.js';
@@ -195,7 +195,7 @@ const salePaymentsPolicy: Policy<SaleRecord> = {
  */
 const checkAmount = (record: SaleRecord) => {
     if (record.amount !== 0) return Effect.void;
-    if (record.goods.some((line) => (line.discount ?? 0) > 0 || (line.couponPercent ?? 0) > 0)) return Effect.void;
+    if (record.goods.some((line) => (line.discount ?? 0) > 0 || (line.couponPercent ?? 0) > 0 || (line.couponDenomination ?? 0) > 0)) return Effect.void;
     return rejected('Сумма продажи равна нулю: укажите стоимость товаров. Нулевая сумма допустима только со скидкой');
 };
 
@@ -204,18 +204,21 @@ type GoodsLine = SaleRecord['goods'][number];
 /** Строка товара с применённым купоном. Необязательное поле, не переданное в запросе, приходит как `undefined`. */
 const withCoupon = (line: GoodsLine): line is GoodsLine & { readonly coupon: string } => (line.coupon ?? null) !== null;
 
-/** Купон строки для сравнения с прежней записью: акция, номер и скопированный процент. */
-const couponKey = (line: GoodsLine) => JSON.stringify([line.coupon ?? null, couponNumberKey(line.couponNumber ?? ''), line.couponPercent ?? null]);
+/** Купон строки для сравнения с прежней записью: акция, номер и скопированный процент или номинал. */
+const couponKey = (line: GoodsLine) => JSON.stringify([line.coupon ?? null, couponNumberKey(line.couponNumber ?? ''), line.couponPercent ?? null, line.couponDenomination ?? null]);
 
 /**
  * Проверяет купоны в товарах продажи (раздел «Правила учёта», подраздел «Купон»).
  *
- * У строки с купоном указаны номер и процент, у строки без купона их нет. Скидка вместе
- * с купоном не больше 100 %. Один купон, то есть акция и номер, применяется в продаже один раз.
+ * У строки с купоном указаны номер и размер: процент или номинал, но не оба сразу. У строки без
+ * купона их нет. Скидка вместе с процентным купоном не больше 100 %. Денежный купон такого предела
+ * не имеет: итог строки не опускается ниже нуля, а остаток номинала сгорает. Один купон, то есть
+ * акция и номер, применяется в продаже один раз.
  *
- * Срок действия и процент акции проверяются только у новых и изменённых купонов, если `existing`
- * задана: купон, применённый в срок, остаётся в проведённой продаже и после окончания срока,
- * а процент строки сохраняет значение на день применения. Смена даты продажи проверяет все купоны.
+ * Срок действия, вид и размер акции проверяются только у новых и изменённых купонов, если
+ * `existing` задана: купон, применённый в срок, остаётся в проведённой продаже и после окончания
+ * срока, а процент или номинал строки сохраняет значение на день применения. Смена даты продажи
+ * проверяет все купоны.
  *
  * Номера и количество проверяются всегда: применения других продаж могли появиться после записи
  * черновика. Собственные движения продажи из проверки исключаются.
@@ -225,14 +228,20 @@ const checkCoupons = (record: SaleRecord, existing: SaleRecord | null, checkTerm
     for (const [index, line] of record.goods.entries()) {
         const place = `Строка товара ${index + 1}`;
         if (!withCoupon(line)) {
-            if ((line.couponNumber ?? null) !== null || (line.couponPercent ?? null) !== null) return yield* rejected(`${place}: номер и процент купона указаны без купона`);
+            if ((line.couponNumber ?? null) !== null || (line.couponPercent ?? null) !== null || (line.couponDenomination ?? null) !== null) return yield* rejected(`${place}: номер и размер купона указаны без купона`);
             continue;
         }
         const number = couponNumberKey(line.couponNumber ?? '');
         if (number === '') return yield* rejected(`${place}: укажите номер купона`);
-        const percent = line.couponPercent ?? 0;
-        if (percent <= 0) return yield* rejected(`${place}: процент купона должен быть больше нуля`);
-        if (Math.round((line.discount ?? 0) * 100) + Math.round(percent * 100) > 10000) return yield* rejected(`${place}: скидка вместе с купоном больше 100 %`);
+        const percent = line.couponPercent ?? null;
+        const denomination = line.couponDenomination ?? null;
+        if (percent !== null && denomination !== null) return yield* rejected(`${place}: у купона указаны и процент, и номинал`);
+        if (denomination !== null) {
+            if (denomination <= 0) return yield* rejected(`${place}: номинал купона должен быть больше нуля`);
+        } else {
+            if (percent === null || percent <= 0) return yield* rejected(`${place}: процент купона должен быть больше нуля`);
+            if (Math.round((line.discount ?? 0) * 100) + Math.round(percent * 100) > 10000) return yield* rejected(`${place}: скидка вместе с купоном больше 100 %`);
+        }
         const numbers = byCoupon.get(line.coupon) ?? [];
         if (numbers.includes(number)) return yield* rejected(`${place}: купон с номером ${number} уже применён к другому товару этой продажи`);
         byCoupon.set(line.coupon, [...numbers, number]);
@@ -243,7 +252,12 @@ const checkCoupons = (record: SaleRecord, existing: SaleRecord | null, checkTerm
         for (const [index, line] of record.goods.entries()) {
             if (!withCoupon(line) || (!dateChanged && previous.has(couponKey(line)))) continue;
             const terms = yield* checkCouponActive(line.coupon, record.date);
-            if (line.couponPercent !== terms.percentage) return yield* rejected(`Строка товара ${index + 1}: процент купона ${line.couponPercent ?? 0} % не совпадает с процентом акции «${terms.name}» ${terms.percentage} %`);
+            // Размер строки сравнивается с размером акции вместе с видом: процентная строка
+            // денежной акции не совпадёт по пустому номиналу, и наоборот.
+            const applied = { kind: (line.couponDenomination ?? null) === null ? percentageCoupon : amountCoupon, percentage: line.couponPercent ?? null, denomination: line.couponDenomination ?? null };
+            if (applied.kind !== terms.kind || applied.percentage !== (terms.percentage ?? null) || applied.denomination !== (terms.denomination ?? null)) {
+                return yield* rejected(`Строка товара ${index + 1}: купон ${couponSizeText(applied)} не совпадает с акцией «${terms.name}» ${couponSizeText(terms)}`);
+            }
         }
     }
     for (const [coupon, numbers] of byCoupon) {
@@ -991,4 +1005,4 @@ const saleWithHandlers = sale
 
 /** Группа полномочий объединяет суммы и оплаты независимо от расположения на форме. */
 const saleWithFunctions = saleWithHandlers.function('figures', figuresFunction).function('periodFigures', periodFiguresFunction);
-export const Sale = saleWithFunctions.withAccess(accessSchema(saleWithFunctions).defineGroup('financial', ['amount', 'paid', 'payments', 'paidByCertificates', 'certificates', 'goods.cost', 'goods.discount', 'goods.couponPercent', 'goods.total'], 'Финансы'));
+export const Sale = saleWithFunctions.withAccess(accessSchema(saleWithFunctions).defineGroup('financial', ['amount', 'paid', 'payments', 'paidByCertificates', 'certificates', 'goods.cost', 'goods.discount', 'goods.couponPercent', 'goods.couponDenomination', 'goods.total'], 'Финансы'));

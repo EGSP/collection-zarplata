@@ -7,22 +7,22 @@ import { Objects } from '../objects.generated';
  * кроме купона и его номера: они заполнены редко и не стоят отдельными колонками.
  */
 const saleGoodsLayouts: TableLayouts = {
-    sm: [{ line: [{ group: ['code', 'name'] }, { group: ['size', 'postedIn1C'] }, { group: ['cost', 'discount'] }, { group: ['coupon', 'couponNumber'] }, { group: ['couponPercent', 'total'] }, { group: ['comment', 'weighingLine'] }] }],
-    xlg: [{ line: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', { group: ['coupon', 'couponNumber'] }, 'couponPercent', 'total', 'comment', 'weighingLine'] }],
+    sm: [{ line: [{ group: ['code', 'name'] }, { group: ['size', 'postedIn1C'] }, { group: ['cost', 'discount'] }, { group: ['coupon', 'couponNumber'] }, { group: ['couponPercent', 'couponDenomination'] }, 'total', { group: ['comment', 'weighingLine'] }] }],
+    xlg: [{ line: ['code', 'name', 'size', 'postedIn1C', 'cost', 'discount', { group: ['coupon', 'couponNumber'] }, { group: ['couponPercent', 'couponDenomination'] }, 'total', 'comment', 'weighingLine'] }],
 };
 
 /** Поля товара, по которым строка возврата признаётся копией строки продажи. */
-const lineKey = (line: RecordData) => JSON.stringify([line.name, line.code, line.size ?? null, line.comment, line.cost, line.discount, line.couponPercent ?? null]);
+const lineKey = (line: RecordData) => JSON.stringify([line.name, line.code, line.size ?? null, line.comment, line.cost, line.discount, line.couponPercent ?? null, line.couponDenomination ?? null]);
 
 /**
  * Строка возврата из строки продажи: полная копия, вместе с отметкой «Проведено в 1С» и купоном.
  * Форма возврата их не выводит, но хранимые значения совпадают с продажей, а не противоречат ей.
- * Процент купона входит в итог строки, поэтому без него возврат вернул бы больше, чем заплачено.
+ * Процент и номинал купона входят в итог строки, поэтому без них возврат вернул бы больше, чем заплачено.
  */
 const copyOf = (row: RecordData, sale: string) => ({
     name: row.name as string, code: row.code as string | null, size: (row.size ?? null) as string | null, comment: row.comment as string | null, postedIn1C: row.postedIn1C === true,
     cost: row.cost as number, discount: row.discount as number | null,
-    coupon: (row.coupon ?? null) as string | null, couponNumber: (row.couponNumber ?? null) as string | null, couponPercent: (row.couponPercent ?? null) as number | null,
+    coupon: (row.coupon ?? null) as string | null, couponNumber: (row.couponNumber ?? null) as string | null, couponPercent: (row.couponPercent ?? null) as number | null, couponDenomination: (row.couponDenomination ?? null) as number | null,
     total: row.total as number, sale,
 });
 
@@ -35,7 +35,7 @@ const copyOf = (row: RecordData, sale: string) => ({
  * и отметить их нельзя. Открытый на форме возврат в них не входит: его строки показывают флажки.
  *
  * Строка возврата не хранит номер исходной строки продажи, поэтому связь определяется по
- * содержимому: код, название, размер, комментарий, стоимость, скидка и процент купона. Одинаковые строки продажи
+ * содержимому: код, название, размер, комментарий, стоимость, скидка, процент и номинал купона. Одинаковые строки продажи
  * считаются по порядку: сначала идут возвращённые ранее, затем отмеченные в этом возврате.
  * Если, например, в продаже три одинаковые куртки, одна уже возвращена, а в возврате отмечены
  * две копии, то первая строка серая, вторая и третья отмечены. Снятие флажка убирает последнюю

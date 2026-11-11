@@ -17,7 +17,7 @@ export interface RefundFigures {
     readonly sales: ReadonlyArray<{ readonly guid: string; readonly number: string; readonly date: string }>;
     readonly goods: ReadonlyArray<{
         readonly sale: string; readonly name: string; readonly code: string | null; readonly size: string | null;
-        readonly comment: string | null; readonly cost: number; readonly discount: number | null; readonly couponPercent: number | null; readonly total: number;
+        readonly comment: string | null; readonly cost: number; readonly discount: number | null; readonly couponPercent: number | null; readonly couponDenomination: number | null; readonly total: number;
     }>;
 }
 
@@ -35,7 +35,7 @@ export const readRefundFigures = Effect.fn('refund.figures')(function* (guids: R
     if (headers.length === 0) return [] as RefundFigures[];
     const owners = headers.map((row) => String(row['guid']));
     const goods = yield* database.all(query(refund).tablePart('goods').select({
-        columns: ['ownerGuid', 'sale', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'couponPercent', 'total'],
+        columns: ['ownerGuid', 'sale', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'couponPercent', 'couponDenomination', 'total'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: owners }], orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
     }));
     const settlements = yield* database.all(query(refund).tablePart('settlements').select({
@@ -66,7 +66,7 @@ export const readRefundFigures = Effect.fn('refund.figures')(function* (guids: R
             sales: sales.filter((row) => related.has(String(row['guid']))).map((row) => ({ guid: String(row['guid']), number: String(row['number']), date: String(row['date']) })),
             goods: lines.map((row) => ({ sale: String(row['sale']), name: String(row['name']), code: text(row['code']), size: text(row['size']),
                 comment: text(row['comment']), cost: Number(row['cost']), discount: row['discount'] === null ? null : Number(row['discount']),
-                couponPercent: row['couponPercent'] == null ? null : Number(row['couponPercent']), total: Number(row['total']) })),
+                couponPercent: row['couponPercent'] == null ? null : Number(row['couponPercent']), couponDenomination: row['couponDenomination'] == null ? null : Number(row['couponDenomination']), total: Number(row['total']) })),
         };
     });
 });

@@ -84,6 +84,8 @@ const refundDetails = (heads: ReadonlyArray<{ readonly guid: string; readonly da
     }));
     return heads.map((refund): PayrollRefund => ({
         guid: refund.guid, date: refund.date,
+        // Ступень ставки учитывает только процентный купон: денежный купон на неё не влияет
+        // (раздел «Правила учёта», подраздел «Купон»), а его номинал уже вычтен из итога строки.
         lines: lines.filter((line) => line.ownerGuid === refund.guid).map((line) => ({ name: line.name, discount: line.discount ?? 0, coupon: line.couponPercent ?? 0, total: line.total, sale: line.sale })),
         directed: settlements.filter((line) => line.ownerGuid === refund.guid).reduce((sums, line) => {
             const part = refundOperationHandlers[operationOf(line).kind].payrollPart;
@@ -193,6 +195,7 @@ const loadPayrollData = (closedThrough: string) => Effect.gen(function* () {
             partShifts.push(...parts.map((part) => part.shift));
             sales.set(head.guid, {
                 guid: head.guid, shift: head.shift, amount: head.amount,
+                // Денежный купон ступень не меняет: процент у такой строки пуст, а номинал уже вычтен из итога.
                 goods: goods.filter((line) => line.ownerGuid === head.guid).map((line) => ({ name: line.name, discount: line.discount ?? 0, coupon: line.couponPercent ?? 0, total: line.total })),
                 parts,
                 unarranged: Math.max(0, byInstallment - arranged),

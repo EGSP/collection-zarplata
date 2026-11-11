@@ -144,7 +144,7 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
         // У продажи, целиком оплаченной сертификатами, способа нет: строка показывает только значок сертификата.
         ...sales.map((row): FeedRow => ({
             kind: 'sale', guid: row.guid, number: row.number, date: row.date, method: row.paymentMode ?? '', goods: goodsOf.get(row.guid) ?? [], amount: saleAmount(row.guid), sales: [],
-            coupon: (goodsOf.get(row.guid) ?? []).some((line) => (line.couponPercent ?? 0) > 0), certificate: (row.paidByCertificates ?? 0) > 0, holder: null,
+            coupon: (goodsOf.get(row.guid) ?? []).some((line) => (line.couponPercent ?? 0) > 0 || (line.couponDenomination ?? 0) > 0), certificate: (row.paidByCertificates ?? 0) > 0, holder: null,
         })),
         ...refundFigures.map((row): FeedRow => {
             const methods = row.methods;
@@ -562,7 +562,7 @@ export const Refund = refundWithPolicies
         .handle((input) => Effect.gen(function* () {
             const database = yield* ReadonlyDatabase;
             const lines = yield* database.all(query(refund).tablePart('goods').select({
-                columns: ['ownerGuid', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'couponPercent'],
+                columns: ['ownerGuid', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'couponPercent', 'couponDenomination'],
                 where: [{ column: 'sale', operator: '=', value: input.sale }],
                 orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
             }));
@@ -576,7 +576,7 @@ export const Refund = refundWithPolicies
                 ],
             }))).map((row) => row.guid));
             owners.delete(input.excludedRefund ?? '');
-            return lines.filter((line) => owners.has(line.ownerGuid)).map(({ name, code, size, comment, cost, discount, couponPercent }) => ({ name, code, size, comment, cost, discount, couponPercent }));
+            return lines.filter((line) => owners.has(line.ownerGuid)).map(({ name, code, size, comment, cost, discount, couponPercent, couponDenomination }) => ({ name, code, size, comment, cost, discount, couponPercent, couponDenomination }));
         })))
     .action('settlementTerms', (action) => action
         .title('Условия расчёта по продаже')

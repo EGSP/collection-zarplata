@@ -6,6 +6,7 @@ import { removeInstallment } from './20261015_remove_installment.js';
 import { renameRegisters } from './20261016_rename_registers.js';
 import { installmentBalanceTotal } from './20261102_installment_balance_total.js';
 import { salePaymentModeOptional } from './20261109_sale_payment_mode_optional.js';
+import { couponKind } from './20261111_coupon_kind.js';
 import type { SchemaStructure } from '../structure.js';
 
 /** Разрешённые изменения и SQL-команды миграции, построенные по снимку конкретной базы. */
@@ -41,4 +42,4 @@ export interface SchemaMigration {
  * Реестр миграций. Добавляйте сюда импорт нового файла и его значение в порядке `id`.
  * Статический импорт включает миграции и в исполняемый файл без доступа к исходникам.
  */
-export const migrations: readonly SchemaMigration[] = [journalColumns, externalRecordReference, removeCatalogCode, installmentPaymentColumns, removeInstallment, renameRegisters, installmentBalanceTotal, salePaymentModeOptional];
+export const migrations: readonly SchemaMigration[] = [journalColumns, externalRecordReference, removeCatalogCode, installmentPaymentColumns, removeInstallment, renameRegisters, installmentBalanceTotal, salePaymentModeOptional, couponKind];

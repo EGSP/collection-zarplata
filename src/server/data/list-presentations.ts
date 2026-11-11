@@ -135,7 +135,7 @@ export class ListPresentations {
                     const fields = 'tablePart' in part ? object.tableParts.find((candidate) => candidate.name === part.tablePart)!.fields : object.fields;
                     const field = fields.find((candidate) => candidate.name === part.field)!;
                     const rows = 'tablePart' in part ? record[part.tablePart] as RecordValue[] : [record];
-                    return rows.map((row) => {
+                    const formatted = rows.map((row) => {
                         const value = row[field.name];
                         const reference = columnReference(field, value);
                         if (reference !== null) return this.cache.get(referenceKey(reference)) ?? 'Запись недоступна';
@@ -143,6 +143,8 @@ export class ListPresentations {
                         if ('format' in part && part.format !== undefined && typeof value === 'string') return part.format === 'date' ? formatDate(value) : formatDateTime(value);
                         return formatSearchValue(field.kind, value) ?? '';
                     }).join('separator' in part ? part.separator ?? ', ' : ', ');
+                    // Суффикс относится к значению: у пустого поля он не выводится.
+                    return 'suffix' in part && part.suffix !== undefined && formatted !== '' ? formatted + part.suffix : formatted;
                 }).join('');
                 records[index]!['$presentation'] = text;
                 this.cache.set(referenceKey({ kind: object.kind as 'catalog' | 'document', name: object.name, guid: record['guid'] as string }), text);
