@@ -35,6 +35,11 @@ const target: ObjectTarget = { kind: 'document', name: 'certificate' };
  * Описание без политики, действия и функции: они читают и записывают сам сертификат, а ссылка
  * на `Certificate` из его же объявления не дала бы вывести тип.
  *
+ * Держатель — составное поле: физическое лицо из справочника или ФИО строкой. Сертификат часто
+ * выдают человеку, которого заводить в справочник незачем, например в подарок по акции. Пара
+ * отдельных полей допускала бы оба значения сразу или ни одного; составное поле хранит ровно одно.
+ * Оба варианта вводятся текстом: выбранная подсказка сохраняет ссылку, набранный текст — строку.
+ *
  * Дата документа служит датой выдачи. Способ оплаты и «Куда оплачено» у поля необязательны:
  * у сертификата без оплаты их нет, а у купленного их требует политика. Срок действия пока ничего
  * не ограничивает. Обмен на деньги хранится табличной частью по образцу расчётов возврата; её
@@ -45,7 +50,7 @@ const target: ObjectTarget = { kind: 'document', name: 'certificate' };
  */
 const certificate = document('certificate')
     .title('Сертификат')
-    .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').required().width('long'))
+    .field('holder', (field) => field.composite([field.string().maximumLength(200), field.reference(PhysicalPersons)]).title('Держатель').required().width('long'))
     .field('denomination', (field) => field.money().title('Номинал').minimum(1).required())
     .field('kind', (field) => field.string().title('Вид').choices([purchasedCertificate, freeCertificate]).initial(purchasedCertificate).required())
     .field('paymentMethod', (field) => field.string().title('Способ оплаты').choices(paymentMethods))
@@ -60,10 +65,11 @@ const certificate = document('certificate')
         .field('amount', (field) => field.money().title('Сумма').minimum(1).required())
         .field('receiver', (field) => receiverField(field).title('Откуда выдано').required()))
     // Продавец ищет сертификат по покупателю, поэтому представление начинается с держателя: поиск
-    // подсказок идёт по представлению. Номер без ведущих нулей различает сертификаты одного
+    // подсказок идёт по представлению. Физическое лицо показывается своим ФИО, держатель-строка
+    // своим текстом, и по обоим находится сертификат. Номер без ведущих нулей различает сертификаты одного
     // человека и оставляет поиск по номеру. Остаток в представление не входит: его показывает
     // окно оплаты под полем выбора.
-    .presentation([{ field: 'person' }, { text: ', № ' }, { field: 'number', format: 'number' }])
+    .presentation([{ field: 'holder' }, { text: ', № ' }, { field: 'number', format: 'number' }])
     // Сертификат движется в регистр номиналом при проведении и обменом на деньги со знаком минус.
     // Период обмена — его время: в истории движений обмен стоит позже выдачи.
     .posting((record) => Effect.succeed([movements(CertificateBalances, [
@@ -72,6 +78,28 @@ const certificate = document('certificate')
     ])]));
 
 type CertificateRecord = RecordOf<typeof certificate>;
+
+/**
+ * Держатель сертификата: `{ type: 'reference', kind: 'catalog', name: 'physicalPersons', guid }`
+ * для физического лица или `{ type: 'string', value }` для ФИО строкой.
+ */
+export type CertificateHolder = CertificateRecord['holder'];
+
+/**
+ * Читает ФИО держателей-физических лиц одним запросом и возвращает функцию, которая даёт ФИО
+ * любого держателя: физического лица из справочника, строки — её текст без пробелов по краям.
+ * Удалённое из базы физическое лицо даёт `null`.
+ */
+export const readHolderNames = (holders: ReadonlyArray<CertificateHolder>) => Effect.gen(function* () {
+    const database = yield* ReadonlyDatabase;
+    const guids = [...new Set(holders.flatMap((holder) => holder.type === 'reference' ? [holder.guid] : []))];
+    const persons = guids.length === 0 ? [] : yield* database.all(query(PhysicalPersons).select({
+        columns: ['guid', 'name'],
+        where: [{ column: 'guid', operator: 'IN', value: guids }],
+    }));
+    const names = new Map(persons.map((row) => [row.guid, row.name]));
+    return (holder: CertificateHolder): string | null => holder.type === 'reference' ? names.get(holder.guid) ?? null : holder.value.trim();
+});
 
 const rejected = (message: string) => new DataPolicyError({ message });
 
@@ -134,7 +162,7 @@ interface ActiveCertificate {
     readonly guid: string;
     readonly number: string;
     readonly date: string;
-    readonly person: string;
+    readonly holder: CertificateHolder;
     readonly kind: string;
     readonly denomination: number;
     readonly balance: number;
@@ -148,24 +176,22 @@ interface ActiveCertificate {
  *
  * Сертификаты идут по дате выдачи от старых к новым, как отвесы на соседней вкладке. Поиск
  * отбирает их по части ФИО держателя без учёта регистра так же, как поиск отвесов: SQLite
- * сравнивает кириллицу в `LIKE` с учётом регистра, поэтому ФИО сравниваются здесь.
+ * сравнивает кириллицу в `LIKE` с учётом регистра, поэтому ФИО сравниваются здесь. У физического
+ * лица сравнивается его ФИО из справочника, у держателя-строки — сам текст.
  */
 const activeCertificates = (search: string) => Effect.gen(function* () {
     const database = yield* ReadonlyDatabase;
     const balances = yield* database.all(query(CertificateBalances).sums({ groupBy: ['certificate'], sums: ['amount'] }));
     const balanceOf = new Map(balances.filter((row) => row.amount > 0).map((row) => [row.certificate, row.amount]));
     const found = balanceOf.size === 0 ? [] : yield* database.all(query(certificate).select({
-        columns: ['guid', 'number', 'date', 'person', 'kind', 'denomination', 'validTo'],
+        columns: ['guid', 'number', 'date', 'holder', 'kind', 'denomination', 'validTo'],
         where: [{ column: 'guid', operator: 'IN', value: [...balanceOf.keys()] }, { column: 'deletedAt', operator: '=', value: null }],
         orderBy: [{ column: 'date', direction: 'ASC' }, { column: 'number', direction: 'ASC' }],
     }));
     const needle = normalizeSearchText('string', search.trim());
-    const persons = needle === '' || found.length === 0 ? [] : yield* database.all(query(PhysicalPersons).select({
-        columns: ['guid', 'name'],
-        where: [{ column: 'guid', operator: 'IN', value: [...new Set(found.map((row) => row.person))] }],
-    }));
-    const matched = new Set(persons.filter((row) => normalizeSearchText('string', row.name).includes(needle)).map((row) => row.guid));
-    const rows: ReadonlyArray<ActiveCertificate> = (needle === '' ? found : found.filter((row) => matched.has(row.person)))
+    // Без поиска ФИО не нужны: вкладка показывает физических лиц их представлением на клиенте.
+    const nameOf = yield* readHolderNames(needle === '' ? [] : found.map((row) => row.holder));
+    const rows: ReadonlyArray<ActiveCertificate> = (needle === '' ? found : found.filter((row) => normalizeSearchText('string', nameOf(row.holder) ?? '').includes(needle)))
         .map((row) => ({ ...row, validTo: row.validTo ?? null, balance: balanceOf.get(row.guid) ?? 0 }));
     return { rows };
 });
@@ -180,7 +206,7 @@ const complexMethod = 'Сложная';
  * Событие сертификата в ленте продавца: оформление (`certificate`) или обмен на деньги
  * (`certificateExchange`). Дата оформления — дата документа, дата обмена — время обмена.
  * `method` — способ оплаты купленного сертификата или способ выдачи денег при обмене,
- * `holder` — ФИО держателя, `amount` — номинал в копейках: обмен всегда идёт на весь номинал.
+ * `holder` — ФИО физического лица или текст держателя-строки, `amount` — номинал в копейках: обмен всегда идёт на весь номинал.
  */
 export interface CertificateFeedRow {
     readonly kind: 'certificate' | 'certificateExchange';
@@ -207,13 +233,13 @@ export const readCertificateFeed = (limit: number | null) => Effect.gen(function
     const exchangedWhere = [...where, { column: 'exchangedAt', operator: '!=', value: null }] as const;
     const page = limit === null ? {} : { limit };
     const issued = yield* database.all(query(certificate).select({
-        columns: ['guid', 'number', 'date', 'person', 'paymentMethod', 'denomination'],
+        columns: ['guid', 'number', 'date', 'holder', 'paymentMethod', 'denomination'],
         where,
         orderBy: [{ column: 'date', direction: 'DESC' }, { column: 'number', direction: 'DESC' }],
         ...page,
     }));
     const exchanged = yield* database.all(query(certificate).select({
-        columns: ['guid', 'number', 'exchangedAt', 'person', 'denomination'],
+        columns: ['guid', 'number', 'exchangedAt', 'holder', 'denomination'],
         where: exchangedWhere,
         orderBy: [{ column: 'exchangedAt', direction: 'DESC' }, { column: 'number', direction: 'DESC' }],
         ...page,
@@ -222,24 +248,19 @@ export const readCertificateFeed = (limit: number | null) => Effect.gen(function
         columns: ['ownerGuid', 'method'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: exchanged.map((row) => row.guid) }],
     }));
-    const personGuids = [...new Set([...issued, ...exchanged].map((row) => row.person))];
-    const persons = personGuids.length === 0 ? [] : yield* database.all(query(PhysicalPersons).select({
-        columns: ['guid', 'name'],
-        where: [{ column: 'guid', operator: 'IN', value: personGuids }],
-    }));
-    const holderOf = new Map(persons.map((row) => [row.guid, row.name]));
+    const holderOf = yield* readHolderNames([...issued, ...exchanged].map((row) => row.holder));
     const methodsOf = (guid: string) => [...new Set(exchanges.filter((row) => row.ownerGuid === guid).map((row) => row.method))];
     const rows: CertificateFeedRow[] = [
         ...issued.map((row): CertificateFeedRow => ({
             kind: 'certificate', guid: row.guid, number: row.number, date: row.date,
-            method: row.paymentMethod ?? withoutPayment, holder: holderOf.get(row.person) ?? null, amount: row.denomination,
+            method: row.paymentMethod ?? withoutPayment, holder: holderOf(row.holder), amount: row.denomination,
         })),
         ...exchanged.map((row): CertificateFeedRow => {
             const methods = methodsOf(row.guid);
             return {
                 kind: 'certificateExchange', guid: row.guid, number: row.number, date: row.exchangedAt ?? '',
                 method: methods.length === 1 ? methods[0]! : methods.length === 0 ? '' : complexMethod,
-                holder: holderOf.get(row.person) ?? null, amount: row.denomination,
+                holder: holderOf(row.holder), amount: row.denomination,
             };
         }),
     ];
@@ -249,13 +270,13 @@ export const readCertificateFeed = (limit: number | null) => Effect.gen(function
 });
 
 /**
- * Форма сертификата стандартная. Элемент `certificateState` показывает состояние, историю движений
- * и кнопку «Обменять на деньги», очищает способ оплаты и «Куда оплачено» у сертификата без оплаты
- * и запрещает ручное изменение строк обмена.
+ * Форма сертификата стандартная. Элемент `certificateState` показывает состояние и историю движений,
+ * очищает способ оплаты и «Куда оплачено» у сертификата без оплаты и запрещает ручное изменение
+ * строк обмена. Элемент `certificateExchange` ставит кнопку «Обменять на деньги» внизу формы.
  */
 export const Certificate = certificate
     .form((form) => form
-        .group('Сертификат', ['number', 'date', 'person', 'kind', 'denomination', 'paymentMethod', 'receiver', 'issuedBy', 'validTo'])
+        .group('Сертификат', ['number', 'date', 'holder', 'kind', 'denomination', 'paymentMethod', 'receiver', 'issuedBy', 'validTo'])
         .group('Остаток', ['balance', 'exchanges'])
         .title('date', 'Дата выдачи')
         .hide('exchangedAt')
@@ -264,7 +285,7 @@ export const Certificate = certificate
     .policy(preventPostedDocumentDeletionPolicy())
     .action('exchange', (action) => action
         .title('Обменять на деньги')
-        // Окно обмена открывает элемент формы `certificateState`: стандартная кнопка не запросила бы поля.
+        // Окно обмена открывает элемент формы `certificateExchange`: стандартная кнопка не запросила бы поля.
         .placement('hidden')
         .input((input) => input
             .field('certificate', (field) => field.reference(certificate).title('Сертификат').required())

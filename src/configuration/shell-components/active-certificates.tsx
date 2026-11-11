@@ -45,6 +45,26 @@ function PersonName({ view, guid }: { readonly view: ObjectView; readonly guid: 
     return <>{useReferencePresentation(view, guid).text}</>;
 }
 
+/** Держатель сертификата: физическое лицо из справочника или ФИО строкой. */
+type CertificateHolder = ActiveCertificate['holder'];
+
+/**
+ * Ключ группы держателя. Физическое лицо группируется по своей записи. Держатели-строки
+ * группируются по тексту без учёта регистра и пробелов по краям: «Иванова Анна» и « иванова анна»
+ * набраны для одного человека. Приставка разводит строки и физических лиц: строка с тем же ФИО,
+ * что у записи справочника, остаётся отдельной группой, потому что связи с записью у неё нет.
+ */
+function holderKey(holder: CertificateHolder): string {
+    return holder.type === 'reference' ? `person:${holder.guid}` : `text:${holder.value.trim().toLocaleLowerCase('ru')}`;
+}
+
+/** ФИО держателя: у физического лица его представление, у строки сам текст. */
+function HolderName({ holder, persons }: { readonly holder: CertificateHolder; readonly persons: ObjectView | undefined }) {
+    if (holder.type !== 'reference') return <>{holder.value.trim()}</>;
+    // Без права читать физические лица сервер их описание не отдаёт.
+    return persons === undefined ? <>Нет доступа</> : <PersonName view={persons} guid={holder.guid} />;
+}
+
 /** Сумма в рублях в том же виде, что в полях форм. */
 function Money({ value }: { readonly value: number }) {
     return <FieldDisplay field={{ kind: 'money', target: null }} value={value} />;
@@ -56,7 +76,7 @@ function Money({ value }: { readonly value: number }) {
  * открывает его карточку; Shift открывает оригинал. Сертификаты раскрыты сразу: продавец ищет
  * сертификат покупателя, чтобы оплатить им продажу.
  */
-function Holder({ person, certificates, persons }: { readonly person: string; readonly certificates: ReadonlyArray<ActiveCertificate>; readonly persons: ObjectView | undefined }) {
+function Holder({ holder, certificates, persons }: { readonly holder: CertificateHolder; readonly certificates: ReadonlyArray<ActiveCertificate>; readonly persons: ObjectView | undefined }) {
     const [expanded, setExpanded] = useState(true);
     const openRecord = useOpenRecord();
     const balance = certificates.reduce((sum, row) => sum + row.balance, 0);
@@ -68,9 +88,8 @@ function Holder({ person, certificates, persons }: { readonly person: string; re
                 <Flex justify="space-between" align="center" gap="small" style={{ width: '100%', minWidth: 0 }}>
                     <Flex gap="small" align="center" style={{ minWidth: 0 }}>
                         <Toggle />
-                        {/* Без права читать физические лица сервер их описание не отдаёт. */}
                         <Typography.Text ellipsis style={{ minWidth: 0, fontSize: 'inherit' }}>
-                            {persons === undefined ? 'Нет доступа' : <PersonName view={persons} guid={person} />}
+                            <HolderName holder={holder} persons={persons} />
                         </Typography.Text>
                     </Flex>
                     <Typography.Text type="secondary" style={{ flexShrink: 0, fontSize: 'inherit' }}><Money value={balance} /></Typography.Text>
@@ -106,7 +125,7 @@ function AvailableCertificates() {
     const result = useActiveCertificates(searched);
     const rows = result.data?.rows ?? [];
     const groups = new Map<string, ActiveCertificate[]>();
-    for (const row of rows) groups.set(row.person, [...groups.get(row.person) ?? [], row]);
+    for (const row of rows) groups.set(holderKey(row.holder), [...groups.get(holderKey(row.holder)) ?? [], row]);
     return (
         // Заголовок блока — вкладка «Сертификаты» на рабочем месте, поэтому своей панели у блока нет.
         <Stack gap={3}>
@@ -120,7 +139,8 @@ function AvailableCertificates() {
                 </Typography.Text>
             ) : (
                 <Flex vertical>
-                    {[...groups].map(([person, certificates]) => <Holder key={person} person={person} certificates={certificates} persons={persons} />)}
+                    {/* Группа держателя-строки называется текстом его первого сертификата. */}
+                    {[...groups].map(([key, certificates]) => <Holder key={key} holder={certificates[0]!.holder} certificates={certificates} persons={persons} />)}
                 </Flex>
             )}
         </Stack>

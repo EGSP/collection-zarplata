@@ -12,7 +12,7 @@ import { Effect } from 'effect';
 import { callFunction } from '../server/data/action-context.js';
 import { ReadonlyDatabase } from '../server/database/database.effect.js';
 import { query } from '../server/database/sql.builder.js';
-import { Certificate, purchasedCertificate } from './documents/certificate.document.js';
+import { Certificate, purchasedCertificate, type CertificateHolder } from './documents/certificate.document.js';
 import { SaleInstallment } from './documents/sale-installment.document.js';
 import { Sale } from './documents/sale.document.js';
 import { Weighing } from './documents/weighing.document.js';
@@ -50,7 +50,8 @@ export interface SummaryPaymentRow {
 export interface SummaryCertificateRow {
     readonly certificate: string;
     readonly kind: 'purchase' | 'exchange';
-    readonly person: string;
+    /** Держатель: физическое лицо показывается ссылкой, строка текстом. */
+    readonly holder: CertificateHolder;
     readonly date: string;
     readonly cash: number;
     readonly cashless: number;
@@ -207,11 +208,11 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
     // Сертификаты: покупки периода по дате документа, обмены по времени обмена. Оба отбора
     // читаются с запасом по строке даты и уточняются днём события, как продажи.
     const purchased = (yield* database.all(query(Certificate).select({
-        columns: ['guid', 'date', 'person', 'denomination', 'paymentMethod'],
+        columns: ['guid', 'date', 'holder', 'denomination', 'paymentMethod'],
         where: [...active, { column: 'kind', operator: '=', value: purchasedCertificate }, { column: 'date', operator: '>=', value: dayStart(from) }, { column: 'date', operator: '<', value: end }],
     }))).filter((row) => inPeriod(row.date));
     const exchanged = (yield* database.all(query(Certificate).select({
-        columns: ['guid', 'exchangedAt', 'person'],
+        columns: ['guid', 'exchangedAt', 'holder'],
         where: [...active, { column: 'exchangedAt', operator: '>=', value: dayStart(from) }, { column: 'exchangedAt', operator: '<', value: end }],
     }))).filter((row) => row.exchangedAt !== null && inPeriod(row.exchangedAt));
     const exchangeLines = exchanged.length === 0 ? [] : yield* database.all(query(Certificate).tablePart('exchanges').select({
@@ -224,12 +225,12 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         .reduce((sum, line) => sum + line.amount, 0);
     const certificateRows: SummaryCertificateRow[] = [
         ...purchased.map((row): SummaryCertificateRow => ({
-            certificate: row.guid, kind: 'purchase', person: row.person, date: row.date,
+            certificate: row.guid, kind: 'purchase', holder: row.holder, date: row.date,
             cash: row.paymentMethod === cash ? row.denomination : 0,
             cashless: row.paymentMethod === cashless ? row.denomination : 0,
         })),
         ...exchanged.map((row): SummaryCertificateRow => ({
-            certificate: row.guid, kind: 'exchange', person: row.person, date: row.exchangedAt!,
+            certificate: row.guid, kind: 'exchange', holder: row.holder, date: row.exchangedAt!,
             cash: 0 - exchangedBy(row.guid, cash), cashless: 0 - exchangedBy(row.guid, cashless),
         })),
     ].sort((first, second) => moment(first.date) - moment(second.date));

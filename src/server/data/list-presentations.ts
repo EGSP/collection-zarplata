@@ -27,6 +27,9 @@ function presentationTargets(object: ObjectDescription): ReadonlyArray<ObjectTar
         const fields = 'tablePart' in part ? object.tableParts.find((candidate) => candidate.name === part.tablePart)?.fields ?? [] : object.fields;
         const field = fields.find((candidate) => candidate.name === part.field);
         if (field?.kind === 'reference' && field.target !== null) targets.push(field.target);
+        // Ссылочный вариант составного поля показывается представлением цели, как обычная ссылка:
+        // без него сертификат с держателем-физлицом читался бы раньше физических лиц порции.
+        for (const variant of field?.variants ?? []) if (variant.target !== null) targets.push(variant.target);
     }
     return targets;
 }
