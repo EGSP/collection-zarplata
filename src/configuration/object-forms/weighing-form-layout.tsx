@@ -32,7 +32,7 @@ const newGoodsOptions: TablePartOptions = {
         lg: [{ line: ['code', 'name', 'size', 'state', 'sale', 'comment'] }],
     },
     columnOrder: ['code', 'name', 'size', 'state', 'sale', 'comment'],
-    hiddenColumns: ['postedIn1C', 'cost', 'discount', 'coupon', 'couponNumber', 'couponPercent', 'total'],
+    hiddenColumns: ['postedIn1C', 'cost', 'discount', 'coupon', 'couponNumber', 'couponPercent', 'couponDenomination', 'total'],
     readOnlyColumns: ['state', 'sale'],
     newRow: () => ({ cost: 0 }),
     addTitle: 'Отвес',

@@ -51,7 +51,7 @@ const goodsOptions: TablePartOptions = {
         lg: [{ line: [{ group: ['code', 'name'] }, 'size', 'cost', 'discount', 'total', 'comment', 'sale'] }],
         xlg: [{ line: ['code', 'name', 'size', 'cost', 'discount', 'total', 'comment', 'sale'] }],
     },
-    hiddenColumns: ['postedIn1C', 'coupon', 'couponNumber', 'couponPercent'],
+    hiddenColumns: ['postedIn1C', 'coupon', 'couponNumber', 'couponPercent', 'couponDenomination'],
     readOnlyColumns: ['name', 'code', 'size', 'comment', 'cost', 'discount', 'total', 'sale'],
     totals: ['total'],
 };

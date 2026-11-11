@@ -41,7 +41,7 @@ const goodsOptions: TablePartOptions = {
     initialRow: true,
     totals: ['total'],
     // Купон выбирают в окне «Применить купон», а не в ячейке: таблица показывает только значок у итога.
-    hiddenColumns: ['weighingLine', 'coupon', 'couponNumber', 'couponPercent'],
+    hiddenColumns: ['weighingLine', 'coupon', 'couponNumber', 'couponPercent', 'couponDenomination'],
     columnAdornments: couponAdornments,
 };
 

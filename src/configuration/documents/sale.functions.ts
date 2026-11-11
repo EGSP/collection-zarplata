@@ -35,8 +35,10 @@ export interface SaleGoodsFigures {
     readonly comment: string | null;
     readonly cost: number;
     readonly discount: number | null;
-    /** Процент купона строки; `null` у товара без купона. */
+    /** Процент купона строки; `null` у товара без купона и с денежным купоном. */
     readonly couponPercent: number | null;
+    /** Номинал денежного купона строки в копейках; `null` у товара без купона и с процентным купоном. */
+    readonly couponDenomination: number | null;
     readonly total: number;
     readonly refunded: number;
     readonly netTotal: number;
@@ -97,7 +99,7 @@ const saleFigures = Effect.fn('sale.figures')(function* (sales: ReadonlyArray<st
     if (headers.length === 0) return [] as SaleFigures[];
     const owners = headers.map((row) => String(row['guid']));
     const goods = yield* database.all(query(sale).tablePart('goods').select({
-        columns: ['ownerGuid', 'lineNumber', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'couponPercent', 'total', 'postedIn1C'],
+        columns: ['ownerGuid', 'lineNumber', 'name', 'code', 'size', 'comment', 'cost', 'discount', 'couponPercent', 'couponDenomination', 'total', 'postedIn1C'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: owners }], orderBy: [{ column: 'lineNumber', direction: 'ASC' }],
     }));
     const payments = yield* database.all(query(sale).tablePart('payments').select({
@@ -123,7 +125,7 @@ const saleFigures = Effect.fn('sale.figures')(function* (sales: ReadonlyArray<st
         const lines = goods.filter((row) => row['ownerGuid'] === guid);
         const totals = lines.map((row) => Number(row['total']));
         const refunds = new Map<string, number>();
-        const identities = lines.map((line) => ({ name: String(line['name']), code: nullableText(line['code']), size: nullableText(line['size']), comment: nullableText(line['comment']), cost: Number(line['cost']), discount: line['discount'] == null ? null : Number(line['discount']), couponPercent: line['couponPercent'] == null ? null : Number(line['couponPercent']), total: Number(line['total']) }));
+        const identities = lines.map((line) => ({ name: String(line['name']), code: nullableText(line['code']), size: nullableText(line['size']), comment: nullableText(line['comment']), cost: Number(line['cost']), discount: line['discount'] == null ? null : Number(line['discount']), couponPercent: line['couponPercent'] == null ? null : Number(line['couponPercent']), couponDenomination: line['couponDenomination'] == null ? null : Number(line['couponDenomination']), total: Number(line['total']) }));
         const cashRefunded = totals.map(() => 0);
         const cashlessRefunded = totals.map(() => 0);
         const certificateRefunded = totals.map(() => 0);
