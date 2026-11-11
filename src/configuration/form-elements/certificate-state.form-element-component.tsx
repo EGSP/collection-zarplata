@@ -1,14 +1,13 @@
-import { Button, Flex, Typography } from 'antd';
-import { useEffect, useState } from 'react';
+import { Flex, Typography } from 'antd';
+import { useEffect } from 'react';
 import { FieldDisplay, RecordTable, useFormData, useFormRestrictions, useFormValue, useObjectView, useRecordList } from '../../web/sdk';
 import { Objects } from '../objects.generated';
-import { InstallmentPaymentDialog } from '../object-forms/installment-payment-dialog';
 
 /** Вид купленного сертификата; совпадает с `purchasedCertificate` из `certificate.document.ts`. */
 const purchasedCertificate = 'Куплен';
 
 /**
- * Состояние сертификата на его форме, история движений по нему и кнопка «Обменять на деньги».
+ * Состояние сертификата на его форме и история движений по нему.
  *
  * Состояние в документе не хранится и выводится из записанного сертификата: «Не проведён»,
  * «Обменян на деньги», «Действует» при остатке больше нуля, иначе «Израсходован». История — движения
@@ -19,18 +18,12 @@ const purchasedCertificate = 'Куплен';
  * - строки обмена недоступны для изменения: их заполняет только действие «Обменять на деньги»;
  * - у сертификата «Выдан без оплаты» способ оплаты и «Куда оплачено» очищаются и недоступны:
  *   политика сертификата отклонила бы запись с ними;
- * - обменянный сертификат служит только для просмотра: изменить номинал политика уже не даст.
- *
- * Стандартная кнопка обмена скрыта: действие принимает сертификат во входных данных, и стандартное
- * окно потребовало бы выбрать его вручную. Кнопка элемента передаёт `guid` открытой записи сама,
- * а в окне оставляет способ и «Откуда выдано»; приёмник по способу подставляет то же окно, что
- * у взноса рассрочки. Кнопка есть только у проведённого купленного сертификата, остаток которого
- * равен номиналу. Движения других документов, взаимно погасившие друг друга, проверяет сервер.
+ * - обменянный сертификат служит только для просмотра: изменить номинал политика уже не даст;
+ * - стандартная кнопка обмена скрыта: её заменяет элемент `certificateExchange` внизу формы.
  */
 export default function CertificateState() {
     const certificates = Objects.document.certificate;
     const form = useFormData(certificates);
-    const [exchanging, setExchanging] = useState(false);
     const kind = useFormValue(certificates, 'kind');
     const paymentMethod = useFormValue(certificates, 'paymentMethod');
     const receiver = useFormValue(certificates, 'receiver');
@@ -44,31 +37,17 @@ export default function CertificateState() {
     useFormRestrictions(certificates, exchanged
         ? { readOnly: true, hiddenActions: ['exchange'] }
         : { readOnlyFields: free ? ['exchanges', 'paymentMethod', 'receiver'] : ['exchanges'], hiddenActions: ['exchange'] });
-    // У нового сертификата состояния и движений ещё нет, а действию нужен `guid` записанного.
+    // У нового сертификата состояния и движений ещё нет.
     if (saved === null) return null;
 
-    const exchange = form.view.actions.find((action) => action.name === 'exchange');
-    const canExchange = saved.posted && !exchanged && saved.kind === purchasedCertificate && saved.balance === saved.denomination;
     const state = !saved.posted ? 'Не проведён' : exchanged ? 'Обменян на деньги' : saved.balance > 0 ? 'Действует' : 'Израсходован';
     return (
         <Flex vertical gap="small">
-            <Flex align="center" gap="middle" wrap>
-                <Typography.Text strong>
-                    {state}
-                    {exchanged && <> <FieldDisplay field={{ kind: 'dateTime', target: null }} value={saved.exchangedAt} /></>}
-                </Typography.Text>
-                {canExchange && exchange !== undefined && <Button onClick={() => setExchanging(true)}>{exchange.title}</Button>}
-            </Flex>
+            <Typography.Text strong>
+                {state}
+                {exchanged && <> <FieldDisplay field={{ kind: 'dateTime', target: null }} value={saved.exchangedAt} /></>}
+            </Typography.Text>
             {saved.posted && <CertificateMovements certificate={saved.guid} />}
-            {exchanging && exchange !== undefined && (
-                <InstallmentPaymentDialog
-                    action={{ ...exchange, input: exchange.input.filter((field) => field.name !== 'certificate') }}
-                    onExecute={async (input) => {
-                        await form.runAction('exchange', { ...input, certificate: saved.guid });
-                    }}
-                    onClose={() => setExchanging(false)}
-                />
-            )}
         </Flex>
     );
 }

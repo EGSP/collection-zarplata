@@ -110,6 +110,16 @@ export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray
 }
 
 /**
+ * Держатель сертификата: физическое лицо ссылкой на его карточку, держатель-строка своим текстом.
+ * У строки карточки нет, поэтому и ссылки нет.
+ */
+function CertificateHolderText({ holder }: { readonly holder: SummaryCertificateRow['holder'] }) {
+    return holder.type === 'reference'
+        ? <RecordLink reference={{ kind: 'catalog', name: 'physicalPersons', guid: holder.guid }} />
+        : <>{holder.value}</>;
+}
+
+/**
  * Покупки и обмены сертификатов периода. Покупка стоит номиналом со знаком плюс, обмен на деньги
  * строками обмена со знаком минус; сумма стоит в колонке способа. Итог под таблицей не входит во «Всего».
  */
@@ -119,11 +129,11 @@ export function CertificatesTable({ rows, totals }: { readonly rows: ReadonlyArr
             rowKey={(row) => `${row.kind}-${row.certificate}`}
             rows={rows}
             emptyText="Покупок и обменов сертификатов нет"
-            layouts={{ sm: [{ line: [{ group: ['date', 'person'] }, 'certificate'] }, { line: ['cash', 'cashless'] }], lg: [] }}
+            layouts={{ sm: [{ line: [{ group: ['date', 'holder'] }, 'certificate'] }, { line: ['cash', 'cashless'] }], lg: [] }}
             {...summaryScroll}
             columns={[
                 { key: 'date', title: 'Дата', type: 'dateTime', render: (row) => <FieldDisplay field={{ kind: 'dateTime', target: null }} value={row.date} /> },
-                { key: 'person', title: 'Держатель', type: 'free', size: { minimum: 12, weight: 1 }, render: (row) => <RecordLink reference={{ kind: 'catalog', name: 'physicalPersons', guid: row.person }} /> },
+                { key: 'holder', title: 'Держатель', type: 'free', size: { minimum: 12, weight: 1 }, render: (row) => <CertificateHolderText holder={row.holder} /> },
                 { key: 'certificate', title: 'Сертификат', type: 'free', size: { minimum: 12, weight: 1 }, render: (row) => <Text noWrap>{row.kind === 'exchange' ? 'Обмен: ' : ''}<RecordLink reference={{ kind: 'document', name: 'certificate', guid: row.certificate }} /></Text> },
                 { key: 'cash', title: 'Наличные', type: 'money', value: (row) => row.cash === 0 ? null : row.cash },
                 { key: 'cashless', title: 'Безналичные', type: 'money', value: (row) => row.cashless === 0 ? null : row.cashless },
