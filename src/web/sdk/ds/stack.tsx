@@ -27,13 +27,18 @@ export interface StackProperties {
     readonly justify?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | undefined;
     /** Переносить элементы ряда на следующую строку, когда им не хватает места. */
     readonly wrap?: boolean | undefined;
+    /**
+     * Занять свободное место родителя-флекса, например ячейки таблицы. Без этого стек шириной
+     * в содержимое, и разделитель внутри него не доходит до краёв ячейки.
+     */
+    readonly grow?: boolean | undefined;
     readonly children?: ReactNode;
 }
 
 /** Стек элементов с расстоянием из шкалы отступов. Построен на `Flex` Ant Design. */
-export function Stack({ gap, orientation = 'vertical', align, justify, wrap = false, children }: StackProperties) {
+export function Stack({ gap, orientation = 'vertical', align, justify, wrap = false, grow = false, children }: StackProperties) {
     return (
-        <Flex vertical={orientation === 'vertical'} gap={spacing[gap]} wrap={wrap} {...(align === undefined ? {} : { align })} {...(justify === undefined ? {} : { justify })}>
+        <Flex vertical={orientation === 'vertical'} gap={spacing[gap]} wrap={wrap} {...(align === undefined ? {} : { align })} {...(justify === undefined ? {} : { justify })} {...(grow ? { flex: '1 1 auto' } : {})}>
             {children}
         </Flex>
     );
