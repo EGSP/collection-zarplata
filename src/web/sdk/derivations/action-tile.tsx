@@ -1,5 +1,6 @@
 import { theme } from 'antd';
-import { useState, type MouseEventHandler, type ReactNode } from 'react';
+import { type MouseEventHandler, type ReactNode } from 'react';
+import { mergeProps, useFocusRing, useHover } from 'react-aria';
 import { spacing } from '../ds/layout';
 
 /** Свойства плитки, выполняющей одно действие без перехода по адресу. */
@@ -18,23 +19,23 @@ export interface ActionTileProperties {
  * В отличие от `Tile`, адреса у неё нет: нативная кнопка вызывает обработчик и поддерживает
  * Enter и пробел. Высота увеличена на треть относительно прежних 64 px, шрифт `fontSizeXL`
  * совпадает с основной кнопкой продажи. Ширину задаёт колонка сетки.
+ *
+ * Нажатие остаётся у нативной кнопки, наведение и обводку фокуса даёт React Aria: после касания
+ * на сенсорном экране плитка не остаётся подсвеченной, а обводка видна только при фокусе
+ * с клавиатуры.
  */
 export function ActionTile({ type = 'default', icon, onClick, children }: ActionTileProperties) {
     const { token } = theme.useToken();
-    const [hovered, setHovered] = useState(false);
-    const [focused, setFocused] = useState(false);
+    const { hoverProps, isHovered: hovered } = useHover({});
+    const { focusProps, isFocusVisible: focused } = useFocusRing();
     const primary = type === 'primary';
     const background = primary ? token.colorPrimary : token.colorBgContainer;
 
     return (
         <button
+            {...mergeProps(hoverProps, focusProps)}
             type="button"
             onClick={onClick}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            // Щелчок мышью не требует обводки; клавиатурный фокус должен оставаться видимым.
-            onFocus={(event) => setFocused(event.currentTarget.matches(':focus-visible'))}
-            onBlur={() => setFocused(false)}
             style={{
                 display: 'flex',
                 alignItems: 'center',

@@ -19,9 +19,16 @@
  * `aria-expanded` отражает видимость списка. Отдельный `data-cell-picker-enter` уступает Enter
  * выбору после стрелок, мыши или набора. Подсветка текущего значения при входе не задерживает
  * обход таблицы и не заменяет значение первым вариантом.
+ *
+ * Клавиши поля остаются своими, а не `useComboBox` из React Aria. Хук ведёт выбор сам: Enter
+ * у него всегда выбирает выделенный вариант или закрывает список, а здесь Enter без намеренного
+ * выделения должен уйти таблице к следующей ячейке. Кроме того, вместо вариантов список может
+ * показывать свою панель, например календарь, которой у хука нет. Наведение и нажатие на варианты
+ * даёт React Aria (`CellOptionRow`).
  */
 import { theme } from 'antd';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
+import { mergeProps, useHover, usePress } from 'react-aria';
 import { createPortal } from 'react-dom';
 import { cellInputClass, focusCellInput, type CellTextInputHandle } from './cell-types';
 import { spacing } from './layout';
@@ -69,6 +76,41 @@ export interface CellComboInputProperties {
     readonly id?: string | undefined;
     readonly label?: string | undefined;
     readonly ref?: Ref<CellTextInputHandle> | undefined;
+}
+
+/**
+ * Вариант списка. Наведение указателя выделяет вариант, как стрелки, а нажатие выбирает его.
+ * Наведение и нажатие даёт React Aria: после касания на сенсорном экране вариант не остаётся
+ * выделенным наведением, а нажатие срабатывает по отпусканию над вариантом. Фокус остаётся в поле:
+ * у варианта нет `tabIndex`, а список отменяет действие браузера при нажатии.
+ */
+function CellOptionRow({ highlighted, background, onHighlight, onPick, children }: {
+    readonly highlighted: boolean;
+    /** Заливка выделенного варианта. */
+    readonly background: string;
+    readonly onHighlight: () => void;
+    readonly onPick: () => void;
+    readonly children: ReactNode;
+}) {
+    const { hoverProps } = useHover({ onHoverStart: onHighlight });
+    const { pressProps } = usePress({ onPress: onPick });
+    return (
+        <div
+            {...mergeProps(hoverProps, pressProps)}
+            role="option"
+            aria-selected={highlighted}
+            style={{
+                minHeight: spacing[7],
+                display: 'flex',
+                alignItems: 'center',
+                padding: `0 ${spacing[5]}px`,
+                cursor: 'pointer',
+                background: highlighted ? background : undefined,
+            }}
+        >
+            {children}
+        </div>
+    );
 }
 
 /** Наибольшая высота списка: десять строк, дальше список прокручивается. */
@@ -175,23 +217,15 @@ export function CellComboInput({ text: initialText, onText, accepts, options = [
             }) : (options.length === 0
                 ? <div style={{ padding: `${spacing[3]}px ${spacing[5]}px`, color: token.colorTextSecondary }}>{loading ? 'Загрузка…' : emptyText}</div>
                 : options.map((option, index) => (
-                    <div
+                    <CellOptionRow
                         key={option.key}
-                        role="option"
-                        aria-selected={index === highlighted}
-                        onMouseEnter={() => { setChoosing(true); setHighlighted(index); }}
-                        onClick={() => pick(index)}
-                        style={{
-                            minHeight: spacing[7],
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: `0 ${spacing[5]}px`,
-                            cursor: 'pointer',
-                            background: index === highlighted ? token.controlItemBgActive : undefined,
-                        }}
+                        highlighted={index === highlighted}
+                        background={token.controlItemBgActive}
+                        onHighlight={() => { setChoosing(true); setHighlighted(index); }}
+                        onPick={() => pick(index)}
                     >
                         {option.label}
-                    </div>
+                    </CellOptionRow>
                 )))}
         </div>,
         document.body,

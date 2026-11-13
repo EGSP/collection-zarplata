@@ -1,6 +1,5 @@
 import { theme } from 'antd';
-import type { KeyboardEvent, MouseEvent } from 'react';
-import { FeedCell, FeedItem, FieldDisplay, Icons } from '../../web/sdk';
+import { FeedCell, FeedItem, type FeedOpenEvent, FieldDisplay, Icons } from '../../web/sdk';
 import { documentNumber, feedTime } from './seller-feed-format';
 
 /**
@@ -27,7 +26,7 @@ export interface CertificateFeedRow {
  * Заливка жёлтых оттенков (gold в палитре Ant Design) отличает сертификаты от бирюзовых продаж
  * и розовых возвратов.
  */
-export function CertificateFeedItem({ row, onOpen }: { readonly row: CertificateFeedRow; readonly onOpen: (event: MouseEvent | KeyboardEvent) => void }) {
+export function CertificateFeedItem({ row, onOpen }: { readonly row: CertificateFeedRow; readonly onOpen: (event: FeedOpenEvent) => void }) {
     const { token } = theme.useToken();
     const exchange = row.kind === 'certificateExchange';
     const title = exchange ? 'Обмен сертификата' : 'Сертификат';

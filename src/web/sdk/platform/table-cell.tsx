@@ -41,7 +41,8 @@
  */
 import { useInputDraft } from '../../widgets/input-draft';
 import { ConfigProvider, Form, Tooltip, theme } from 'antd';
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type ComponentType, type KeyboardEvent, type Ref, type RefObject } from 'react';
+import { useImperativeHandle, useLayoutEffect, useRef, type ComponentType, type KeyboardEvent, type Ref, type RefObject } from 'react';
+import { mergeProps, useFocusWithin, useInteractOutside } from 'react-aria';
 import { flushSync } from 'react-dom';
 import type { FormField } from '../../../server/ui/descriptions';
 import { FieldDisplay, FieldInput } from '../../widgets/registry';
@@ -136,26 +137,24 @@ export function TableCell({ tabNavigation, name, field, type, input: CustomInput
         }
     }, [editing]);
 
-    // Пока ячейка редактируется, фокус или щелчок вне неё и вне открытых ею окон завершают редактирование.
+    // Пока ячейка редактируется, фокус или нажатие вне неё и вне открытых ею окон завершают редактирование.
     // Окно или список, внутри которого стоит сама таблица, вне ячейки не считается.
-    useEffect(() => {
-        if (!editing || direct) return;
-        const outside = (target: EventTarget | null) => {
-            const cell = element.current;
-            if (!(target instanceof Element) || cell === null || cell.contains(target)) return false;
-            const popup = target.closest(popupSelector);
-            return popup === null || popup.contains(cell);
-        };
-        const leave = (event: Event) => {
-            if (outside(event.target)) onLeave();
-        };
-        document.addEventListener('focusin', leave);
-        document.addEventListener('pointerdown', leave, true);
-        return () => {
-            document.removeEventListener('focusin', leave);
-            document.removeEventListener('pointerdown', leave, true);
-        };
-    }, [editing, direct, onLeave]);
+    //
+    // Нажатие вне ячейки сообщает `useInteractOutside`, уход фокуса — `useFocusWithin`. Списки
+    // и календари Ant Design выводятся вне ячейки, а React Aria о них не знает, поэтому цель
+    // события дополнительно сверяется с `popupSelector`.
+    const outside = (target: EventTarget | null) => {
+        const cell = element.current;
+        if (!(target instanceof Element) || cell === null || cell.contains(target)) return false;
+        const popup = target.closest(popupSelector);
+        return popup === null || popup.contains(cell);
+    };
+    const leaving = !editing || direct;
+    // Редактирование завершается при нажатии кнопки, а не после щелчка: так пользователь видит
+    // результат сразу, и щелчок по другой ячейке открывает её уже без открытой соседней.
+    useInteractOutside({ ref: element, isDisabled: leaving, onInteractOutside: () => {}, onInteractOutsideStart: (event) => { if (outside(event.target)) onLeave(); } });
+    // Фокус, ушедший в никуда (`relatedTarget` пуст, например при переключении окна), ячейку не закрывает.
+    const { focusWithinProps } = useFocusWithin({ isDisabled: leaving, onBlurWithin: (event) => { if (outside(event.relatedTarget)) onLeave(); } });
 
     const problem = invalid && (
         <Tooltip title={errors.join('; ')}>
@@ -188,7 +187,7 @@ export function TableCell({ tabNavigation, name, field, type, input: CustomInput
             onLeave();
         };
         return (
-            <div ref={element} data-cell-name={name} data-cell-state="editing" {...(native ? { 'data-cell-editor': 'native' } : {})} {...(invalid ? { 'data-cell-invalid': true } : {})} onKeyDown={onKeyDown}>
+            <div ref={element} data-cell-name={name} data-cell-state="editing" {...(native ? { 'data-cell-editor': 'native' } : {})} {...(invalid ? { 'data-cell-invalid': true } : {})} {...mergeProps(focusWithinProps, { onKeyDown })}>
                 {ListInput !== null
                     ? <ListInput field={field} value={value} onChange={onChange} ref={editor} {...(id === undefined ? {} : { id })} />
                     : textInput && type !== 'free'
@@ -235,6 +234,10 @@ export function TableCell({ tabNavigation, name, field, type, input: CustomInput
             {...(id === undefined ? {} : { id })}
             aria-label={field.title}
             // Ссылка в значении, например на выбранную запись, открывает запись, а не редактирование.
+            //
+            // Отпускание кнопки ловится на документе, а не `usePress` из React Aria: `usePress`
+            // отменяет действие браузера при нажатии, и текст значения нельзя было бы выделить
+            // мышью, а нажатие, ушедшее за край ячейки, он завершает раньше отпускания кнопки.
             onMouseDown={(event) => {
                 if (event.button !== 0 || event.target instanceof Element && event.target.closest('a') !== null) return;
                 document.addEventListener('mouseup', () => {

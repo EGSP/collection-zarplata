@@ -15,7 +15,7 @@ covers:
 | Сервер | NestJS 12 отвечает за маршрутизацию, контроллеры и внедрение зависимостей; HTTP-сервер — Fastify 5 |
 | Бизнес-логика и валидация | Effect 4 (сейчас `4.0.0-rc.118`); данные на сервере проверяет Effect Schema |
 | Интерфейс | React 19 и Ant Design 6; Refine (`@refinedev/core` 5) связывает ресурсы с операциями над данными, `@refinedev/react-router` 2 подключает React Router 7 |
-| Данные и состояние клиента | TanStack Query: запросы и кеш; TanStack Store: состояние; axios: HTTP-запросы; TanStack Hotkeys: сочетания клавиш |
+| Данные и состояние клиента | TanStack Query: запросы и кеш; TanStack Store: состояние; axios: HTTP-запросы; TanStack Hotkeys: сочетания клавиш-команды; React Aria (`react-aria`, `react-stately`, только хуки без `react-aria-components`): ввод на уровне элемента, то есть нажатие, наведение, кольцо фокуса, удержание фокуса. Хуки React Aria берутся для ввода, TanStack Hotkeys для команд |
 | Граф модулей | React Flow (`@xyflow/react` 12) рисует холст, dagre (`@dagrejs/dagre` 3) раскладывает узлы по слоям; нужны только странице [графа модулей](development-tools.md#граф-модулей-сервера) |
 | Сборка клиента | Vite 8 |
 | Документация | Markdown в `docs`, сайт собирает VitePress 1, схемы рисует Mermaid 11 |

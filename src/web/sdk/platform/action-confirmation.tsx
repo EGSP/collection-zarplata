@@ -4,7 +4,8 @@
  * экраны не решают сами, какое действие подтверждать.
  */
 import { Button, Flex, Modal, Typography, theme } from 'antd';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useKeyboard } from 'react-aria';
 import type { ActionConfirmation, FormAction } from '../../../server/ui/descriptions';
 import { Icons } from '../ds/icons';
 
@@ -54,13 +55,17 @@ export function ActionConfirmationDialog({ action, confirmation, onConfirm, onCa
         info: <Icons.confirmInfo style={{ color: token.colorInfo }} />,
     };
 
-    /** Enter во время отсчёта не доходит до кнопок окна. */
-    const blockEnter = (event: KeyboardEvent<HTMLElement>) => {
-        if (waiting && event.key === 'Enter') {
-            event.preventDefault();
-            event.stopPropagation();
-        }
-    };
+    /**
+     * Enter во время отсчёта не нажимает кнопку окна. Кнопка срабатывает действием браузера после
+     * того, как событие всплыло, поэтому отмены на обёртке содержимого достаточно. Остальные клавиши,
+     * например Esc для окна Ant Design, проходят дальше.
+     */
+    const { keyboardProps } = useKeyboard({
+        onKeyDown: (event) => {
+            if (waiting && event.key === 'Enter') event.preventDefault();
+            else event.continuePropagation();
+        },
+    });
 
     return (
         <Modal
@@ -82,7 +87,7 @@ export function ActionConfirmationDialog({ action, confirmation, onConfirm, onCa
                     </Button>
                 </Flex>
             )}
-            modalRender={(node) => <div onKeyDownCapture={blockEnter}>{node}</div>}
+            modalRender={(node) => <div {...keyboardProps}>{node}</div>}
         >
             {confirmation.message !== null && <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-line' }}>{confirmation.message}</Typography.Paragraph>}
         </Modal>

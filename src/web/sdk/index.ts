@@ -155,7 +155,7 @@ export { ActionConfirmationDialog, useActionConfirmation, type ActionConfirmatio
 export { ListFilters, type ListFiltersProperties } from './platform/list-filters';
 export { ListSearch, type ListSearchProperties } from './platform/list-search';
 // Лента документов: строки-плашки по группам с прокруткой, поиском и пагинацией.
-export { Feed, FeedCell, FeedItem, feedItemHeight, type FeedCellProperties, type FeedGroup, type FeedItemProperties, type FeedProperties, type FeedScroll } from './platform/feed';
+export { Feed, FeedCell, FeedItem, feedItemHeight, type FeedCellProperties, type FeedGroup, type FeedItemProperties, type FeedOpenEvent, type FeedProperties, type FeedScroll } from './platform/feed';
 export { RecordTable, type RecordTableProperties } from './platform/record-table';
 
 // Клиентские группы и управление действиями стандартного списка.
