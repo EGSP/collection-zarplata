@@ -1,5 +1,5 @@
-import { useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { Feed, useFunctionResult, useObjectView, useOpenRecord } from '../../web/sdk';
+import { useState } from 'react';
+import { Feed, useFunctionResult, type FeedOpenEvent, useObjectView, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { CertificateFeedItem, type CertificateFeedRow } from './certificate-feed-item';
 import { InstallmentPaymentFeedItem, type InstallmentPaymentFeedRow } from './installment-payment-feed-item';
@@ -37,7 +37,7 @@ function rowKey(row: SellerFeedRow): string {
 }
 
 /** Компонент строки по её виду. */
-function FeedRow({ row, onOpen }: { readonly row: SellerFeedRow; readonly onOpen: (event: MouseEvent | KeyboardEvent) => void }) {
+function FeedRow({ row, onOpen }: { readonly row: SellerFeedRow; readonly onOpen: (event: FeedOpenEvent) => void }) {
     if (row.kind === 'sale') return <SaleFeedItem row={row} onOpen={onOpen} />;
     if (row.kind === 'refund') return <RefundFeedItem row={row} onOpen={onOpen} />;
     if (row.kind === 'payment') return <InstallmentPaymentFeedItem row={row} onOpen={onOpen} />;
@@ -76,7 +76,7 @@ function AvailableFeed() {
     const [page, setPage] = useState(1);
     const result = useFunctionResult({ object: Objects.document.refund, name: 'sellerFeed', payload: { search, page, pageSize }, keepPrevious: true });
     const rows = (result.data?.rows ?? []) as ReadonlyArray<SellerFeedRow>;
-    const open = (row: SellerFeedRow) => (event: MouseEvent | KeyboardEvent) => {
+    const open = (row: SellerFeedRow) => (event: FeedOpenEvent) => {
         void openRecord(documents[row.kind], row.guid, 'tab', { original: event.shiftKey });
     };
     const searched = search.trim();

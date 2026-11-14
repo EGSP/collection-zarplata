@@ -44,6 +44,7 @@ import Icon, {
     HomeOutlined,
     InboxOutlined,
     InfoCircleFilled,
+    LeftOutlined,
     LinkOutlined,
     LockOutlined,
     LogoutOutlined,
@@ -59,6 +60,7 @@ import Icon, {
     SettingOutlined,
     SwapOutlined,
     TagOutlined,
+    UnorderedListOutlined,
     ShopOutlined,
     ShoppingCartOutlined,
     SkinOutlined,
@@ -144,6 +146,19 @@ export const Icons = {
     invalid: ExclamationCircleOutlined,
     /** Главная вкладка. */
     home: HomeOutlined,
+    /** Закрытие вкладки в полосе вкладок и в списке вкладок. */
+    closeTab: CloseOutlined,
+    /** Прокрутка ряда к началу: кнопка у левого края полосы вкладок. */
+    scrollBackward: LeftOutlined,
+    /** Прокрутка ряда к концу: кнопка у правого края полосы вкладок. */
+    scrollForward: RightOutlined,
+    /** Список всех открытых вкладок. */
+    tabList: UnorderedListOutlined,
+    /**
+     * Закрытие выезжающей панели кнопкой в её шапке. Шеврон вниз (`ChevronDown` Carbon), а не крестик:
+     * панели на `sm` выезжают снизу, и кнопка сворачивает панель обратно к нижнему бару.
+     */
+    closePanel: DownOutlined,
     /** Документация приложения. */
     documentation: ReadOutlined,
     /** Граф модулей сервера. */

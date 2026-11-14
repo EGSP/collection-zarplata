@@ -1,6 +1,5 @@
 import { theme } from 'antd';
-import type { KeyboardEvent, MouseEvent } from 'react';
-import { FeedCell, FeedItem, FieldDisplay, Icons } from '../../web/sdk';
+import { FeedCell, FeedItem, type FeedOpenEvent, FieldDisplay, Icons } from '../../web/sdk';
 import { documentNumber, feedDate, feedGoods, feedTime } from './seller-feed-format';
 
 /** Возврат в ленте рабочего места: строка функции возврата `sellerFeed` с `kind: 'refund'`. */
@@ -26,7 +25,7 @@ export interface RefundFeedRow {
  * прошлых дней, и по дате ленты её не узнать. Заливка розовая (magenta в палитре Carbon):
  * возврат должен сразу выделяться среди продаж.
  */
-export function RefundFeedItem({ row, onOpen }: { readonly row: RefundFeedRow; readonly onOpen: (event: MouseEvent | KeyboardEvent) => void }) {
+export function RefundFeedItem({ row, onOpen }: { readonly row: RefundFeedRow; readonly onOpen: (event: FeedOpenEvent) => void }) {
     const { token } = theme.useToken();
     const goods = feedGoods(row.goods);
     const sales = row.sales.map((sale) => `№ ${documentNumber(sale.number)} от ${feedDate(sale.date)}`).join(', ');

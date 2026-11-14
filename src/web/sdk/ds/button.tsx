@@ -15,26 +15,29 @@
  * `block` — всю ширину колонки, как fluid-кнопка Carbon.
  */
 import { Button as AntButton, theme, type ButtonProps as AntButtonProperties, type GlobalToken } from 'antd';
-import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
-import { spacing } from './layout';
-
-/** Размер кнопки по шкале Carbon: `sm` — 32 px, `md` — 40 px, `lg` — 48 px, `xl` — 64 px. */
-export type ButtonSize = 'sm' | 'md' | 'lg' | 'xl';
+import type { CSSProperties, MouseEventHandler, ReactNode, Ref } from 'react';
+import { componentSizes, spacing, type ComponentSize } from './layout';
 
 /**
- * Высота, внутренний отступ по горизонтали и шрифт для каждого размера. Шрифт растёт вместе
+ * Размер кнопки по общей шкале размеров (`componentSizes`): `sm` — 32 px, `md` — 40 px, `lg` — 48 px,
+ * `xl` — 64 px. Размера `xs` (24 px) у кнопок Carbon нет.
+ */
+export type ButtonSize = Exclude<ComponentSize, 'xs'>;
+
+/**
+ * Высота из шкалы `componentSizes`, внутренний отступ по горизонтали и шрифт для каждого размера. Шрифт растёт вместе
  * с кнопкой: на кнопке 64 px текст 14 px выглядел бы потерянным. Размеры шрифта — токены темы.
  */
 function sizeStyle(size: ButtonSize, token: GlobalToken): CSSProperties {
     switch (size) {
         case 'sm':
-            return { height: 32, paddingInline: spacing[5], fontSize: token.fontSize };
+            return { height: componentSizes.sm, paddingInline: spacing[5], fontSize: token.fontSize };
         case 'md':
-            return { height: 40, paddingInline: spacing[5], fontSize: token.fontSize };
+            return { height: componentSizes.md, paddingInline: spacing[5], fontSize: token.fontSize };
         case 'lg':
-            return { height: 48, paddingInline: spacing[6], fontSize: token.fontSizeLG };
+            return { height: componentSizes.lg, paddingInline: spacing[6], fontSize: token.fontSizeLG };
         case 'xl':
-            return { height: 64, paddingInline: spacing[9], fontSize: token.fontSizeXL };
+            return { height: componentSizes.xl, paddingInline: spacing[9], fontSize: token.fontSizeXL };
     }
 }
 
@@ -65,17 +68,23 @@ export interface ButtonProperties {
     readonly onClick?: MouseEventHandler<HTMLElement> | undefined;
     /** Название для чтения с экрана; обязательно для кнопки без подписи. */
     readonly 'aria-label'?: string | undefined;
+    /** Кнопка открывает всплывающее окно или панель: вид окна и открыто ли оно сейчас. */
+    readonly 'aria-haspopup'?: 'dialog' | 'listbox' | 'menu' | undefined;
+    readonly 'aria-expanded'?: boolean | undefined;
+    /** Элемент кнопки, например для расположения всплывающего окна под ней. */
+    readonly ref?: Ref<HTMLButtonElement> | undefined;
     readonly children?: ReactNode;
 }
 
 /** Кнопка с видом Ant Design и размером Carbon. */
-export function Button({ type = 'default', size = 'sm', danger, block, icon, tabIndex, disabled, loading, htmlType, onClick, 'aria-label': label, children }: ButtonProperties) {
+export function Button({ type = 'default', size = 'sm', danger, block, icon, tabIndex, disabled, loading, htmlType, onClick, 'aria-label': label, 'aria-haspopup': popup, 'aria-expanded': expanded, ref, children }: ButtonProperties) {
     const { token } = theme.useToken();
     const style = sizeStyle(size, token);
     const iconOnly = icon !== undefined && (children === undefined || children === null);
     return (
         <AntButton
             type={type}
+            {...(ref === undefined ? {} : { ref })}
             {...(tabIndex === undefined ? {} : { tabIndex })}
             style={iconOnly ? { ...style, width: style.height, paddingInline: 0 } : type === 'link' ? { ...style, paddingInline: 0 } : style}
             {...(danger === undefined ? {} : { danger })}
@@ -86,6 +95,8 @@ export function Button({ type = 'default', size = 'sm', danger, block, icon, tab
             {...(htmlType === undefined ? {} : { htmlType })}
             {...(onClick === undefined ? {} : { onClick })}
             {...(label === undefined ? {} : { 'aria-label': label })}
+            {...(popup === undefined ? {} : { 'aria-haspopup': popup })}
+            {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
         >
             {children}
         </AntButton>

@@ -1,6 +1,7 @@
 import { DataTable } from '../sdk/ds/data-table';
 import { Button, Descriptions, Empty, Flex, Space, Tag, theme, Typography } from 'antd';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode } from 'react';
+import { mergeProps, useHover, usePress } from 'react-aria';
 import type { ModuleKind, ModulesGraphClass, ModulesGraphInjection } from '../../common/modules-graph';
 import {
     classKindTitles,
@@ -292,7 +293,10 @@ function InjectionTable({ injections }: { readonly injections: ReadonlyArray<Mod
     );
 }
 
-/** Имя модуля в панели: наведение подсвечивает модуль на холсте, щелчок выбирает его. */
+/**
+ * Имя модуля в панели: наведение подсвечивает модуль на холсте, щелчок выбирает его. Наведение
+ * сообщает `useHover`: после касания на сенсорном экране модуль не остаётся подсвеченным.
+ */
 function ModuleLink({ id, name, onHover, onSelect, strong = false }: {
     readonly id: string;
     readonly name: string;
@@ -300,22 +304,26 @@ function ModuleLink({ id, name, onHover, onSelect, strong = false }: {
     readonly onSelect: (selection: Selection) => void;
     readonly strong?: boolean;
 }) {
+    const { hoverProps } = useHover({ onHoverChange: (hovered) => onHover(hovered ? { kind: 'module', id } : null) });
+    // Наведение слушает обёртка: ссылка Ant Design не принимает обработчики React Aria по типам.
     return (
-        <Typography.Link
-            strong={strong}
-            onMouseEnter={() => onHover({ kind: 'module', id })}
-            onMouseLeave={() => onHover(null)}
-            onClick={() => onSelect({ kind: 'module', id })}
-            style={strong ? { fontSize: 18 } : {}}
-        >
-            {name}
-        </Typography.Link>
+        <span {...hoverProps}>
+            <Typography.Link
+                strong={strong}
+                onClick={() => onSelect({ kind: 'module', id })}
+                style={strong ? { fontSize: 18 } : {}}
+            >
+                {name}
+            </Typography.Link>
+        </span>
     );
 }
 
 /**
  * Строка панели, связанная с холстом: подсвечивается под курсором и сообщает о наведении.
  * `active` отмечает закреплённую подсветку, `disabled` — пункт, которому на графе нечего подсветить.
+ * Нажатие щелчком, Enter и пробелом даёт `usePress`, наведение — `useHover`; у недоступной строки
+ * оба выключены.
  */
 function HoverRow({ active = false, disabled = false, onHover, onClick, children }: {
     readonly active?: boolean;
@@ -325,20 +333,13 @@ function HoverRow({ active = false, disabled = false, onHover, onClick, children
     readonly children: ReactNode;
 }) {
     const { token } = theme.useToken();
-    const [hovered, setHovered] = useState(false);
-    const setHover = (value: boolean) => {
-        if (disabled) return;
-        setHovered(value);
-        onHover(value);
-    };
+    const { pressProps } = usePress({ isDisabled: disabled, onPress: onClick });
+    const { hoverProps, isHovered: hovered } = useHover({ isDisabled: disabled, onHoverChange: onHover });
     return (
         <div
+            {...mergeProps(pressProps, hoverProps)}
             role="button"
             tabIndex={disabled ? -1 : 0}
-            onMouseEnter={() => setHover(true)}
-            onMouseLeave={() => setHover(false)}
-            onClick={disabled ? undefined : onClick}
-            onKeyDown={(event) => { if (!disabled && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onClick(); } }}
             style={{
                 padding: `${token.paddingXXS}px ${token.paddingXS}px`,
                 borderRadius: token.borderRadius,

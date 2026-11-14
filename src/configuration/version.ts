@@ -5,4 +5,4 @@
  */
 import type { ReleaseVersion } from '../server/versions/versions.js';
 
-export const configurationVersion: ReleaseVersion = { version: '1.1.1', compatibleFrom: '1.0.0' };
+export const configurationVersion: ReleaseVersion = { version: '1.3.0', compatibleFrom: '1.0.0' };

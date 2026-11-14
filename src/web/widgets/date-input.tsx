@@ -5,6 +5,7 @@
 import { Calendar, ConfigProvider, Input, Popover, TimePicker, type InputRef } from 'antd';
 import dayjs from 'dayjs';
 import { useImperativeHandle, useRef, useState } from 'react';
+import { useKeyboard } from 'react-aria';
 import { Icons } from '../sdk/ds/icons';
 import { dateTextError, parseDateText, type DateKind } from './date-text';
 import { useInputDraft } from './input-draft';
@@ -55,19 +56,27 @@ function DateTextInput({ kind, value, onChange, disabled, dateLimits, id, ref }:
             || dateLimits?.maximum !== undefined && day > dateLimits.maximum;
     };
 
+    // Esc внутри календаря закрывает его и возвращает фокус в поле. Календарь находится в портале,
+    // поэтому `useKeyboard` останавливает событие: Esc не должен закрыть ещё и форму под ним.
+    // Фокус возвращается явно, а не `FocusScope restoreFocus`: Popover не размонтирует скрытое
+    // содержимое, и область фокуса не узнала бы о закрытии.
+    const { keyboardProps: calendarKeyboard } = useKeyboard({
+        onKeyDown: (event) => {
+            if (event.key !== 'Escape') {
+                event.continuePropagation();
+                return;
+            }
+            event.preventDefault();
+            setOpen(false);
+            input.current?.focus();
+        },
+    });
     const calendar = (
         <Popover
             trigger="click"
             open={open && unavailableInput !== true}
             onOpenChange={setOpen}
-            content={<div style={{ width: 288 }} onKeyDown={(event) => {
-                // Календарь находится в портале: Escape не должен закрывать форму под ним.
-                if (event.key !== 'Escape') return;
-                event.preventDefault();
-                event.stopPropagation();
-                setOpen(false);
-                input.current?.focus();
-            }}>
+            content={<div style={{ width: 288 }} {...calendarKeyboard}>
                 <Calendar fullscreen={false} defaultValue={current} disabledDate={unavailable} onSelect={(date, information) => {
                     if (information.source !== 'date') return;
                     select(kind === 'date' ? date : date.hour(current.hour()).minute(current.minute()).second(0).millisecond(0));

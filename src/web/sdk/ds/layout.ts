@@ -31,6 +31,46 @@ export const spacing = {
 /** Шаг шкалы отступов: 1 — 2 px, 5 — 16 px, 7 — 32 px. */
 export type SpacingStep = keyof typeof spacing;
 
+/**
+ * Шкала размеров компонентов Carbon: имя размера → высота в пикселях. Кнопки, вкладки и строки
+ * списков берут высоту отсюда, поэтому соседние элементы одного размера стоят вровень.
+ */
+export const componentSizes = {
+    xs: 24,
+    sm: 32,
+    md: 40,
+    lg: 48,
+    xl: 64,
+} as const;
+
+/** Размер компонента по шкале Carbon: `sm` — 32 px, `md` — 40 px, `lg` — 48 px. */
+export type ComponentSize = keyof typeof componentSizes;
+
+/** Размеры иконок Carbon: 16 px в плотном интерфейсе, 24 px в крупном, например в меню на `sm`. */
+export const iconSizes = {
+    sm: 16,
+    md: 20,
+    lg: 24,
+    xl: 32,
+} as const;
+
+/**
+ * Набор стилей Carbon. `productive` — плотный вид рабочих экранов: строки 40 px, текст 14 px.
+ * `expressive` — крупный вид для заметных мест и касаний пальцем: строки 64 px, текст 16 px,
+ * иконки 24 px. Так выглядят меню и список вкладок на `sm` и лента рабочего места продавца.
+ */
+export type TypeSet = 'productive' | 'expressive';
+
+/**
+ * Свойства компонента, у которого есть крупный вид. По `extends TypeSetProperties` в свойствах
+ * видно, что компонент поддерживает оба набора. Набор выбирает тот, кто выводит компонент:
+ * родитель по своему месту (панель на `sm` выводит строки крупными) или сам компонент.
+ */
+export interface TypeSetProperties {
+    /** Набор стилей; по умолчанию `productive`. */
+    readonly typeSet?: TypeSet | undefined;
+}
+
 /** Точки перелома сетки от узкой к широкой. Их ширины — в `breakpointWidths`. */
 export const breakpoints = ['sm', 'md', 'lg', 'xlg', 'max'] as const;
 

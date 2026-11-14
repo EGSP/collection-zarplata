@@ -35,10 +35,14 @@
  * не прокручивается вместе со страницей и не обрезается блоком, в котором объявлена.
  */
 import { theme } from 'antd';
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { FocusScope, mergeProps, useDialog } from 'react-aria';
 import { createPortal } from 'react-dom';
 import { useBreakpoint } from './breakpoints';
-import { breakpoints, type Breakpoint } from './layout';
+import { Button } from './button';
+import { Icons } from './icons';
+import { breakpoints, componentSizes, iconSizes, spacing, type Breakpoint, type TypeSetProperties } from './layout';
+import { Text } from './text';
 
 /** Сторона, с которой выезжает панель. */
 export type DrawerSide = 'left' | 'right' | 'bottom';
@@ -194,9 +198,6 @@ export interface DrawerProperties {
     readonly children: ReactNode;
 }
 
-/** Элементы, на которые попадает фокус клавишей Tab. */
-const focusableSelector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 /**
  * Выезжающая панель. Закрытая панель не выводится. Открытая:
  *
@@ -206,7 +207,8 @@ const focusableSelector = 'a[href], button:not([disabled]), input:not([disabled]
  * - после закрытия возвращает фокус элементу, который был в фокусе при открытии, если фокус
  *   остался в панели или потерян.
  *
- * У панели роль `dialog`: обработчики клавиш форм считают её открытым окном и уступают ей Esc.
+ * Фокус ведёт `FocusScope` из React Aria, роль и подпись окна задаёт `useDialog`. У панели роль
+ * `dialog`: обработчики клавиш форм считают её открытым окном и уступают ей Esc.
  */
 export function Drawer({ control, mode = 'overlay', placement = {}, width = 320, height = '100%', children }: DrawerProperties) {
     const layer = useContext(DrawerLayerContext);
@@ -216,7 +218,7 @@ export function Drawer({ control, mode = 'overlay', placement = {}, width = 320,
     return createPortal(panel, layer ?? document.body);
 }
 
-/** Открытая панель: затемнение, сама панель, фокус и клавиши. */
+/** Открытая панель: затемнение и сама панель в области фокуса. */
 function OpenDrawer({ label, overlay, side, size, fixed, onClose, children }: {
     readonly label: string;
     readonly overlay: boolean;
@@ -229,69 +231,99 @@ function OpenDrawer({ label, overlay, side, size, fixed, onClose, children }: {
     readonly children: ReactNode;
 }) {
     const { token } = theme.useToken();
+    return (
+        <div style={{ position: fixed ? 'fixed' : 'absolute', inset: 0, pointerEvents: 'none', zIndex: fixed ? 1000 : undefined, overflow: 'hidden' }}>
+            {/* Затемнение перехватывает нажатия, но панель не закрывает: закрытие только явное. */}
+            {overlay && <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', background: token.colorBgMask }} />}
+            {/*
+              * Область фокуса переводит фокус в панель при открытии и возвращает его при закрытии.
+              * Встроенная панель (`inline`) фокус не удерживает: остальной интерфейс доступен, и Tab
+              * уходит из панели дальше по странице. Панель с затемнением удерживает Tab внутри.
+              */}
+            <FocusScope contain={overlay} restoreFocus autoFocus>
+                <DrawerPanel label={label} overlay={overlay} side={side} size={size} onClose={onClose} background={token.colorBgContainer} shadow={token.boxShadowSecondary}>
+                    {children}
+                </DrawerPanel>
+            </FocusScope>
+        </div>
+    );
+}
+
+/**
+ * Блок панели внутри области фокуса. `useDialog` даёт роль `dialog` и фокусирует саму панель,
+ * если внутри нет доступного элемента.
+ *
+ * Esc остаётся своим, а не `useOverlay` из React Aria: открытый список или календарь Ant Design
+ * закрывается своим Esc и помечает событие обработанным, а React Aria об этих контролах не знает.
+ * Панель закрывается, только если Esc никто не обработал.
+ */
+function DrawerPanel({ label, overlay, side, size, onClose, background, shadow, children }: {
+    readonly label: string;
+    readonly overlay: boolean;
+    readonly side: DrawerSide;
+    readonly size: number | string;
+    readonly onClose: () => void;
+    readonly background: string;
+    readonly shadow: string;
+    readonly children: ReactNode;
+}) {
     const panel = useRef<HTMLDivElement>(null);
-    // Фокус переходит в панель при открытии и возвращается при закрытии. Эффект разметки, а не
-    // обычный: при закрытии панель ещё в документе, и можно проверить, был ли фокус в ней.
-    useLayoutEffect(() => {
-        const element = panel.current;
-        if (element === null) return;
-        const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        (element.querySelector<HTMLElement>(focusableSelector) ?? element).focus();
-        return () => {
-            const active = document.activeElement;
-            const lost = active === null || active === document.body || element.contains(active);
-            if (lost && opener?.isConnected === true) opener.focus();
-        };
-    }, []);
+    const { dialogProps } = useDialog({ 'aria-label': label }, panel);
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-        // Открытый список или календарь закрывается своим Esc и помечает событие обработанным.
-        if (event.key === 'Escape' && !event.defaultPrevented) {
-            event.preventDefault();
-            event.stopPropagation();
-            onClose();
-            return;
-        }
-        if (event.key === 'Tab' && overlay) keepFocusInside(event, event.currentTarget);
+        if (event.key !== 'Escape' || event.defaultPrevented) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
     };
     const sideStyle: CSSProperties = side === 'bottom'
         ? { left: 0, right: 0, bottom: 0, height: size, maxHeight: '100%' }
         : { top: 0, bottom: 0, [side]: 0, width: size, maxWidth: '100%' };
     return (
-        <div style={{ position: fixed ? 'fixed' : 'absolute', inset: 0, pointerEvents: 'none', zIndex: fixed ? 1000 : undefined, overflow: 'hidden' }}>
-            {/* Затемнение перехватывает нажатия, но панель не закрывает: закрытие только явное. */}
-            {overlay && <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', background: token.colorBgMask }} />}
-            <div
-                ref={panel}
-                role="dialog"
-                aria-modal={overlay ? true : undefined}
-                aria-label={label}
-                tabIndex={-1}
-                className="drawer-panel"
-                data-side={side}
-                onKeyDown={onKeyDown}
-                style={{ position: 'absolute', ...sideStyle, display: 'flex', flexDirection: 'column', overflow: 'auto', outline: 'none', pointerEvents: 'auto', background: token.colorBgContainer, boxShadow: token.boxShadowSecondary }}
-            >
-                {children}
-            </div>
+        <div
+            {...mergeProps(dialogProps, { onKeyDown })}
+            ref={panel}
+            aria-modal={overlay ? true : undefined}
+            className="drawer-panel"
+            data-side={side}
+            style={{ position: 'absolute', ...sideStyle, display: 'flex', flexDirection: 'column', overflow: 'auto', outline: 'none', pointerEvents: 'auto', background, boxShadow: shadow }}
+        >
+            {children}
         </div>
     );
 }
 
-/** Tab с последнего элемента переходит на первый, Shift+Tab с первого на последний. */
-function keepFocusInside(event: KeyboardEvent<HTMLDivElement>, panel: HTMLElement) {
-    const focusable = Array.from(panel.querySelectorAll<HTMLElement>(focusableSelector)).filter((element) => element.getClientRects().length > 0);
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    if (first === undefined || last === undefined) {
-        event.preventDefault();
-        return;
-    }
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || active === panel)) {
-        event.preventDefault();
-        last.focus();
-    } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
-    }
+// ─── Шапка ──────────────────────────────────────────────────────────────────
+
+/** Свойства шапки панели. */
+export interface DrawerHeaderProperties extends TypeSetProperties {
+    /** Название панели. */
+    readonly title: string;
+    /** Подпись кнопки закрытия для диктора, например «Закрыть меню». */
+    readonly closeLabel: string;
+    readonly onClose: () => void;
+}
+
+/**
+ * Первая строка панели: название слева и кнопка закрытия справа. Кнопка — шеврон вниз
+ * (`Icons.closePanel`): панель на `sm` выезжает снизу, и кнопка сворачивает её обратно к бару.
+ * Высота строки и кнопки — 40 px в наборе `productive` и 64 px в `expressive`, иконка 16 и 24 px.
+ * На `sm` панели выводят шапку в `expressive`, как строки своих списков и меню.
+ */
+export function DrawerHeader({ title, closeLabel, onClose, typeSet = 'productive' }: DrawerHeaderProperties) {
+    const { token } = theme.useToken();
+    const expressive = typeSet === 'expressive';
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', flex: 'none', gap: spacing[3], height: expressive ? componentSizes.xl : componentSizes.md, paddingInlineStart: spacing[5], borderBlockEnd: `1px solid ${token.colorBorderSecondary}` }}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+                <Text typeSet={typeSet} strong ellipsis>{title}</Text>
+            </span>
+            <Button
+                type="text"
+                size={expressive ? 'xl' : 'md'}
+                icon={<Icons.closePanel style={{ fontSize: expressive ? iconSizes.lg : iconSizes.sm }} />}
+                aria-label={closeLabel}
+                onClick={onClose}
+            />
+        </div>
+    );
 }

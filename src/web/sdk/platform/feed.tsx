@@ -24,7 +24,8 @@
  * ```
  */
 import { Alert, Pagination, theme, Typography } from 'antd';
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Key, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Key, type ReactNode } from 'react';
+import { mergeProps, useFocusRing, useHover, usePress, type PressEvent } from 'react-aria';
 import { breakpointAtLeast, useBreakpoint } from '../ds/breakpoints';
 import { useLayer } from '../ds/layer';
 import { spacing, type Breakpoint } from '../ds/layout';
@@ -218,6 +219,12 @@ export function Feed<Row>({ rows, rowKey, renderRow, group, scroll, search, pagi
     );
 }
 
+/**
+ * Событие открытия строки ленты — нажатие из React Aria. Одно для щелчка, касания, Enter и пробела;
+ * модификаторы вроде `shiftKey` в нём есть, цели и координат указателя нет.
+ */
+export type FeedOpenEvent = PressEvent;
+
 /** Свойства плашки строки ленты. */
 export interface FeedItemProperties {
     /** Производная таблица использует ту же строку с табличной семантикой. */
@@ -228,7 +235,8 @@ export interface FeedItemProperties {
     readonly hover: string;
     /** Подпись для экранного диктора, например вид документа и номер. */
     readonly label: string;
-    readonly onOpen: (event: MouseEvent | KeyboardEvent) => void;
+    /** Открытие записи щелчком, касанием, Enter или пробелом. Модификаторы, например Shift, есть в событии. */
+    readonly onOpen: (event: FeedOpenEvent) => void;
     /** Ячейки строки, `FeedCell`. */
     readonly children: ReactNode;
 }
@@ -237,27 +245,22 @@ export interface FeedItemProperties {
  * Плашка строки ленты: заливка, высота, отступы, нажатие и фокус. Текст 16 px основного цвета
  * (выразительный вид Carbon): ленту читают на ходу, а бледный текст на цветной заливке плохо
  * различим. Содержимое раскладывают ячейки `FeedCell`.
+ *
+ * Нажатие, наведение и обводку фокуса даёт React Aria. `useHover` не подсвечивает строку после
+ * касания на сенсорном экране, а `useFocusRing` обводит строку только при фокусе с клавиатуры:
+ * после щелчка мышью обводки нет, как у плиток действий.
  */
 export function FeedItem({ background, hover, label, onOpen, children, role = 'button' }: FeedItemProperties) {
     const { token } = theme.useToken();
-    const [hovered, setHovered] = useState(false);
-    const [focused, setFocused] = useState(false);
+    const { pressProps } = usePress({ onPress: onOpen });
+    const { hoverProps, isHovered: hovered } = useHover({});
+    const { focusProps, isFocusVisible: focused } = useFocusRing();
     return (
         <div
+            {...mergeProps(pressProps, hoverProps, focusProps)}
             role={role}
             tabIndex={0}
             aria-label={label}
-            onClick={onOpen}
-            onKeyDown={(event) => {
-                if (event.key !== 'Enter' && event.key !== ' ') return;
-                event.preventDefault();
-                onOpen(event);
-            }}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            // Щелчок мышью не требует обводки; клавиатурный фокус остаётся видимым, как у плиток действий.
-            onFocus={(event) => setFocused(event.currentTarget.matches(':focus-visible'))}
-            onBlur={() => setFocused(false)}
             style={{
                 display: 'flex',
                 alignItems: 'center',

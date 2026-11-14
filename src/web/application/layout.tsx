@@ -5,8 +5,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import type { ShellSubsystem } from '../../server/ui/descriptions';
 import { Pending } from '../common/pending';
 import { useMetadata } from '../data-provider/metadata';
-import { Drawer, DrawerContainer, useDrawer } from '../sdk/ds/drawer';
+import { Drawer, DrawerContainer, DrawerHeader, useDrawer } from '../sdk/ds/drawer';
 import { Icons } from '../sdk/ds/icons';
+import { componentSizes, iconSizes } from '../sdk/ds/layout';
 import { ApplicationVersionsText } from './application-versions';
 import { TabPages } from '../tabs/tab-pages';
 import { TabStrip } from '../tabs/tab-strip';
@@ -120,10 +121,16 @@ export function ApplicationLayout() {
                         <PageContent />
                     </div>
                     {/* Меню на `sm` занимает полосу вкладок и страницу, но не нижний бар: бар остаётся
-                        доступен без затемнения, и его Switcher закрывает меню. */}
+                        доступен без затемнения. Меню закрывают шеврон в шапке, Switcher бара и Esc.
+                        Шапка та же, что у списка вкладок на `sm`: обе панели устроены одинаково. */}
                     <Drawer control={bottomMenu} mode="inline" placement={menuPlacement}>
-                        <ConfigProvider theme={{ token: { fontSize: 16 }, components: { Menu: { itemHeight: 64, iconSize: 24 } } }}>
-                            <NavigationPanel collapsed={false} showHeader={false} showVersions={false} switcherTitle={strategy.switcherTitle(expanded)} onSwitch={collapse} onNavigate={afterNavigation} onOpenSubsystem={openSubsystem} />
+                        <DrawerHeader typeSet="expressive" title="Меню" closeLabel="Закрыть меню" onClose={collapse} />
+                        {/* Меню на `sm` в наборе стилей expressive: строка 64, текст 16, иконка 24. */}
+                        <ConfigProvider theme={{ token: { fontSize: token.fontSizeLG }, components: { Menu: { itemHeight: componentSizes.xl, iconSize: iconSizes.lg } } }}>
+                            {/* Меню занимает место под шапкой: его пункты прокручиваются внутри, а шапка стоит на месте. */}
+                            <div style={{ flex: 1, minHeight: 0 }}>
+                                <NavigationPanel collapsed={false} showHeader={false} showVersions={false} switcherTitle={strategy.switcherTitle(expanded)} onSwitch={collapse} onNavigate={afterNavigation} onOpenSubsystem={openSubsystem} />
+                            </div>
                         </ConfigProvider>
                     </Drawer>
                 </DrawerContainer>
@@ -307,7 +314,8 @@ function BottomNavigation({ onNavigate, onOpenSubsystem, onSwitch, switcherTitle
         services.map((item) => ({ ...item, key: `service:${item.key}`, selected: false, disabled: item.disabled === true })),
     ].filter((group) => group.length > 0);
     return <nav aria-label="Основная навигация" className="bottom-navigation" style={{ display: 'flex', flex: 'none', paddingBottom: 'env(safe-area-inset-bottom)', background: token.colorBgContainer, borderTop: `1px solid ${token.colorBorderSecondary}` }}>
-        <style>{`.bottom-navigation button.ant-btn { flex: none; width: 64px; min-width: 64px; height: 64px; padding: 0; font-size: 24px; } .bottom-navigation .navigation-group { display: flex; }`}</style>
+        {/* Кнопки бара в наборе стилей expressive, как меню над ним: 64 × 64 с иконкой 24. */}
+        <style>{`.bottom-navigation button.ant-btn { flex: none; width: ${componentSizes.xl}px; min-width: ${componentSizes.xl}px; height: ${componentSizes.xl}px; padding: 0; font-size: ${iconSizes.lg}px; } .bottom-navigation .navigation-group { display: flex; }`}</style>
         {/* Switcher закреплён первым и доступен при любом положении горизонтальной прокрутки. */}
         <Button type="text" aria-label={switcherTitle} icon={<Icons.switcher />} onClick={onSwitch} />
         <NavigationDivider vertical />

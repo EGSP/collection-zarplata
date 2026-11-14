@@ -218,6 +218,11 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     const pendingRow = useRef<number | null>(null);
     // Tab отслеживается на документе: вход в таблицу может начаться в поле за её пределами.
     // Стрелки, Escape и мышь сбрасывают признак и оставляют обычный фокус просмотра.
+    //
+    // Способ ввода React Aria (`useFocusVisible`, `useFocusRing`) здесь не подходит: он различает
+    // только клавиатуру и указатель. Стрелки и Escape тоже клавиатура, но фокус после них не должен
+    // открывать ячейку, а при возвращении в окно браузера React Aria считает фокус видимым, и ячейка
+    // открылась бы без нажатия Tab.
     const tabNavigation = useRef(false);
     useEffect(() => {
         const keyboard = (event: globalThis.KeyboardEvent) => { tabNavigation.current = event.key === 'Tab'; };

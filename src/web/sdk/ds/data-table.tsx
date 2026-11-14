@@ -42,7 +42,8 @@ import { useOverflowShadows } from './overflow-shadows';
  * Элемент с атрибутом `data-cell-target` получает щелчок по отступу ячейки вокруг него.
  */
 import { Checkbox, Pagination, Radio, Spin, theme } from 'antd';
-import { Fragment, isValidElement, useLayoutEffect, useState, useRef, type CSSProperties, type Key, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, isValidElement, useLayoutEffect, useState, useRef, type CSSProperties, type HTMLAttributes, type Key, type MouseEvent, type ReactNode } from 'react';
+import { mergeProps, usePress } from 'react-aria';
 import { useBreakpoint } from './breakpoints';
 import { Button } from './button';
 import { cellAlign, cellColumnSize, cellInputClass, formatCell, type CellType } from './cell-types';
@@ -479,28 +480,19 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         const sorted = sort?.key === column.key ? sort.direction : undefined;
         const sortable = column.sortable === true && onSort !== undefined;
         const SortIcon = sorted === 'ascending' ? Icons.sortAscending : sorted === 'descending' ? Icons.sortDescending : Icons.sortable;
+        const attributes = {
+            role: 'columnheader',
+            ...cellProperties(column),
+            ...placement(groupIndex, level, groupLength),
+            ...(sorted === undefined ? {} : { 'aria-sort': sorted }),
+        };
+        if (!sortable) return <div key={column.key} {...attributes}>{column.title}</div>;
         return (
-            <div
-                key={column.key}
-                role="columnheader"
-                {...cellProperties(column)}
-                {...placement(groupIndex, level, groupLength)}
-                {...(sorted === undefined ? {} : { 'aria-sort': sorted })}
-                {...(sortable ? {
-                    'data-sortable': true,
-                    tabIndex: 0,
-                    onClick: () => onSort(column.key),
-                    onKeyDown: (event: KeyboardEvent) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        onSort(column.key);
-                    },
-                } : {})}
-            >
+            <SortableHeaderCell key={column.key} attributes={attributes} onSort={() => onSort(column.key)}>
                 {column.title}
                 {/* Значок несортированной колонки бледный: он только подсказывает, что сортировка возможна. */}
-                {sortable && <SortIcon style={sorted === undefined ? { color: token.colorTextQuaternary, transform: 'rotate(90deg)' } : { color: token.colorPrimary }} />}
-            </div>
+                <SortIcon style={sorted === undefined ? { color: token.colorTextQuaternary, transform: 'rotate(90deg)' } : { color: token.colorPrimary }} />
+            </SortableHeaderCell>
         );
     };
 
@@ -635,6 +627,21 @@ function summaryContent<Row>(column: DataTableColumn<Row>, value: unknown): Reac
     // Подпись «Итого» стоит в колонке любого типа: строка выводится как есть.
     if (isValidElement(value) || column.type === 'free' || typeof value === 'string') return value as ReactNode;
     return formatCell(column.type, value);
+}
+
+/**
+ * Заголовок сортируемой колонки. Отдельный компонент, потому что хук нажатия нужен каждому
+ * заголовку, а заголовки строятся в цикле. `usePress` меняет сортировку щелчком, касанием, Enter
+ * и пробелом одинаково.
+ */
+function SortableHeaderCell({ attributes, onSort, children }: {
+    /** Роль, класс, место в сетке и `aria-sort`, общие с несортируемым заголовком. */
+    readonly attributes: HTMLAttributes<HTMLDivElement>;
+    readonly onSort: () => void;
+    readonly children: ReactNode;
+}) {
+    const { pressProps } = usePress({ onPress: onSort });
+    return <div {...mergeProps(attributes, pressProps)} data-sortable tabIndex={0}>{children}</div>;
 }
 
 /**

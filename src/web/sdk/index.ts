@@ -113,9 +113,9 @@ export { Grid, Column, type GridProperties, type ColumnProperties, type ColumnCo
 export { Stack, type StackProperties } from './ds/stack';
 // Тени у краёв области прокрутки: для собственных прокручиваемых областей экранов, например ленты.
 export { useOverflowShadows } from './ds/overflow-shadows';
-export { spacing, breakpoints, breakpointWidths, gridColumns, type SpacingStep, type Breakpoint, type GridGutter, type PageModel } from './ds/layout';
+export { spacing, componentSizes, iconSizes, breakpoints, breakpointWidths, gridColumns, type SpacingStep, type ComponentSize, type TypeSet, type TypeSetProperties, type Breakpoint, type GridGutter, type PageModel } from './ds/layout';
 export { BreakpointContainer, useBreakpoint, breakpointAtLeast, type BreakpointContainerProperties } from './ds/breakpoints';
-export { Drawer, DrawerContainer, drawerDefaultPlacement, useDrawer, type DrawerContainerProperties, type DrawerControl, type DrawerPlacement, type DrawerProperties, type DrawerSide } from './ds/drawer';
+export { Drawer, DrawerContainer, DrawerHeader, drawerDefaultPlacement, useDrawer, type DrawerContainerProperties, type DrawerControl, type DrawerHeaderProperties, type DrawerPlacement, type DrawerProperties, type DrawerSide } from './ds/drawer';
 
 // Таблица данных: типы ячеек, колонки по размерам в знаках и долях, составные колонки по точкам перелома.
 export { DataTable, compactPageSize, type DataTablePinning, type DataTableColumn, type DataTableExpansion, type DataTablePagination, type DataTableProperties, type DataTableRowState, type DataTableSelection, type DataTableSortDirection } from './ds/data-table';
@@ -155,7 +155,7 @@ export { ActionConfirmationDialog, useActionConfirmation, type ActionConfirmatio
 export { ListFilters, type ListFiltersProperties } from './platform/list-filters';
 export { ListSearch, type ListSearchProperties } from './platform/list-search';
 // Лента документов: строки-плашки по группам с прокруткой, поиском и пагинацией.
-export { Feed, FeedCell, FeedItem, feedItemHeight, type FeedCellProperties, type FeedGroup, type FeedItemProperties, type FeedProperties, type FeedScroll } from './platform/feed';
+export { Feed, FeedCell, FeedItem, feedItemHeight, type FeedCellProperties, type FeedGroup, type FeedItemProperties, type FeedOpenEvent, type FeedProperties, type FeedScroll } from './platform/feed';
 export { RecordTable, type RecordTableProperties } from './platform/record-table';
 
 // Клиентские группы и управление действиями стандартного списка.

@@ -1,6 +1,5 @@
 import { theme } from 'antd';
-import type { KeyboardEvent, MouseEvent } from 'react';
-import { FeedCell, FeedItem, FieldDisplay, Icons } from '../../web/sdk';
+import { FeedCell, FeedItem, type FeedOpenEvent, FieldDisplay, Icons } from '../../web/sdk';
 import { documentNumber, feedTime } from './seller-feed-format';
 
 /**
@@ -32,7 +31,7 @@ export interface InstallmentPaymentFeedRow {
  * и продажа, способ и сумма. Заливка зелёных оттенков (green в палитре) обозначает поступление
  * денег и отличает взнос от голубых продаж, пурпурных возвратов и жёлтых сертификатов.
  */
-export function InstallmentPaymentFeedItem({ row, onOpen }: { readonly row: InstallmentPaymentFeedRow; readonly onOpen: (event: MouseEvent | KeyboardEvent) => void }) {
+export function InstallmentPaymentFeedItem({ row, onOpen }: { readonly row: InstallmentPaymentFeedRow; readonly onOpen: (event: FeedOpenEvent) => void }) {
     const { token } = theme.useToken();
     const sale = row.sales[0];
     const description = [row.holder, sale === undefined ? null : `продажа № ${documentNumber(sale.number)}`].filter((part) => part !== null).join(', ');

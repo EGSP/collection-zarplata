@@ -147,10 +147,10 @@ export function CertificatesTable({ rows, totals }: { readonly rows: ReadonlyArr
 function TotalsLines({ amounts, installment }: { readonly amounts: SummaryRefundAmounts; readonly installment?: number | undefined }) {
     return (
         <>
-            <Text expressive noWrap>Наличные: <Money value={amounts.cash} /></Text>
-            <Text expressive noWrap>Безналичные: <Money value={amounts.cashless} /></Text>
-            {installment !== undefined && <Text expressive noWrap>Рассрочка: <Money value={installment} /></Text>}
-            <Text expressive strong noWrap>Итого: <Money value={refundTotalOf(amounts) + (installment ?? 0)} /></Text>
+            <Text typeSet="expressive" noWrap>Наличные: <Money value={amounts.cash} /></Text>
+            <Text typeSet="expressive" noWrap>Безналичные: <Money value={amounts.cashless} /></Text>
+            {installment !== undefined && <Text typeSet="expressive" noWrap>Рассрочка: <Money value={installment} /></Text>}
+            <Text typeSet="expressive" strong noWrap>Итого: <Money value={refundTotalOf(amounts) + (installment ?? 0)} /></Text>
         </>
     );
 }
@@ -179,7 +179,7 @@ export function SummaryTotalsPanel({ totals, certificates }: { readonly totals: 
                 <Text.Heading variant="02">Общий</Text.Heading>
                 <TotalsLines amounts={totals.all} installment={totals.all.installment} />
                 <Divider />
-                <Text expressive noWrap>Сертификаты: <Money value={certificates.cash + certificates.cashless} /></Text>
+                <Text typeSet="expressive" noWrap>Сертификаты: <Money value={certificates.cash + certificates.cashless} /></Text>
             </Stack>
         </Panel>
     );

@@ -1,5 +1,6 @@
 import { theme } from 'antd';
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
+import { mergeProps, useFocusRing, useHover } from 'react-aria';
 import { Link } from 'react-router';
 import { Text } from './text';
 
@@ -24,6 +25,8 @@ export interface TileProperties {
  * Плитка — ссылка `Link`, а не кнопка с обработчиком: вкладку определяет адрес, поэтому переход
  * по ссылке открывает её, а ссылку можно открыть и в новом окне браузера. Рамки у плитки нет,
  * её выделяет фон; при наведении фон темнеет, при фокусе с клавиатуры появляется обводка.
+ * Наведение и обводку даёт React Aria: `useHover` не оставляет затемнение после касания
+ * на сенсорном экране, `useFocusRing` обводит плитку только при фокусе с клавиатуры.
  * Углы скруглены радиусом карточек Ant Design, а не прямые, как в Carbon: плитка стоит рядом
  * с карточками приложения и должна выглядеть с ними единообразно.
  *
@@ -33,16 +36,12 @@ export interface TileProperties {
  */
 export function Tile({ title, to, pictogram }: TileProperties) {
     const { token } = theme.useToken();
-    const [hovered, setHovered] = useState(false);
-    const [focused, setFocused] = useState(false);
+    const { hoverProps, isHovered: hovered } = useHover({});
+    const { focusProps, isFocusVisible: focused } = useFocusRing();
     return (
         <Link
+            {...mergeProps(hoverProps, focusProps)}
             to={to}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            // Обводка нужна только при фокусе с клавиатуры: щелчок мышью её не показывает.
-            onFocus={(event) => setFocused(event.currentTarget.matches(':focus-visible'))}
-            onBlur={() => setFocused(false)}
             style={{
                 display: 'flex',
                 flexDirection: 'column',

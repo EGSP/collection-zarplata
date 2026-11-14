@@ -6,10 +6,10 @@
  *
  * | Компонент | Роль | Размер |
  * |---|---|---|
- * | `Text` | основной текст | 14 px, `expressive` — 16 px |
+ * | `Text` | основной текст | 14 px, `typeSet="expressive"` — 16 px |
  * | `Text.Heading` | заголовок раздела или блока | по `variant`, от 14 до 30 px |
- * | `Text.Label` | подпись к значению, сообщение | 12 px, `expressive` — 14 px |
- * | `Text.Helper` | пояснение под значением, второстепенный цвет | 12 px, `expressive` — 14 px |
+ * | `Text.Label` | подпись к значению, сообщение | 12 px, `typeSet="expressive"` — 14 px |
+ * | `Text.Helper` | пояснение под значением, второстепенный цвет | 12 px, `typeSet="expressive"` — 14 px |
  *
  * ```tsx
  * <Text.Heading variant="03">Продажа</Text.Heading>
@@ -23,6 +23,7 @@
 import { theme, Typography, type GlobalToken } from 'antd';
 import type { CSSProperties, ReactNode } from 'react';
 import { accountingColors, type AccountingTone } from '../../common/theme';
+import type { TypeSet, TypeSetProperties } from './layout';
 
 /**
  * Цвет текста: `secondary` — второстепенный серый Ant Design, остальные — смысловые цвета учёта.
@@ -43,14 +44,11 @@ export interface TextCommonProperties {
     readonly children?: ReactNode;
 }
 
-/** Свойства основного текста и подписей. */
-export interface TextProperties extends TextCommonProperties {
-    /**
-     * Экспрессивный набор Carbon (`-02`): на ступень крупнее продуктивного (`-01`). Подходит
-     * для заметного текста на рабочих местах, где важнее читаемость, чем плотность.
-     */
-    readonly expressive?: boolean | undefined;
-}
+/**
+ * Свойства основного текста и подписей. Набор `expressive` (`-02` Carbon) на ступень крупнее
+ * `productive` (`-01`): для заметного текста на рабочих местах и крупных строк на `sm`.
+ */
+export interface TextProperties extends TextCommonProperties, TypeSetProperties {}
 
 /**
  * Ступень заголовка, как фиксированные заголовки Carbon: `01` и `02` — заголовки компонентов,
@@ -84,13 +82,13 @@ function headingMetrics(variant: TextHeadingVariant, token: GlobalToken): Metric
 }
 
 /** Метрики основного текста и подписей: продуктивный набор или на ступень крупнее. */
-function bodyMetrics(expressive: boolean, token: GlobalToken): Metrics {
-    return expressive ? { fontSize: token.fontSizeLG, lineHeight: token.lineHeightLG } : { fontSize: token.fontSize, lineHeight: token.lineHeight };
+function bodyMetrics(typeSet: TypeSet, token: GlobalToken): Metrics {
+    return typeSet === 'expressive' ? { fontSize: token.fontSizeLG, lineHeight: token.lineHeightLG } : { fontSize: token.fontSize, lineHeight: token.lineHeight };
 }
 
 /** Метрики подписи и пояснения. */
-function smallMetrics(expressive: boolean, token: GlobalToken): Metrics {
-    return expressive ? { fontSize: token.fontSize, lineHeight: token.lineHeight } : { fontSize: token.fontSizeSM, lineHeight: token.lineHeightSM };
+function smallMetrics(typeSet: TypeSet, token: GlobalToken): Metrics {
+    return typeSet === 'expressive' ? { fontSize: token.fontSize, lineHeight: token.lineHeight } : { fontSize: token.fontSizeSM, lineHeight: token.lineHeightSM };
 }
 
 /** Текст с метриками роли. Цвет `secondary` задаёт Ant Design, смысловые цвета — стиль. */
@@ -111,8 +109,8 @@ function RoleText({ metrics, tone, strong, ellipsis, noWrap, children }: TextCom
 }
 
 /** Основной текст. */
-function TextBody({ expressive = false, ...common }: TextProperties) {
-    return <RoleText metrics={bodyMetrics(expressive, theme.useToken().token)} {...common} />;
+function TextBody({ typeSet = 'productive', ...common }: TextProperties) {
+    return <RoleText metrics={bodyMetrics(typeSet, theme.useToken().token)} {...common} />;
 }
 
 /** Заголовок раздела или блока. Строчный элемент: место заголовка задаёт стек или сетка. */
@@ -121,13 +119,13 @@ function TextHeading({ variant, ...common }: TextHeadingProperties) {
 }
 
 /** Подпись к значению, сообщение, подпись-снимок. Не для абзацев. */
-function TextLabel({ expressive = false, ...common }: TextProperties) {
-    return <RoleText metrics={smallMetrics(expressive, theme.useToken().token)} {...common} />;
+function TextLabel({ typeSet = 'productive', ...common }: TextProperties) {
+    return <RoleText metrics={smallMetrics(typeSet, theme.useToken().token)} {...common} />;
 }
 
 /** Пояснение под значением: подпись второстепенного цвета, если цвет не задан явно. */
-function TextHelper({ expressive = false, tone = 'secondary', ...common }: TextProperties) {
-    return <RoleText metrics={smallMetrics(expressive, theme.useToken().token)} tone={tone} {...common} />;
+function TextHelper({ typeSet = 'productive', tone = 'secondary', ...common }: TextProperties) {
+    return <RoleText metrics={smallMetrics(typeSet, theme.useToken().token)} tone={tone} {...common} />;
 }
 
 /** Основной текст `Text` с ролями `Text.Heading`, `Text.Label` и `Text.Helper`. */
