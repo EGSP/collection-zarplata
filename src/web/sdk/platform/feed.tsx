@@ -4,6 +4,16 @@
  * строку рисует экран, и строки разных видов, например продажа и возврат, не обязаны совпадать.
  * Общими остаются промежуток между строками, заголовки групп, прокрутка и тени.
  *
+ * Поведение при переполнении задаёт компоновка по точкам перелома (`layouts`, `list-overflow.ts`),
+ * как у `DataTable`, только без колонок. По умолчанию лента развёрнута в странице, а на `sm`
+ * делится на короткие страницы; экран переопределяет нужные точки, например включает прокрутку
+ * внутри ленты с `lg`. Размер страницы задаёт компоновка: лента сообщает экрану номер и размер
+ * нужной страницы (`pagination.onChange`), а экран запрашивает её у сервера.
+ *
+ * Строка, которая не помещается по ширине, не выходит за край ленты: лента прокручивается вбок,
+ * как `DataTable`, а у края со скрытым содержимым видна тень. Сжимаются только ячейки `grow`,
+ * поэтому наименьшая ширина ленты равна самой широкой строке без их текста.
+ *
  * Лента — абстракция платформы: о документах она ничего не знает. Конфигурация собирает свою
  * ленту из `Feed` и рисует строки из `FeedItem` и `FeedCell`.
  *
@@ -17,18 +27,19 @@
  *         <FeedCell width={13} align="end">{amount}</FeedCell>
  *     </FeedItem>}
  *     group={{ key: (row) => dayKey(row.date), render: (row) => dayTitle(row.date) }}
- *     scroll={{ rows: 8, fill: true }}
+ *     layouts={{ lg: { overflow: { mode: 'scroll', rows: 8, fill: true, pageSize: 20 } } }}
  *     search={{ value: search, onSearch: setSearch }}
- *     pagination={{ current: page, pageSize: 20, total, onChange: setPage }}
+ *     pagination={{ current: page, total, onChange: ({ page, pageSize }) => load(page, pageSize) }}
  * />
  * ```
  */
 import { Alert, Pagination, theme, Typography } from 'antd';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Key, type ReactNode } from 'react';
 import { mergeProps, useFocusRing, useHover, usePress, type PressEvent } from 'react-aria';
-import { breakpointAtLeast, useBreakpoint } from '../ds/breakpoints';
+import { useBreakpoint } from '../ds/breakpoints';
 import { useLayer } from '../ds/layer';
-import { spacing, type Breakpoint } from '../ds/layout';
+import { spacing } from '../ds/layout';
+import { listOverflowAt, useFillHeight, useListPages, type ListLayouts, type ListPagination } from '../ds/list-overflow';
 import { useOverflowShadows } from '../ds/overflow-shadows';
 import { isRendered } from '../ds/rendered';
 import { Stack } from '../ds/stack';
@@ -54,18 +65,6 @@ export interface FeedGroup<Row> {
     readonly render: (row: Row) => ReactNode;
 }
 
-/**
- * Прокрутка строк внутри ленты. Высота задаётся числом строк, а не пикселями, как `overflow`
- * у списка в miracle. При `fill` лента занимает высоту экрана до его нижнего края, но не меньше
- * `rows` строк: на высоком мониторе видно больше строк. Уже точки `from` (по умолчанию `lg`)
- * прокрутки нет, и лента растёт вместе со страницей: вложенная прокрутка на узком экране неудобна.
- */
-export interface FeedScroll {
-    readonly rows: number;
-    readonly fill?: boolean | undefined;
-    readonly from?: Breakpoint | undefined;
-}
-
 /** Свойства ленты. */
 export interface FeedProperties<Row> {
     readonly rows: ReadonlyArray<Row>;
@@ -73,11 +72,18 @@ export interface FeedProperties<Row> {
     /** Строка ленты, обычно `FeedItem`. */
     readonly renderRow: (row: Row) => ReactNode;
     readonly group?: FeedGroup<Row> | undefined;
-    readonly scroll?: FeedScroll | undefined;
+    /**
+     * Компоновка по точкам перелома: поведение при переполнении (`overflow`). В режиме `scroll`
+     * высота задаётся числом строк, а не пикселями, как `overflow` у списка в miracle.
+     */
+    readonly layouts?: ListLayouts | undefined;
     /** Поле поиска над лентой, как в форме списка. Строки отбирает источник данных экрана. */
     readonly search?: { readonly value: string; readonly onSearch: (search: string) => void; readonly placeholder?: string | undefined } | undefined;
-    /** Страницы на сервере: экран передаёт строки текущей страницы и общее число строк. */
-    readonly pagination?: { readonly current: number; readonly pageSize: number; readonly total: number; readonly onChange: (page: number) => void } | undefined;
+    /**
+     * Страницы с сервера: лента сообщает номер и размер нужной страницы, экран передаёт её строки
+     * и общее число строк. Без свойства строки у клиента, и лента делит их на страницы сама.
+     */
+    readonly pagination?: ListPagination | undefined;
     readonly loading?: boolean | undefined;
     /** Сообщение об ошибке чтения вместо строк. */
     readonly error?: ReactNode;
@@ -86,86 +92,52 @@ export interface FeedProperties<Row> {
 }
 
 /**
- * Ближайший предок с вертикальной прокруткой: область страницы, внутри которой лента должна
- * поместиться. Без такого предка прокручивается сам документ.
- */
-function scrollParent(element: HTMLElement): HTMLElement {
-    for (let parent = element.parentElement; parent !== null; parent = parent.parentElement) {
-        const overflow = getComputedStyle(parent).overflowY;
-        if (overflow === 'auto' || overflow === 'scroll') return parent;
-    }
-    return document.scrollingElement as HTMLElement ?? document.documentElement;
-}
-
-/**
- * Высота области прокрутки, при которой лента доходит до нижнего края экрана, а страница
- * не прокручивается. Область на время замера получает высоту всего экрана, и страница
- * переполняется ровно на столько, сколько у ленты лишнего: на эту величину высота области
- * при замере и уменьшается.
- * Так учитывается всё вокруг ленты — блоки над ней, пагинация, отступы панели и страницы — без
- * их перечисления. Если страница не переполнилась, строк меньше экрана, и ограничение не мешает.
- */
-function fillHeight(scroller: HTMLElement): number {
-    const page = scrollParent(scroller);
-    const visible = page.clientHeight;
-    const previous = scroller.style.maxHeight;
-    scroller.style.maxHeight = `${visible}px`;
-    // Высота области при замере, а не высота экрана: строк может быть меньше экрана, и тогда
-    // область ниже своего ограничения, а переполнение страницы считается от её настоящей высоты.
-    const height = scroller.getBoundingClientRect().height;
-    const overflow = page.scrollHeight - page.clientHeight;
-    scroller.style.maxHeight = previous;
-    // Пиксель запаса: дробный масштаб страницы округляет высоты и дал бы переполнение в один пиксель.
-    return height - Math.max(0, overflow) - 1;
-}
-
-/**
  * Лента. Правила и пример описаны во вводном комментарии модуля. Рамка и область прокрутки стоят
  * всегда, и с сообщением вместо строк: хук теней находит их при первой отрисовке.
  */
-export function Feed<Row>({ rows, rowKey, renderRow, group, scroll, search, pagination, loading = false, error, emptyText = 'Записей нет' }: FeedProperties<Row>) {
+export function Feed<Row>({ rows: sourceRows, rowKey, renderRow, group, layouts, search, pagination, loading = false, error, emptyText = 'Записей нет' }: FeedProperties<Row>) {
     const { token } = theme.useToken();
     const layer = useLayer();
+    // Хук теней обслуживает одну ось на рамку, поэтому вокруг области прокрутки две рамки:
+    // внешняя рисует тени слева и справа, внутренняя сверху и снизу.
+    const horizontalFrame = useRef<HTMLDivElement>(null);
     const frame = useRef<HTMLDivElement>(null);
     const scroller = useRef<HTMLDivElement>(null);
+    const content = useRef<HTMLDivElement>(null);
+    useOverflowShadows(horizontalFrame, scroller, 'horizontal');
     useOverflowShadows(frame, scroller, 'vertical');
-    const scrolling = scroll !== undefined && breakpointAtLeast(useBreakpoint(), scroll.from ?? 'lg');
+    const overflow = listOverflowAt(layouts, useBreakpoint());
+    const pages = useListPages(sourceRows, overflow, pagination);
+    const rows = pages.rows;
+    const scrolling = overflow.mode === 'scroll';
     // Наименьшая высота: заголовок группы и `rows` строк с промежутками.
-    const minimum = groupHeight + (scroll?.rows ?? 0) * (feedItemHeight + rowGap);
-    const [filled, setFilled] = useState<number | null>(null);
+    const minimum = groupHeight + (overflow.mode === 'scroll' ? overflow.rows : 0) * (feedItemHeight + rowGap);
+    // Помещается ли лента по ширине. Пока помещается, область без прокрутки вбок: заголовки групп
+    // ленты без вертикальной прокрутки закреплены к странице. Область прокрутки вбок стала бы
+    // и их областью прокрутки, и закрепление к странице пропало бы, как у `DataTable` с `pinned`.
+    const [fitsWidth, setFitsWidth] = useState(true);
+    useLayoutEffect(() => {
+        const area = scroller.current;
+        const inner = content.current;
+        if (area === null || inner === null) return;
+        // Ширина содержимого не меньше самой широкой строки и не зависит от `overflow`, поэтому
+        // включение прокрутки не меняет результат сравнения.
+        const update = () => { if (isRendered(area)) setFitsWidth(inner.getBoundingClientRect().width <= area.clientWidth + 1); };
+        const observer = new ResizeObserver(update);
+        observer.observe(area);
+        observer.observe(inner);
+        update();
+        return () => observer.disconnect();
+    }, []);
 
     // Высота по экрану пересчитывается при смене размеров страницы и после новых строк:
     // над лентой могли появиться или исчезнуть блоки.
-    useLayoutEffect(() => {
-        if (!scrolling || scroll?.fill !== true || scroller.current === null || frame.current === null) {
-            setFilled(null);
-            return;
-        }
-        const area = scroller.current;
-        // Скрытая лента (неактивная вкладка окна или панели) не имеет размеров: замер дал бы
-        // отрицательную высоту, и лента сжалась бы до `rows` строк. Поэтому она сохраняет прежнюю
-        // высоту, пока скрыта, а при показе пересчитывает её по наблюдению за рамкой.
-        const update = () => {
-            if (isRendered(area)) setFilled(fillHeight(area));
-        };
-        update();
-        const page = scrollParent(area);
-        const observer = new ResizeObserver(update);
-        observer.observe(page);
-        // Рамка ленты меняет размер при показе, даже когда область страницы осталась прежней:
-        // например, лента стоит на вкладке панели и скрыта вместе с ней, а строки обновились.
-        observer.observe(frame.current);
-        window.addEventListener('resize', update);
-        return () => {
-            observer.disconnect();
-            window.removeEventListener('resize', update);
-        };
-    }, [scrolling, scroll?.fill, rows]);
+    const filled = useFillHeight(scroller, frame, overflow.mode === 'scroll' && overflow.fill === true, rows);
 
     // Другая страница и другой поиск начинаются с первой строки: область возвращается к началу.
     useEffect(() => {
         if (scroller.current !== null) scroller.current.scrollTop = 0;
-    }, [pagination?.current, search?.value]);
+    }, [pages.control?.current, search?.value]);
 
     const groupStyle: CSSProperties = {
         position: 'sticky',
@@ -192,27 +164,34 @@ export function Feed<Row>({ rows, rowKey, renderRow, group, scroll, search, pagi
     return (
         <Stack gap={3}>
             {search !== undefined && <ListSearch value={search.value} onSearch={search.onSearch} {...(search.placeholder === undefined ? {} : { placeholder: search.placeholder })} />}
-            {/* Верхняя тень начинается под закреплённым заголовком группы: тень на нём выглядела бы так, будто скрыт он сам. */}
-            <div ref={frame} style={{ position: 'relative', '--overflow-shadow-start': group === undefined ? '0px' : `${groupHeight}px` } as CSSProperties}>
-                <div ref={scroller} style={scrolling ? { maxHeight: Math.max(minimum, filled ?? minimum), overflowY: 'auto' } : {}}>
-                    {error !== undefined && error !== null ? (
-                        <Alert type="error" showIcon title={error} />
-                    ) : rows.length === 0 ? (
-                        <Typography.Text type="secondary">{loading ? 'Загрузка…' : emptyText}</Typography.Text>
-                    ) : groups.map((part) => (
-                        // Заголовок закреплён внутри своей группы: следующий вытесняет его, а не ложится поверх.
-                        <section key={part.key}>
-                            {group !== undefined && <div style={groupStyle}>{group.render(part.first)}</div>}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: rowGap, paddingBottom: rowGap }}>
-                                {part.rows.map((row) => <div key={rowKey(row)}>{renderRow(row)}</div>)}
-                            </div>
-                        </section>
-                    ))}
+            <div ref={horizontalFrame} style={{ position: 'relative' }}>
+                {/* Верхняя тень начинается под закреплённым заголовком группы: тень на нём выглядела бы так, будто скрыт он сам. */}
+                <div ref={frame} style={{ position: 'relative', '--overflow-shadow-start': group === undefined ? '0px' : `${groupHeight}px` } as CSSProperties}>
+                    <div ref={scroller} style={scrolling ? { maxHeight: Math.max(minimum, filled ?? minimum), overflowY: 'auto', overflowX: 'auto' } : fitsWidth ? {} : { overflowX: 'auto' }}>
+                        {/* Содержимое не уже самой широкой строки: строки не сжимаются за край, а лента прокручивается вбок. */}
+                        <div ref={content} style={{ minWidth: 'min-content' }}>
+                            {error !== undefined && error !== null ? (
+                                <Alert type="error" showIcon title={error} />
+                            ) : rows.length === 0 ? (
+                                <Typography.Text type="secondary">{loading ? 'Загрузка…' : emptyText}</Typography.Text>
+                            ) : groups.map((part) => (
+                                // Заголовок закреплён внутри своей группы: следующий вытесняет его, а не ложится поверх.
+                                <section key={part.key}>
+                                    {/* Подпись закреплена и слева: при прокрутке вбок она остаётся у края ленты, а не уезжает со строками. */}
+                                    {group !== undefined && <div style={groupStyle}><span style={{ position: 'sticky', left: 0 }}>{group.render(part.first)}</span></div>}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: rowGap, paddingBottom: rowGap }}>
+                                        {part.rows.map((row) => <div key={rowKey(row)}>{renderRow(row)}</div>)}
+                                    </div>
+                                </section>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </div>
-            {pagination !== undefined && pagination.total > pagination.pageSize && (
+            {/* Переключатель не выводится, пока все строки помещаются на одну страницу. */}
+            {pages.control !== undefined && (
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Pagination size="small" current={pagination.current} pageSize={pagination.pageSize} total={pagination.total} showSizeChanger={false} onChange={pagination.onChange} />
+                    <Pagination size="small" {...pages.control} showSizeChanger={false} />
                 </div>
             )}
         </Stack>
@@ -315,7 +294,9 @@ export function FeedCell({ width, grow = false, align = 'start', strong = false,
                 justifyContent: align === 'end' ? 'flex-end' : 'flex-start',
                 flex: grow ? '1 1 0' : 'none',
                 minWidth: 0,
-                ...(width === undefined ? {} : { width: `${width}ch` }),
+                // Нулевая ширина `grow` убирает его текст из наименьшей ширины строки: ячейка
+                // сжимается с многоточием, а строка не шире суммы остальных ячеек.
+                ...(width === undefined ? (grow ? { width: 0 } : {}) : { width: `${width}ch` }),
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
                 fontVariantNumeric: 'tabular-nums',

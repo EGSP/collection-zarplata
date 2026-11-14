@@ -15,6 +15,7 @@
  * таблица прокручивается по горизонтали, а не сжимает значения.
  */
 import { breakpoints, type Breakpoint } from './layout';
+import { compactPageSize, layoutPartAt, type ListLayout, type ListLayoutDefaults, type ListLayouts } from './list-overflow';
 
 /**
  * Размер колонки. `minimum` — наименьшая ширина значения в знаках (единица `ch`) без внутренних
@@ -53,7 +54,7 @@ export interface TableLine {
 }
 
 /**
- * Схема отображения: строки одной записи таблицы сверху вниз. Строка и группа названы явно,
+ * Схема колонок: строки одной записи таблицы сверху вниз. Строка и группа названы явно,
  * поэтому по схеме сразу видно, что стоит рядом, а что друг под другом.
  *
  * ```ts
@@ -66,21 +67,80 @@ export interface TableLine {
  * прокручивается с тенями. Колонки, которых нет в схеме, выводятся по одной в конце последней
  * строки: значение не пропадает из таблицы оттого, что схему писали раньше, чем появилась колонка.
  */
-export type TableLayout = ReadonlyArray<TableLine>;
+export type TableLines = ReadonlyArray<TableLine>;
 
 /**
- * Схемы отображения по точкам перелома. Схема действует от своей точки и шире, как правило
- * CSS `min-width`: `{ lg: …, max: … }` — схема `lg` на `lg` и `xlg`, схема `max` на `max`.
- * Уже самой узкой названной точки схемы нет, и таблица выводит колонки по одной с прокруткой.
+ * Закрепление строк таблицы: закреплённые строки остаются у края видимой области, пока таблица
+ * прокручивается. `header` и `summary` закрепляют заголовок сверху и итоги снизу, `rows` включает
+ * закрепление отдельных записей, которые выбирает свойство таблицы `pinnedRows`. В режиме `scroll`
+ * строки прилипают к краям самой таблицы, в режиме `expand` к краям прокручиваемой страницы.
  */
-export type TableLayouts = { readonly [Point in Breakpoint]?: TableLayout };
+export interface TablePinning {
+    readonly header?: boolean | undefined;
+    readonly summary?: boolean | undefined;
+    readonly rows?: boolean | undefined;
+}
 
-/** Схема для точки: самая широкая из названных точек, не шире текущей. */
-export function tableLayoutAt(layouts: TableLayouts | undefined, point: Breakpoint): TableLayout | undefined {
+/**
+ * Запись компоновки таблицы в точке перелома: схема колонок (`lines`), поведение при переполнении
+ * (`overflow`, модуль `list-overflow.ts`) и закрепление строк (`pinned`). Все части необязательны
+ * и выбираются по точкам независимо: запись только с `overflow` меняет поведение, а колонки берёт
+ * из более узкой точки.
+ *
+ * ```ts
+ * { lines: [{ line: ['code', 'name', 'total'] }] }   // только колонки, поведение от платформы
+ * { overflow: { mode: 'scroll', rows: 10 } }          // только поведение, колонки от более узкой точки
+ * { pinned: { header: true, summary: true } }        // заголовок и итоги прилипают к краям
+ * ```
+ */
+export interface TableLayout extends ListLayout {
+    readonly lines?: TableLines | undefined;
+    readonly pinned?: TablePinning | undefined;
+}
+
+/**
+ * На узком экране строки не закрепляются: таблица там развёрнута и делится на короткие страницы,
+ * прокручивать её недолго, а прилипшие заголовок и итоги заняли бы заметную часть невысокого экрана.
+ */
+const compactPinning: TablePinning = { header: false, summary: false, rows: false };
+
+/**
+ * Значения платформы для таблиц для чтения: на `sm` строки развёрнуты, делятся на страницы
+ * по `compactPageSize` и не закрепляются; шире развёрнуты целиком. Закрепление шире `sm` экран
+ * включает сам, если оно нужно.
+ */
+export const tableLayoutDefaults: ListLayoutDefaults<TableLayout> = {
+    sm: { overflow: { mode: 'expand', pageSize: compactPageSize }, pinned: compactPinning },
+    md: { overflow: { mode: 'expand' } },
+};
+
+/**
+ * Значения платформы для таблиц с полями ввода: строки развёрнуты без страниц на любой ширине.
+ * Страницы мешали бы обходу ячеек и добавлению строки за последней. На `sm` строки не закрепляются,
+ * как у таблиц для чтения.
+ */
+export const interactiveTableLayoutDefaults: ListLayoutDefaults<TableLayout> = {
+    sm: { overflow: { mode: 'expand' }, pinned: compactPinning },
+};
+
+/** Закрепление строк в точке (`layoutPartAt`); без записей экрана и платформы строки не закреплены. */
+export function tablePinningAt(layouts: TableLayouts | undefined, point: Breakpoint, defaults: ListLayoutDefaults<TableLayout>): TablePinning {
+    return layoutPartAt(layouts, point, defaults, (layout) => layout.pinned) ?? {};
+}
+
+/**
+ * Компоновка таблицы по точкам перелома. Запись действует от своей точки и шире, как правило
+ * CSS `min-width`: `{ lg: …, max: … }` — запись `lg` на `lg` и `xlg`, запись `max` на `max`.
+ * Уже самой узкой точки со схемой колонок схемы нет, и таблица выводит колонки по одной с прокруткой.
+ */
+export type TableLayouts = ListLayouts<TableLayout>;
+
+/** Схема колонок для точки: самая широкая из точек со схемой, не шире текущей. */
+export function tableLinesAt(layouts: TableLayouts | undefined, point: Breakpoint): TableLines | undefined {
     if (layouts === undefined) return undefined;
-    let found: TableLayout | undefined;
+    let found: TableLines | undefined;
     for (const candidate of breakpoints) {
-        found = layouts[candidate] ?? found;
+        found = layouts[candidate]?.lines ?? found;
         if (candidate === point) break;
     }
     return found;
@@ -92,7 +152,7 @@ export function tableLayoutAt(layouts: TableLayouts | undefined, point: Breakpoi
  * в конце последней строки в порядке `keys`. Без схемы и при пустой схеме строка одна, и каждая
  * колонка в ней отдельная. Пустые строки не выводятся.
  */
-export function columnLines(keys: ReadonlyArray<string>, layout: TableLayout | undefined): ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>> {
+export function columnLines(keys: ReadonlyArray<string>, layout: TableLines | undefined): ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>> {
     if (layout === undefined || layout.length === 0) return [keys.map((key) => [key])];
     const known = new Set(keys);
     const placed = new Set<string>();

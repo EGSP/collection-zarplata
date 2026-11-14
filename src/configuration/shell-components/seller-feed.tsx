@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Feed, useFunctionResult, type FeedOpenEvent, useObjectView, useOpenRecord } from '../../web/sdk';
+import { Feed, useFunctionResult, type FeedOpenEvent, type ListLayouts, type ListPage, useObjectView, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import { CertificateFeedItem, type CertificateFeedRow } from './certificate-feed-item';
 import { InstallmentPaymentFeedItem, type InstallmentPaymentFeedRow } from './installment-payment-feed-item';
@@ -7,11 +7,15 @@ import { RefundFeedItem, type RefundFeedRow } from './refund-feed-item';
 import { SaleFeedItem, type SaleFeedRow } from './sale-feed-item';
 import { feedDayKey, feedDayTitle } from './seller-feed-format';
 
-/** Документов на странице ленты: на широком экране лента занимает его высоту, и строк нужно больше. */
-const pageSize = 20;
-
-/** Наименьшее число видимых строк на широком экране: столько видно и на невысоком мониторе. */
-const minimumRows = 6;
+/**
+ * Компоновка ленты. На `sm` действует поведение платформы: лента развёрнута и делится на короткие
+ * страницы. С `md` страницы по 20 документов. С `lg` лента прокручивается внутри себя и занимает
+ * высоту экрана, но показывает не меньше 6 строк: столько видно и на невысоком мониторе.
+ */
+const layouts: ListLayouts = {
+    md: { overflow: { mode: 'expand', pageSize: 20 } },
+    lg: { overflow: { mode: 'scroll', rows: 6, fill: true, pageSize: 20 } },
+};
 
 /** Строка ленты: продажа, возврат, событие сертификата или взнос. Вид выбирает компонент строки. */
 type SellerFeedRow = SaleFeedRow | RefundFeedRow | CertificateFeedRow | InstallmentPaymentFeedRow;
@@ -63,9 +67,10 @@ export function useSellerFeedAvailable(): boolean {
 
 /**
  * Лента продавца на основе `Feed` из SDK: проведённые продажи, возвраты, события сертификатов
- * и взносы по рассрочкам по дням, поиск и страницы по 20. Каждый вид рисует собственный компонент
- * (`SaleFeedItem`, `RefundFeedItem`, `CertificateFeedItem`, `InstallmentPaymentFeedItem`): строки не обязаны совпадать. На широком экране лента занимает высоту
- * экрана, но показывает не меньше `minimumRows` строк.
+ * и взносы по рассрочкам по дням, поиск и страницы. Каждый вид рисует собственный компонент
+ * (`SaleFeedItem`, `RefundFeedItem`, `CertificateFeedItem`, `InstallmentPaymentFeedItem`):
+ * строки не обязаны совпадать. Размер страницы и прокрутку задаёт компоновка `layouts`; лента
+ * сообщает номер и размер нужной страницы, и только после этого экран запрашивает её.
  *
  * Результат функции хранится среди ответов о данных и сбрасывается после записи документа:
  * новая продажа или возврат появляются в ленте без перезагрузки страницы.
@@ -73,8 +78,15 @@ export function useSellerFeedAvailable(): boolean {
 function AvailableFeed() {
     const openRecord = useOpenRecord();
     const [search, setSearch] = useState('');
-    const [page, setPage] = useState(1);
-    const result = useFunctionResult({ object: Objects.document.refund, name: 'sellerFeed', payload: { search, page, pageSize }, keepPrevious: true });
+    // Страница неизвестна, пока лента не сообщила размер страницы из компоновки.
+    const [page, setPage] = useState<ListPage | null>(null);
+    const result = useFunctionResult({
+        object: Objects.document.refund,
+        name: 'sellerFeed',
+        payload: { search, page: page?.page ?? 1, pageSize: page?.pageSize ?? 0 },
+        enabled: page !== null,
+        keepPrevious: true,
+    });
     const rows = (result.data?.rows ?? []) as ReadonlyArray<SellerFeedRow>;
     const open = (row: SellerFeedRow) => (event: FeedOpenEvent) => {
         void openRecord(documents[row.kind], row.guid, 'tab', { original: event.shiftKey });
@@ -86,12 +98,13 @@ function AvailableFeed() {
             rowKey={rowKey}
             renderRow={(row) => <FeedRow row={row} onOpen={open(row)} />}
             group={{ key: (row) => feedDayKey(row.date), render: (row) => feedDayTitle(row.date) }}
-            scroll={{ rows: minimumRows, fill: true }}
-            search={{ value: search, onSearch: (text) => { setSearch(text); setPage(1); }, placeholder: 'Поиск по коду, названию товара, номеру, дате или сумме' }}
-            pagination={{ current: page, pageSize, total: result.data?.total ?? 0, onChange: setPage }}
-            loading={result.loading}
+            layouts={layouts}
+            // Новый поиск начинается с первой страницы того же размера.
+            search={{ value: search, onSearch: (text) => { setSearch(text); setPage((current) => current === null ? null : { ...current, page: 1 }); }, placeholder: 'Поиск по коду, названию товара, номеру, дате или сумме' }}
+            pagination={{ ...(page === null ? {} : { current: page.page }), total: result.data?.total ?? 0, onChange: setPage }}
+            loading={result.loading || page === null}
             // Отказ, например нехватка права, оставляет результат пустым без уведомления.
-            error={result.data === undefined && !result.loading ? 'Не удалось прочитать продажи и возвраты' : undefined}
+            error={result.data === undefined && !result.loading && page !== null ? 'Не удалось прочитать продажи и возвраты' : undefined}
             emptyText={searched === '' ? 'Продаж и возвратов пока нет' : `Нет продаж и возвратов по запросу «${searched}»`}
         />
     );

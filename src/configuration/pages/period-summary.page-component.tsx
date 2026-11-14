@@ -1,4 +1,4 @@
-import { CertificatesTable, Money, OperationsTable, summaryScroll, SummaryTotalsPanel } from './period-summary-tables';
+import { CertificatesTable, Money, OperationsTable, summaryLayout, SummaryTotalsPanel } from './period-summary-tables';
 import { DataTable, StickyRail } from '../../web/sdk';
 import { Alert, Button } from 'antd';
 import type { ReactNode } from 'react';
@@ -105,11 +105,10 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                         <Text strong>Взносы</Text>
                         {payments.rows.length === 0 ? <Text tone="secondary">Строк нет</Text> : (
                             <DataTable
-                                {...summaryScroll}
                                 rowKey={(row, index) => `${row.installment}-${row.date}-${index}`}
                                 rows={[...payments.rows]}
                                 // Взнос занимает одну строку на любой ширине: колонок немного, и все суммы видны сразу.
-                                layouts={{ sm: [{ line: [{ group: ['date', 'person'] }, 'installment', { group: ['cash', 'cashless'] }] }], lg: [] }}
+                                layouts={{ sm: { lines: [{ line: [{ group: ['date', 'person'] }, 'installment', { group: ['cash', 'cashless'] }] }] }, md: summaryLayout, lg: { lines: [] } }}
                                 columns={[
                                     { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
                                     { title: 'Покупатель', key: 'person', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
@@ -126,10 +125,9 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                         <Text strong>Должники</Text>
                         {debtors.rows.length === 0 ? <Text tone="secondary">Строк нет</Text> : (
                             <DataTable
-                                {...summaryScroll}
                                 rowKey={(row) => row.person}
                                 rows={[...debtors.rows]}
-                                layouts={{ sm: [{ line: [{ group: ['person', 'count'] }, 'debt'] }], lg: [] }}
+                                layouts={{ sm: { lines: [{ line: [{ group: ['person', 'count'] }, 'debt'] }] }, md: summaryLayout, lg: { lines: [] } }}
                                 expansion={{
                                     isExpandable: () => true,
                                     isExpanded: (row) => expanded.has(row.person),
@@ -138,7 +136,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
                                         <DataTable
                                             rowKey={(row) => row.installment}
                                             rows={[...debtor.installments]}
-                                            layouts={{ sm: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }], lg: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }] }}
+                                            layouts={{ sm: { lines: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }] }, lg: { lines: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }] } }}
                                             columns={[
                                                 { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
                                                 { title: 'Продажа', key: 'sale', type: 'free' as const, render: (row) => <Reference kind="document" name="sale" guid={row.sale} /> },
@@ -162,10 +160,9 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
             </Panel>
             <Block title="Товары в отвесе" empty={weighings.rows.length === 0}>
                 <DataTable
-                    {...summaryScroll}
                     rowKey={(row) => `${row.weighing}-${weighings.rows.indexOf(row)}`}
                     rows={[...weighings.rows]}
-                    layouts={{ sm: [{ line: [{ group: ['code', 'name', 'size'] }, { group: ['person', 'date', 'weighing'] }] }], lg: [{ line: [{ group: ['name', 'code', 'size'] }, { group: ['person', 'date', 'weighing'] }] }] }}
+                    layouts={{ sm: { lines: [{ line: [{ group: ['code', 'name', 'size'] }, { group: ['person', 'date', 'weighing'] }] }] }, md: summaryLayout, lg: { lines: [{ line: [{ group: ['name', 'code', 'size'] }, { group: ['person', 'date', 'weighing'] }] }] } }}
                     columns={[
                         { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
                         { title: 'Отвес', key: 'weighing', type: 'free' as const, render: (row) => <Reference kind="document" name="weighing" guid={row.weighing} /> },

@@ -20,10 +20,12 @@ export function Money({ value }: { readonly value: number }) {
 }
 
 /**
- * Таблица сводки показывает десять записей и прокручивается внутри: длинный день не растягивает
- * страницу. Заголовок и итоги закреплены, поэтому при прокрутке видны подписи колонок и суммы.
+ * Компоновка таблицы сводки с `md`: десять записей и прокрутка внутри, длинный день не растягивает
+ * страницу; заголовок и итоги закреплены у краёв таблицы, при прокрутке видны подписи колонок
+ * и суммы. На `sm` действуют значения платформы: строки развёрнуты, делятся на страницы
+ * и не закрепляются.
  */
-export const summaryScroll = { visibleRows: 10, pinned: { header: true, summary: true } } as const;
+export const summaryLayout = { overflow: { mode: 'scroll', rows: 10 }, pinned: { header: true, summary: true } } as const;
 
 /** Все деньги строки или итога: в сводке нет долга, поэтому сумма колонок фактическая. */
 const totalOf = (amounts: SummaryAmounts) => amounts.cash + amounts.cashless + amounts.installment;
@@ -79,8 +81,7 @@ export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray
             rows={rows}
             emptyText="Продаж и возвратов нет"
             // На узком экране документ и товары занимают первую линию, четыре суммы вторую.
-            layouts={{ sm: [{ line: ['document', 'goods'] }, { line: ['cash', 'cashless', 'installment', 'total'] }], lg: [] }}
-            {...summaryScroll}
+            layouts={{ sm: { lines: [{ line: ['document', 'goods'] }, { line: ['cash', 'cashless', 'installment', 'total'] }] }, md: summaryLayout, lg: { lines: [] } }}
             onRowClick={(row) => { void open(row.kind === 'sale' ? Objects.document.sale : Objects.document.refund, row.guid, 'tab'); }}
             expansion={{
                 isExpandable: (row) => row.links.length > 0,
@@ -129,8 +130,7 @@ export function CertificatesTable({ rows, totals }: { readonly rows: ReadonlyArr
             rowKey={(row) => `${row.kind}-${row.certificate}`}
             rows={rows}
             emptyText="Покупок и обменов сертификатов нет"
-            layouts={{ sm: [{ line: [{ group: ['date', 'holder'] }, 'certificate'] }, { line: ['cash', 'cashless'] }], lg: [] }}
-            {...summaryScroll}
+            layouts={{ sm: { lines: [{ line: [{ group: ['date', 'holder'] }, 'certificate'] }, { line: ['cash', 'cashless'] }] }, md: summaryLayout, lg: { lines: [] } }}
             columns={[
                 { key: 'date', title: 'Дата', type: 'dateTime', render: (row) => <FieldDisplay field={{ kind: 'dateTime', target: null }} value={row.date} /> },
                 { key: 'holder', title: 'Держатель', type: 'free', size: { minimum: 12, weight: 1 }, render: (row) => <CertificateHolderText holder={row.holder} /> },
