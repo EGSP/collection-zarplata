@@ -27,6 +27,8 @@ covers:
 | `isEmptyFieldValue` | Пустота поля для [названия](components.md#компоновка-полей): `null`, `undefined`, пустая строка или пустой список; `0` и `false` заполнены |
 | `FormStack` | [Стек элементов формы](components.md#форма-из-formitem) из `Form.Item` без нижнего отступа |
 | `useActionConfirmation` | [Запрос подтверждения действия](hooks.md#выполнение-действий): `confirm(action)` и окно `dialog` |
+| `componentSizes`, `iconSizes` | [Шкалы высот компонентов и размеров иконок](../components.md#размеры-компонентов-и-наборы-стилей) |
+| `TypeSet`, `TypeSetProperties` | [Набор стилей](../components.md#размеры-компонентов-и-наборы-стилей) `productive` или `expressive` и свойство `typeSet` компонентов, которые его поддерживают |
 | `spacing`, `breakpoints`, `breakpointWidths`, `gridColumns` | Значения раскладки: [шкала отступов, точки перелома](../components.md#шкала-отступов-и-стек), их ширины и число колонок |
 | `useBreakpoint`, `breakpointAtLeast` | [Точка перелома](../components.md#точка-перелома-в-коде) ближайшего `BreakpointContainer` и проверка «не уже заданной точки»; вне контейнеров действует `sm` |
 | `drawerDefaultPlacement` | Сторона выезда [выезжающей панели](components.md#выезжающая-панель) по умолчанию: `{ sm: 'bottom', md: 'right' }` |
@@ -60,7 +62,7 @@ covers:
 | `PlatformObjects` | Типизированные ссылки встроенных объектов: `PlatformObjects.catalog.users`, без серверных обработчиков в клиенте |
 | `ObjectReference`, `FieldName`, `RecordCondition`, `RecordSort` и связанные | [Ссылки на объекты](../web-sdk.md#типизация-объектов) с точными типами записи и действий |
 | `BreakpointContainerProperties` | Свойства `BreakpointContainer`: `of="window"`, `of="fixed"` с `point` или `of="element"` с `style` |
-| `DrawerControl`, `DrawerProperties`, `DrawerContainerProperties`, `DrawerPlacement`, `DrawerSide` | Состояние панели из `useDrawer`, свойства `Drawer` и `DrawerContainer`, сторона выезда по точкам перелома и одна сторона (`left`, `right`, `bottom`) |
+| `DrawerControl`, `DrawerProperties`, `DrawerContainerProperties`, `DrawerHeaderProperties`, `DrawerPlacement`, `DrawerSide` | Состояние панели из `useDrawer`, свойства `Drawer`, `DrawerContainer` и `DrawerHeader`, сторона выезда по точкам перелома и одна сторона (`left`, `right`, `bottom`) |
 | `SpacingStep`, `Breakpoint`, `GridGutter`, `PageModel`, `ColumnCount` | Шаг шкалы отступов, точка перелома, режим зазора сетки, [модель страницы](../components.md#модели-страницы) и число колонок по точкам |
 | `ObjectTarget`, `PerformTarget`, `ListCondition` | Объект и условия запроса |
 | `RecordData`, `FormValues` | Запись общего типа и значения формы |

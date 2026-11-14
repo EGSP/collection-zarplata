@@ -39,7 +39,10 @@ import { createContext, useContext, useEffect, useRef, useState, type CSSPropert
 import { FocusScope, mergeProps, useDialog } from 'react-aria';
 import { createPortal } from 'react-dom';
 import { useBreakpoint } from './breakpoints';
-import { breakpoints, type Breakpoint } from './layout';
+import { Button } from './button';
+import { Icons } from './icons';
+import { breakpoints, componentSizes, iconSizes, spacing, type Breakpoint, type TypeSetProperties } from './layout';
+import { Text } from './text';
 
 /** Сторона, с которой выезжает панель. */
 export type DrawerSide = 'left' | 'right' | 'bottom';
@@ -285,6 +288,42 @@ function DrawerPanel({ label, overlay, side, size, onClose, background, shadow, 
             style={{ position: 'absolute', ...sideStyle, display: 'flex', flexDirection: 'column', overflow: 'auto', outline: 'none', pointerEvents: 'auto', background, boxShadow: shadow }}
         >
             {children}
+        </div>
+    );
+}
+
+// ─── Шапка ──────────────────────────────────────────────────────────────────
+
+/** Свойства шапки панели. */
+export interface DrawerHeaderProperties extends TypeSetProperties {
+    /** Название панели. */
+    readonly title: string;
+    /** Подпись кнопки закрытия для диктора, например «Закрыть меню». */
+    readonly closeLabel: string;
+    readonly onClose: () => void;
+}
+
+/**
+ * Первая строка панели: название слева и кнопка закрытия справа. Кнопка — шеврон вниз
+ * (`Icons.closePanel`): панель на `sm` выезжает снизу, и кнопка сворачивает её обратно к бару.
+ * Высота строки и кнопки — 40 px в наборе `productive` и 64 px в `expressive`, иконка 16 и 24 px.
+ * На `sm` панели выводят шапку в `expressive`, как строки своих списков и меню.
+ */
+export function DrawerHeader({ title, closeLabel, onClose, typeSet = 'productive' }: DrawerHeaderProperties) {
+    const { token } = theme.useToken();
+    const expressive = typeSet === 'expressive';
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', flex: 'none', gap: spacing[3], height: expressive ? componentSizes.xl : componentSizes.md, paddingInlineStart: spacing[5], borderBlockEnd: `1px solid ${token.colorBorderSecondary}` }}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+                <Text typeSet={typeSet} strong ellipsis>{title}</Text>
+            </span>
+            <Button
+                type="text"
+                size={expressive ? 'xl' : 'md'}
+                icon={<Icons.closePanel style={{ fontSize: expressive ? iconSizes.lg : iconSizes.sm }} />}
+                aria-label={closeLabel}
+                onClick={onClose}
+            />
         </div>
     );
 }
