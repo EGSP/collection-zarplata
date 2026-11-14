@@ -8,7 +8,7 @@
  * прошлых продаж.
  */
 import { useState, type ReactNode } from 'react';
-import { DataTable, Divider, FieldDisplay, Icons, Panel, RecordLink, Stack, Text, useOpenRecord } from '../../web/sdk';
+import { Column, DataTable, Divider, FieldDisplay, Grid, Icons, Layer, Panel, RecordLink, Stack, Text, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { SummaryAmounts, SummaryLink, SummaryOperation, SummaryRefundAmounts, SummaryTotals } from '../period-summary-operations';
 import type { PaymentTotals, SummaryCertificateRow } from '../period-summary';
@@ -143,7 +143,7 @@ export function CertificatesTable({ rows, totals }: { readonly rows: ReadonlyArr
     );
 }
 
-/** Деньги по способам и итог одной секции панели «Всего». Рассрочку показывает только секция, где она есть. */
+/** Деньги по способам и итог одного блока панели «Всего». Рассрочку показывает только блок, где она есть. */
 function TotalsLines({ amounts, installment }: { readonly amounts: SummaryRefundAmounts; readonly installment?: number | undefined }) {
     return (
         <>
@@ -155,32 +155,50 @@ function TotalsLines({ amounts, installment }: { readonly amounts: SummaryRefund
     );
 }
 
+/** Блок панели «Всего»: подпись и суммы на поверхности следующего уровня, отдельно от соседних блоков. */
+function TotalsTile({ title, children }: { readonly title: string; readonly children: ReactNode }) {
+    return (
+        <Layer padding={4}>
+            <Stack gap={3}>
+                <Text.Heading variant="02">{title}</Text.Heading>
+                {children}
+            </Stack>
+        </Layer>
+    );
+}
+
 /**
- * Итог «Всего» на рельсе: обе зоны и взносы, каждая сумма входит в него один раз. Секции идут
- * друг под другом на любой ширине, у каждой своя подпись:
+ * Итог «Всего»: обе зоны и взносы, каждая сумма входит в него один раз. Три блока:
  *
  * 1. «Продажи» — продажи и взносы за вычетом возвратов в день продажи.
- * 2. «Возвраты» под пунктиром — возвраты по продажам других дней. Пунктир показывает, что это
- *    часть того же итога, а не отдельный отчёт.
- * 3. «Общий» под сплошной линией — полная сумма с учётом всех возвратов.
+ * 2. «Возвраты» — возвраты по продажам других дней.
+ * 3. «Общий» — полная сумма с учётом всех возвратов.
  *
- * Ниже отдельной строкой стоят сертификаты: их деньги во «Всего» не входят.
+ * Блоки стоят в собственной сетке панели. Обычная (не `subgrid`) сетка считает точки перелома
+ * по своей ширине, поэтому странице раскладку описывать не нужно: на узком рельсе панель
+ * получает `sm` и блоки встают столбиком, на всю ширину под таблицами — `md` и шире.
+ * Три блока не делят 8 или 16 колонок поровну, поэтому «Продажи» и «Возвраты» стоят рядом
+ * по половине строки, а «Общий», их сумма, — строкой ниже на всю ширину.
+ *
+ * Ниже на всю ширину стоят сертификаты: их деньги во «Всего» не входят.
  */
 export function SummaryTotalsPanel({ totals, certificates }: { readonly totals: SummaryTotals; readonly certificates: PaymentTotals }) {
     return (
         <Panel title="Всего">
-            <Stack gap={5}>
-                <Text.Heading variant="02">Продажи</Text.Heading>
-                <TotalsLines amounts={totals.sales} installment={totals.sales.installment} />
-                <Divider dashed />
-                <Text.Heading variant="02">Возвраты</Text.Heading>
-                <TotalsLines amounts={totals.refunds} />
-                <Divider />
-                <Text.Heading variant="02">Общий</Text.Heading>
-                <TotalsLines amounts={totals.all} installment={totals.all.installment} />
-                <Divider />
-                <Text typeSet="expressive" noWrap>Сертификаты: <Money value={certificates.cash + certificates.cashless} /></Text>
-            </Stack>
+            <Grid gutter="narrow">
+                <Column span={{ md: 4, lg: 8 }}>
+                    <TotalsTile title="Продажи"><TotalsLines amounts={totals.sales} installment={totals.sales.installment} /></TotalsTile>
+                </Column>
+                <Column span={{ md: 4, lg: 8 }}>
+                    <TotalsTile title="Возвраты"><TotalsLines amounts={totals.refunds} /></TotalsTile>
+                </Column>
+                <Column>
+                    <TotalsTile title="Общий"><TotalsLines amounts={totals.all} installment={totals.all.installment} /></TotalsTile>
+                </Column>
+                <Column>
+                    <Text typeSet="expressive" noWrap>Сертификаты: <Money value={certificates.cash + certificates.cashless} /></Text>
+                </Column>
+            </Grid>
         </Panel>
     );
 }
