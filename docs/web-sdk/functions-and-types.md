@@ -34,8 +34,10 @@ covers:
 | `drawerDefaultPlacement` | Сторона выезда [выезжающей панели](components.md#выезжающая-панель) по умолчанию: `{ sm: 'bottom', md: 'right' }` |
 | `useAccountingColors` | [Смысловые цвета учёта](hooks.md#поверхность-и-цвета) текущей темы |
 | `useLayer` | [Уровень и фоны](hooks.md#поверхность-и-цвета) ближайшей поверхности |
-| `columnLines`, `screenOrder`, `tableLayoutAt` | Правила [схем отображения](../components.md#составные-колонки-и-схемы-отображения): линии и группы колонок по схеме, порядок колонок на экране и схема для точки перелома |
-| `compactPageSize` | Размер неявной страницы таблицы просмотра на `sm` (10 строк), [правило `pagination`](../components.md#таблица-данных) |
+| `columnLines`, `screenOrder`, `tableLinesAt` | Правила [схем отображения](../components.md#составные-колонки-и-схемы-отображения): линии и группы колонок по схеме, порядок колонок на экране и схема для точки перелома |
+| `compactPageSize`, `serverPageSize` | Размеры страницы: 10 строк у списка для чтения на `sm` и 50 строк серверной страницы без `pageSize`, [«Переполнение таблиц и лент»](../components.md#переполнение-таблиц-и-лент) |
+| `layoutPartAt`, `listOverflowAt`, `tablePinningAt` | Часть компоновки в точке перелома: любая, поведение при переполнении, закрепление строк таблицы; запись экрана стоит выше значений платформы |
+| `listLayoutDefaults`, `tableLayoutDefaults`, `interactiveTableLayoutDefaults` | Значения платформы для лент, таблиц для чтения и таблиц с полями ввода, [«Переполнение таблиц и лент»](../components.md#переполнение-таблиц-и-лент) |
 | `fieldCellType`, `fieldColumn`, `fieldColumnSize` | [Тип ячейки и размер колонки](../components.md#размер-колонки-в-знаках-и-долях) по виду поля: `fieldColumn` отдаёт тип и размер вместе, `fieldColumnSize` размер либо `undefined`, если подходит размер типа |
 | `cellTypes`, `cellAlign`, `cellColumnSize`, `formatCell`, `hasTextInput` | Правила [типов ячеек](../components.md#типы-ячеек): выравнивание, размер по типу и заголовку, текст значения, вводится ли тип текстом |
 | `cellTextRules`, `listCellMinimum` | Правила ввода типа текстом (`TextConversion`) для полей поверх собственного `input` и наименьший размер колонки со списком, 16 знаков |
@@ -84,11 +86,12 @@ covers:
 | `TextTone`, `TextHeadingVariant`, `TextProperties`, `TextHeadingProperties`, `TextCommonProperties` | Цвет и ступень заголовка [ролей текста](components.md#роли-текста) и их свойства |
 | `AccountingTone`, `AccountingColor` | Смысловой цвет учёта (`total`, `debt`, `overpayment`, `warning`) и его оттенки: `text`, `solid`, `solidHover`, `background`, `backgroundStrong` |
 | `TablePartOptions` | [Настройки вида табличной части](components.md#табличная-часть) |
-| `DataTableProperties`, `DataTableColumn`, `DataTableSelection`, `DataTableExpansion`, `DataTableRowState`, `DataTableSortDirection`, `DataTablePagination`, `DataTablePinning` | Свойства и части [таблицы данных](../components.md#таблица-данных), в том числе страницы |
-| `ColumnSize`, `ControlColumnSize`, `TableLayout`, `TableLayouts`, `TableLine`, `TableGroup`, `TableLayoutColumn` | Размер колонки в знаках и долях, размер служебной колонки `'control'`, схема отображения из линий и групп и схемы по точкам перелома |
+| `DataTableProperties`, `DataTableColumn`, `DataTableSelection`, `DataTableExpansion`, `DataTableRowState`, `DataTableSortDirection` | Свойства и части [таблицы данных](../components.md#таблица-данных), в том числе страницы |
+| `ColumnSize`, `ControlColumnSize`, `TableLayout`, `TableLayouts`, `TablePinning`, `TableLine`, `TableGroup`, `TableLayoutColumn` | Размер колонки в знаках и долях, размер служебной колонки `'control'`, схема отображения из линий и групп и схемы по точкам перелома |
 | `CellType`, `PrimitiveCellType`, `CellInputOptions`, `CellTextInputHandle`, `CellTextInputProperties`, `TextConversion`, `CellComboInputProperties`, `CellOption`, `CellField` | Тип ячейки (`string`, `number`, `money`, `date`, `dateTime`, `boolean`, `free`) и его примитивная часть, ограничения ввода (`integer`, `maximumLength`), управление и свойства поля ячейки, перевод значения в текст и обратно, свойства поля со списком и его вариант (`key`, `label`), поле для расчёта типа |
 | `ReadOnlyTablePartProperties` | Свойства `ReadOnlyTablePart` |
 | `StickyRailProperties` | Порог `from`, шаг верхнего отступа `offset`, содержимое [рельса](components.md#прилипающий-рельс) |
 | `FeedOpenEvent` | Событие открытия строки ленты, совпадает с `PressEvent` React Aria; `shiftKey` показывает, была ли зажата Shift |
-| `FeedProperties`, `FeedGroup`, `FeedScroll`, `FeedItemProperties`, `FeedCellProperties` | Свойства [ленты документов](../components.md#лента-документов), её групп, прокрутки, строки и ячейки |
+| `FeedProperties`, `FeedGroup`, `FeedItemProperties`, `FeedCellProperties` | Свойства [ленты документов](../components.md#лента-документов), её групп, строки и ячейки |
+| `ListLayout`, `ListLayouts`, `ListOverflow`, `ListLayoutDefaults`, `ListPage`, `ListPagination` | Типы [поведения при переполнении](../components.md#переполнение-таблиц-и-лент): запись компоновки, режим, значения платформы и серверные страницы |
 | `<Компонент>Properties` | Свойства компонента SDK, например `TileProperties` |

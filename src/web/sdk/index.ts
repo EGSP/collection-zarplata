@@ -118,8 +118,10 @@ export { BreakpointContainer, useBreakpoint, breakpointAtLeast, type BreakpointC
 export { Drawer, DrawerContainer, DrawerHeader, drawerDefaultPlacement, useDrawer, type DrawerContainerProperties, type DrawerControl, type DrawerHeaderProperties, type DrawerPlacement, type DrawerProperties, type DrawerSide } from './ds/drawer';
 
 // Таблица данных: типы ячеек, колонки по размерам в знаках и долях, составные колонки по точкам перелома.
-export { DataTable, compactPageSize, type DataTablePinning, type DataTableColumn, type DataTableExpansion, type DataTablePagination, type DataTableProperties, type DataTableRowState, type DataTableSelection, type DataTableSortDirection } from './ds/data-table';
-export { columnLines, screenOrder, tableLayoutAt, type ColumnSize, type ControlColumnSize, type TableGroup, type TableLayout, type TableLayoutColumn, type TableLayouts, type TableLine } from './ds/table-layout';
+export { DataTable, type DataTableColumn, type DataTableExpansion, type DataTableProperties, type DataTableRowState, type DataTableSelection, type DataTableSortDirection } from './ds/data-table';
+export { columnLines, screenOrder, tableLinesAt, tablePinningAt, tableLayoutDefaults, interactiveTableLayoutDefaults, type TablePinning, type ColumnSize, type ControlColumnSize, type TableGroup, type TableLayout, type TableLayoutColumn, type TableLayouts, type TableLine, type TableLines } from './ds/table-layout';
+// Поведение таблиц и лент при переполнении: развёрнуты или с прокруткой, размер страницы по точкам перелома.
+export { compactPageSize, serverPageSize, layoutPartAt, listOverflowAt, listLayoutDefaults, type ListLayout, type ListLayoutDefaults, type ListLayouts, type ListOverflow, type ListPage, type ListPagination } from './ds/list-overflow';
 export { CellTextInput, cellAlign, cellColumnSize, cellTextRules, cellTypes, formatCell, hasTextInput, listCellMinimum, type TextConversion, type CellInputOptions, type CellTextInputHandle, type CellTextInputProperties, type CellType, type PrimitiveCellType } from './ds/cell-types';
 export { CellComboInput, type CellComboInputProperties, type CellOption } from './ds/cell-combo';
 export { fieldCellType, fieldColumn, fieldColumnSize, type CellField } from './platform/field-cells';
@@ -155,7 +157,7 @@ export { ActionConfirmationDialog, useActionConfirmation, type ActionConfirmatio
 export { ListFilters, type ListFiltersProperties } from './platform/list-filters';
 export { ListSearch, type ListSearchProperties } from './platform/list-search';
 // Лента документов: строки-плашки по группам с прокруткой, поиском и пагинацией.
-export { Feed, FeedCell, FeedItem, feedItemHeight, type FeedCellProperties, type FeedGroup, type FeedItemProperties, type FeedOpenEvent, type FeedProperties, type FeedScroll } from './platform/feed';
+export { Feed, FeedCell, FeedItem, feedItemHeight, type FeedCellProperties, type FeedGroup, type FeedItemProperties, type FeedOpenEvent, type FeedProperties } from './platform/feed';
 export { RecordTable, type RecordTableProperties } from './platform/record-table';
 
 // Клиентские группы и управление действиями стандартного списка.

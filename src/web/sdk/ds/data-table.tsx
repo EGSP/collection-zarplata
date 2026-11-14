@@ -11,9 +11,12 @@ import { useOverflowShadows } from './overflow-shadows';
  * колонки совпадают без измерений. Минимумы не сжимаются: если места не хватает, таблица
  * прокручивается по горизонтали, а у края с невидимыми колонками появляется лёгкая тень.
  *
- * Схема отображения (`layouts`) по точке перелома ближайшего `BreakpointContainer` делит запись
- * на строки (`line`) и ставит поля группы (`group`) друг под другом в одной колонке: на узком месте
- * код стоит над названием, а суммы могут встать второй строкой под длинным названием.
+ * Компоновка (`layouts`) по точке перелома ближайшего `BreakpointContainer` задаёт схему колонок
+ * и поведение при переполнении. Схема (`lines`) делит запись на строки (`line`) и ставит поля
+ * группы (`group`) друг под другом в одной колонке: на узком месте код стоит над названием,
+ * а суммы могут встать второй строкой под длинным названием. Поведение (`overflow`,
+ * `list-overflow.ts`) выбирает, развернуть строки в странице или прокручивать их внутри таблицы,
+ * и размер страницы. Его значения по умолчанию задаёт платформа, экран переопределяет нужные точки.
  *
  * ```tsx
  * <DataTable
@@ -24,7 +27,10 @@ import { useOverflowShadows } from './overflow-shadows';
  *     ]}
  *     rows={lines}
  *     rowKey={(row) => row.lineNumber}
- *     layouts={{ sm: [{ line: [{ group: ['code', 'name'] }, 'total'] }], lg: [{ line: ['code', 'name', 'total'] }] }}
+ *     layouts={{
+ *         sm: { lines: [{ line: [{ group: ['code', 'name'] }, 'total'] }] },
+ *         lg: { lines: [{ line: ['code', 'name', 'total'] }], overflow: { mode: 'scroll', rows: 10 } },
+ *     }}
  * />
  * ```
  *
@@ -51,7 +57,8 @@ import { Icons } from './icons';
 import { useLayer } from './layer';
 import { isRendered } from './rendered';
 import { spacing } from './layout';
-import { columnLines, columnTrack, groupSize, tableLayoutAt, trackMinimum, type ColumnSize, type ControlColumnSize, type TableLayouts } from './table-layout';
+import { listOverflowAt, useFillHeight, useListPages, type ListOverflow, type ListPagination } from './list-overflow';
+import { columnLines, columnTrack, groupSize, interactiveTableLayoutDefaults, tableLayoutDefaults, tableLinesAt, tablePinningAt, trackMinimum, type ColumnSize, type ControlColumnSize, type TableLayouts } from './table-layout';
 
 /**
  * Колонка таблицы со строками типа `Row`. Колонка сообщает тип своих значений (`cell-types.tsx`):
@@ -127,34 +134,17 @@ export interface DataTableExpansion<Row> {
  */
 export type DataTableRowState = 'muted' | 'locked';
 
-/** Страницы строк таблицы: размер страницы, текущая страница и, при серверных страницах, число строк. */
-export interface DataTablePagination {
-    readonly current?: number;
-    readonly pageSize: number;
-    readonly total?: number;
-    readonly onChange?: (page: number) => void;
-}
-
-/**
- * Закреплённые строки остаются у края видимой области, пока таблица прокручивается. `header`
- * и `summary` закрепляют заголовок сверху и итоги снизу, `rows` закрепляет отдельные записи
- * у верхнего (`top`) или нижнего (`bottom`) края; остальные записи функция отмечает `undefined`.
- */
-export interface DataTablePinning<Row> {
-    readonly header?: boolean | undefined;
-    readonly summary?: boolean | undefined;
-    readonly rows?: ((row: Row, index: number) => 'top' | 'bottom' | undefined) | undefined;
-}
-
-/** Размер страницы таблицы просмотра на `sm`, если экран не задал `pagination`. */
-export const compactPageSize = 10;
-
 /** Свойства таблицы данных. */
 export interface DataTableProperties<Row> {
     readonly columns: ReadonlyArray<DataTableColumn<Row>>;
     readonly rows: ReadonlyArray<Row>;
     readonly rowKey: (row: Row, index: number) => Key;
-    /** Схемы отображения по точкам перелома; без них колонки выводятся по одной. */
+    /**
+     * Компоновка по точкам перелома: схема колонок (`lines`), поведение при переполнении
+     * (`overflow`) и закрепление строк (`pinned`). Без схемы колонки выводятся по одной, без
+     * `overflow` и `pinned` действуют значения платформы (`tableLayoutDefaults`, у таблицы с полями
+     * ввода `interactiveTableLayoutDefaults`): на `sm` строки, в частности, не закрепляются.
+     */
     readonly layouts?: TableLayouts | undefined;
     readonly selection?: DataTableSelection<Row> | undefined;
     readonly expansion?: DataTableExpansion<Row> | undefined;
@@ -169,30 +159,20 @@ export interface DataTableProperties<Row> {
      */
     readonly summary?: { readonly [key: string]: unknown } | undefined;
     /**
-     * Страницы строк. Без `total` таблица нарезает `rows` сама и не показывает переключатель,
-     * пока строки помещаются на одну страницу; с `total` экран передаёт уже выбранную страницу. `'external'` означает, что страницы выводит экран своим переключателем,
-     * как список записей с выбором размера страницы: таблица тогда показывает `rows` целиком.
-     *
-     * Без свойства таблица просмотра на `sm` всё равно выводит строки страницами по
-     * `compactPageSize`: на узком экране длинная таблица растягивала бы страницу, и итоги и
-     * соседние блоки уходили бы далеко вниз. Таблица с полями ввода (`interactive`) этого правила
-     * не получает: страницы мешали бы обходу ячеек и добавлению строки за последней.
+     * Страницы с сервера (`ListPagination`): таблица сообщает экрану номер и размер нужной
+     * страницы, экран передаёт её строки в `rows`. Без свойства строки у клиента, и таблица делит
+     * их на страницы сама по `pageSize` из компоновки. `'external'` означает, что страницы выводит
+     * экран своим переключателем, как список записей с выбором размера страницы: таблица тогда
+     * показывает `rows` целиком.
      */
-    readonly pagination?: DataTablePagination | 'external' | undefined;
+    readonly pagination?: ListPagination | 'external' | undefined;
     /**
-     * Высота таблицы в записях: таблица показывает столько записей, остальные прокручиваются
-     * внутри неё. Высоту записи таблица считает по схеме текущей точки перелома; раскрытая запись
-     * выше расчётной, и лишнее уходит в прокрутку. Прокрутка заменяет страницы: с этим свойством
-     * правило страниц на `sm` не действует.
+     * Отдельные записи, закреплённые у верхнего (`top`) или нижнего (`bottom`) края; остальные
+     * функция отмечает `undefined`. Действует там, где компоновка включает `pinned.rows`.
+     * К странице строки прилипают, только пока таблица помещается по ширине: таблица с прокруткой
+     * вбок сама становится областью прокрутки, и браузер закрепляет строки в ней, а не на странице.
      */
-    readonly visibleRows?: number | undefined;
-    /**
-     * Закреплённые строки (`DataTablePinning`). При `visibleRows` строки прилипают к краям самой
-     * таблицы, без него к краям прокручиваемой страницы. К странице строки прилипают, только пока
-     * таблица помещается по ширине: таблица с прокруткой вбок сама становится областью прокрутки,
-     * и браузер закрепляет строки в ней, а не на странице.
-     */
-    readonly pinned?: DataTablePinning<Row> | undefined;
+    readonly pinnedRows?: ((row: Row, index: number) => 'top' | 'bottom' | undefined) | undefined;
     readonly loading?: boolean | undefined;
     /** Текст пустой таблицы, по умолчанию «Строк нет». */
     readonly emptyText?: ReactNode;
@@ -234,7 +214,7 @@ function dataTableStyleSheet(): string {
         // Закрепление к странице: `clip` обрезает, но не создаёт области прокрутки, и прилипание
         // отсчитывается от страницы. Ставится, только пока таблица помещается по ширине.
         `.${scroll}[data-page-pinning] { overflow-x: clip; }`,
-        // Таблица высотой в `visibleRows` записей прокручивается сама по обеим осям.
+        // В режиме `scroll` таблица высотой в `rows` записей прокручивается сама по обеим осям.
         `.${scroll}[data-visible-rows] { overflow: auto; max-height: var(--data-table-visible-height); }`,
         // Закреплённые строки непрозрачны: прокручиваемые записи проходят под ними. Заголовок и итоги
         // лежат выше закреплённых записей, а итоги отделены от записей линией над ними.
@@ -342,16 +322,23 @@ const cellPadding = spacing[5];
 
 /** Таблица данных. Правила и пример описаны во вводном комментарии модуля. */
 export function DataTable<Row>(properties: DataTableProperties<Row>) {
-    const { columns, rows: sourceRows, rowKey, pagination, visibleRows, pinned, layouts, selection, expansion, sort, onSort, summary, loading = false, emptyText = 'Строк нет', rowState, onRowClick, onRowDoubleClick, interactive = false } = properties;
-    const [localPage, setLocalPage] = useState(1);
+    const { columns, rows: sourceRows, rowKey, pagination, pinnedRows, layouts, selection, expansion, sort, onSort, summary, loading = false, emptyText = 'Строк нет', rowState, onRowClick, onRowDoubleClick, interactive = false } = properties;
     const point = useBreakpoint();
-    // Страницы по умолчанию получает только таблица просмотра на `sm` (правило у свойства `pagination`).
-    const implicit = pagination === undefined && visibleRows === undefined && point === 'sm' && !interactive;
-    const paging = pagination === 'external' ? undefined : implicit ? { pageSize: compactPageSize } : pagination;
-    const total = paging?.total ?? sourceRows.length;
-    // Поиск и удаление могут уменьшить список: недоступная последняя страница сбрасывается.
-    const page = Math.max(1, Math.min(paging?.current ?? localPage, Math.ceil(total / (paging?.pageSize ?? compactPageSize)) || 1));
-    const rows = paging === undefined || paging.total !== undefined ? sourceRows : sourceRows.slice((page - 1) * paging.pageSize, page * paging.pageSize);
+    // Поведение при переполнении: переопределение экрана или значение платформы для текущей точки.
+    // Поведение и закрепление выбираются по одной компоновке: запись экрана выше значений платформы.
+    const layoutDefaults = interactive ? interactiveTableLayoutDefaults : tableLayoutDefaults;
+    const overflow: ListOverflow = listOverflowAt(layouts, point, layoutDefaults);
+    const pinning = tablePinningAt(layouts, point, layoutDefaults);
+    const pinned = {
+        header: pinning.header === true,
+        summary: pinning.summary === true,
+        rows: pinning.rows === true ? pinnedRows : undefined,
+    };
+    // При `'external'` страницы выводит экран, и размер страницы из компоновки таблица не применяет.
+    const external = pagination === 'external';
+    const pages = useListPages(sourceRows, external ? { ...overflow, pageSize: undefined } : overflow, external ? undefined : pagination);
+    const rows = pages.rows;
+    const visibleRows = overflow.mode === 'scroll' ? overflow.rows : undefined;
     const { token } = theme.useToken();
     const layer = useLayer();
     const frame = useRef<HTMLDivElement>(null);
@@ -359,8 +346,8 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     const headerRow = useRef<HTMLDivElement>(null);
     const summaryRow = useRef<HTMLDivElement>(null);
     useOverflowShadows(frame, scroller);
-    // Закрепление к странице действует, пока таблица помещается по ширине (свойство `pinned`).
-    const pagePinning = pinned !== undefined && visibleRows === undefined;
+    // Закрепление к странице действует, пока таблица помещается по ширине (`pinned` компоновки).
+    const pagePinning = (pinned.header || pinned.summary || pinned.rows !== undefined) && overflow.mode === 'expand';
     const [fitsWidth, setFitsWidth] = useState(true);
     useLayoutEffect(() => {
         const area = scroller.current;
@@ -376,7 +363,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         return () => observer.disconnect();
     }, [pagePinning]);
     // Высоты заголовка и итогов измеряются: заголовок может переноситься, а от этих высот
-    // отсчитываются закреплённые записи и высота таблицы в `visibleRows` записей.
+    // отсчитываются закреплённые записи и высота таблицы в режиме `scroll`.
     useLayoutEffect(() => {
         const outer = frame.current;
         if (outer === null) return;
@@ -392,9 +379,11 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         return () => observer.disconnect();
     });
 
+    const filled = useFillHeight(scroller, frame, overflow.mode === 'scroll' && overflow.fill === true, rows);
+
     const byKey = new Map(columns.map((column) => [column.key, column]));
     // Строки схемы: в строке колонки, в колонке поля группы сверху вниз.
-    const lines = columnLines(columns.map((column) => column.key), tableLayoutAt(layouts, point))
+    const lines = columnLines(columns.map((column) => column.key), tableLinesAt(layouts, point))
         .map((line) => line.map((group) => group.map((key) => byKey.get(key)!)));
     // Уровни строки схемы: столько, сколько полей в самой высокой её группе. Таблица с группами или
     // несколькими строками схемы разделяет записи заметнее и чередует их фон.
@@ -423,8 +412,10 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     );
     // Расчётная высота записи без раскрытия: уровни всех строк схемы и граница под записью.
     const recordHeight = (stacked ? lines.reduce((sum, line) => sum + levelsOf(line) * stackedHeight, 0) : rowHeight) + 1;
+    // Высота в `rows` записей; при `fill` таблица доходит до нижнего края экрана, но не ниже неё.
+    const rowsHeight = visibleRows === undefined ? undefined : `calc(var(--data-table-header-height, ${recordHeight}px) + ${visibleRows * recordHeight}px + var(--data-table-summary-height, 0px))`;
     const variables = {
-        ...(visibleRows === undefined ? {} : { '--data-table-visible-height': `calc(var(--data-table-header-height, ${recordHeight}px) + ${visibleRows * recordHeight}px + var(--data-table-summary-height, 0px))` }),
+        ...(rowsHeight === undefined ? {} : { '--data-table-visible-height': filled === null ? rowsHeight : `max(${rowsHeight}, ${filled}px)` }),
         '--data-table-pinned-background': layer.background,
         '--data-table-template': tracks.join(' '),
         '--data-table-lines-minimum': linesMinimum,
@@ -497,7 +488,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     };
 
     const header = (
-        <div ref={headerRow} role="row" className={`${classes.row} ${classes.header}`} {...(pinned?.header === true ? { 'data-pinned': true, style: { top: 0 } } : {})}>
+        <div ref={headerRow} role="row" className={`${classes.row} ${classes.header}`} {...(pinned.header ? { 'data-pinned': true, style: { top: 0 } } : {})}>
             {expansion !== undefined && <div role="columnheader" {...serviceCell} aria-label="Раскрытие строки" />}
             {selection !== undefined && (
                 <div role="columnheader" {...serviceCell}>
@@ -518,15 +509,15 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
 
     // Место закреплённой записи: под заголовком (над итогами) и под закреплёнными перед ней (после
     // неё) записями того же края. Отступы считаются по расчётной высоте записи.
-    const edges = rows.map((row, index) => pinned?.rows?.(row, index));
+    const edges = rows.map((row, index) => pinned.rows?.(row, index));
     const pinStyle = (index: number): CSSProperties | undefined => {
         if (edges[index] === 'top') {
             const before = edges.slice(0, index).filter((edge) => edge === 'top').length;
-            return { top: `calc(${pinned?.header === true ? 'var(--data-table-header-height)' : '0px'} + ${before * recordHeight}px)` };
+            return { top: `calc(${pinned.header ? 'var(--data-table-header-height)' : '0px'} + ${before * recordHeight}px)` };
         }
         if (edges[index] === 'bottom') {
             const after = edges.slice(index + 1).filter((edge) => edge === 'bottom').length;
-            return { bottom: `calc(${pinned?.summary === true && summary !== undefined ? 'var(--data-table-summary-height)' : '0px'} + ${after * recordHeight}px)` };
+            return { bottom: `calc(${pinned.summary && summary !== undefined ? 'var(--data-table-summary-height)' : '0px'} + ${after * recordHeight}px)` };
         }
         return undefined;
     };
@@ -585,7 +576,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     });
 
     const totals = summary !== undefined && rows.length > 0 && (
-        <div ref={summaryRow} role="row" className={classes.row} data-summary {...(pinned?.summary === true ? { 'data-pinned': true, style: { bottom: 0 } } : {})}>
+        <div ref={summaryRow} role="row" className={classes.row} data-summary {...(pinned.summary ? { 'data-pinned': true, style: { bottom: 0 } } : {})}>
             {expansion !== undefined && <div role={role} {...serviceCell} />}
             {selection !== undefined && <div role={role} {...serviceCell} />}
             {linesOf((line) => line.map((group, groupIndex) => {
@@ -614,9 +605,8 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                     </div>
                 </div>
             </div>
-            {/* Переключатель страниц по умолчанию не выводится, пока все строки помещаются на одну страницу. */}
-            {/* Переключатель с одной страницей нужен только при серверных страницах: там `total` задаёт экран. */}
-            {paging !== undefined && !(paging.total === undefined && total <= paging.pageSize) && <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBlock: spacing[3] }}><Pagination size="small" current={page} pageSize={paging.pageSize} total={total} showSizeChanger={false} onChange={(next) => { setLocalPage(next); paging.onChange?.(next); }} /></div>}
+            {/* Переключатель не выводится, пока все строки помещаются на одну страницу. */}
+            {pages.control !== undefined && <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBlock: spacing[3] }}><Pagination size="small" {...pages.control} showSizeChanger={false} /></div>}
         </Spin>
     );
 }
