@@ -219,7 +219,7 @@ export default function PayrollPage() {
             actions={(
                 <Flex gap="small" wrap>
                     {/* Ссылка, а не обработчик: переход по адресу страницы открывает её во вкладке. */}
-                    <Link to={pagePath('periodSummary')}><Button>Сводка за период</Button></Link>
+                    <Link to={pagePath('periodSummary')}><Button>Сводка</Button></Link>
                     {tab === 'current' && <Button disabled={result === undefined} onClick={() => setRulesOpen(true)}>Правила</Button>}
                     {tab === 'current' && closePeriod !== undefined && <Button type="primary" disabled={result === undefined || preview.loading || (minimumDay !== undefined && minimumDay > lastClosingDay)} onClick={() => setClosing(true)}>{closePeriod.title}</Button>}
                 </Flex>

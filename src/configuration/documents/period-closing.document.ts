@@ -19,6 +19,7 @@ import { numberAndDate } from '../money.js';
 import { periodClosingHead } from '../period-closing.js';
 import { calculatePayroll, type PayrollResult } from '../payroll.js';
 import { periodSummary } from '../period-summary.js';
+import { cashSummary } from '../cash-summary.js';
 import { dayOf, lastClosedThrough } from '../policies/closed-period.js';
 import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
 import { SaleInstallment } from './sale-installment.document.js';
@@ -212,4 +213,10 @@ export const PeriodClosing = closing
             .field('periodEnd', (field) => field.date().title('По').required()))
         .handle((input) => input.periodStart > input.periodEnd
             ? Effect.fail(rejected('Начало периода позже его конца'))
-            : periodSummary(input.periodStart, input.periodEnd)));
+            : periodSummary(input.periodStart, input.periodEnd)))
+    // Кассовая сводка за один день для сверки с кассовым чеком закрытия дня; только читает.
+    .action('cashSummary', (action) => action
+        .title('Кассовая сводка')
+        // Не `day`: платформа не принимает имён, совпадающих с ключевыми словами SQL.
+        .input((input) => input.field('summaryDay', (field) => field.date().title('День').required()))
+        .handle((input) => cashSummary(input.summaryDay)));

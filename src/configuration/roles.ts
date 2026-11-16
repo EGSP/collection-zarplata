@@ -79,10 +79,10 @@ export const roles = [
         .grant(Rights.page.payroll.open)
         .access(accessSchema()
             .object(PeriodClosing, access => access.level('read').action('payrollPreview', 'allow')))
-        // Сводку за период продавец видит так же, как зарплату: отчёт только читает.
+        // Сводку за период и кассовую сводку продавец видит так же, как зарплату: отчёты только читают.
         .grant(Rights.page.periodSummary.open)
         .access(accessSchema()
-            .object(PeriodClosing, access => access.action('periodSummary', 'allow'))),
+            .object(PeriodClosing, access => access.action('periodSummary', 'allow').action('cashSummary', 'allow'))),
     role('reader')
         .title('Только чтение')
         // Пробные сведения исключены, чтобы проверять скрытие клиентских блоков без запрещённых запросов.
