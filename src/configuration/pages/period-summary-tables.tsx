@@ -10,7 +10,7 @@
 import { useState, type ReactNode } from 'react';
 import { Column, DataTable, Divider, FieldDisplay, Grid, Icons, Layer, Panel, RecordLink, Stack, Text, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
-import type { SummaryAmounts, SummaryLink, SummaryOperation, SummaryRefundAmounts, SummaryTotals } from '../period-summary-operations';
+import type { SummaryAmounts, SummaryLink, SummaryOperation, SummaryTotals } from '../period-summary-operations';
 import type { PaymentTotals, SummaryCertificateRow } from '../period-summary';
 import { documentNumber, feedDate, feedGoods } from '../shell-components/seller-feed-format';
 
@@ -27,10 +27,17 @@ export function Money({ value }: { readonly value: number }) {
  */
 export const summaryLayout = { overflow: { mode: 'scroll', rows: 10 }, pinned: { header: true, summary: true } } as const;
 
-/** Все деньги строки или итога: в сводке нет долга, поэтому сумма колонок фактическая. */
+/**
+ * Вид сводки. `period` — сводка за период: только фактические деньги. `cash` — кассовая сводка:
+ * «Рассрочка» содержит долг собственной рассрочки, а у возвратов — его погашение.
+ */
+export type SummaryVariant = 'period' | 'cash';
+
+/**
+ * «Итого» строки или итога — сумма колонок. В сводке за период это полученные деньги: долга в ней
+ * нет. В кассовой сводке — сумма, как в кассовом чеке, вместе с долгом рассрочки.
+ */
 const totalOf = (amounts: SummaryAmounts) => amounts.cash + amounts.cashless + amounts.installment;
-/** Все деньги возвратов: рассрочку возврат деньгами не выдаёт. */
-const refundTotalOf = (amounts: SummaryRefundAmounts) => amounts.cash + amounts.cashless;
 
 /**
  * Две подстроки в ячейке строки итогов: «Продажи» сверху и «Возвраты» под пунктиром. Строка итогов
@@ -71,8 +78,10 @@ function LinkLine({ link }: { readonly link: SummaryLink }) {
  *
  * Итогов две строки: «Продажи» за вычетом возвратов в день продажи и «Возвраты» по продажам
  * других дней. Строки документов показывают деньги целиком, как и раньше.
+ *
+ * В кассовой сводке (`variant="cash"`) колонка «Рассрочка» есть и у возвратов: погашение долга.
  */
-export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray<SummaryOperation>; readonly totals: SummaryTotals }) {
+export function OperationsTable({ rows, totals, variant = 'period' }: { readonly rows: ReadonlyArray<SummaryOperation>; readonly totals: SummaryTotals; readonly variant?: SummaryVariant }) {
     const open = useOpenRecord();
     const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
     return (
@@ -102,9 +111,10 @@ export function OperationsTable({ rows, totals }: { readonly rows: ReadonlyArray
                 document: <SummaryLines sales="Продажи" refunds="Возвраты" />,
                 cash: <SummaryLines sales={<Money value={totals.sales.cash} />} refunds={<Money value={totals.refunds.cash} />} />,
                 cashless: <SummaryLines sales={<Money value={totals.sales.cashless} />} refunds={<Money value={totals.refunds.cashless} />} />,
-                // Возврат рассрочку деньгами не выдаёт: у возвратов эта подстрока пустая.
-                installment: <SummaryLines sales={<Money value={totals.sales.installment} />} refunds={null} />,
-                total: <SummaryLines sales={<Money value={totalOf(totals.sales)} />} refunds={<Money value={refundTotalOf(totals.refunds)} />} />,
+                // В сводке за период возврат рассрочку деньгами не выдаёт: у возвратов эта подстрока пустая.
+                // В кассе в ней стоит погашение долга возвратами по продажам других дней.
+                installment: <SummaryLines sales={<Money value={totals.sales.installment} />} refunds={variant === 'cash' ? <Money value={totals.refunds.installment} /> : null} />,
+                total: <SummaryLines sales={<Money value={totalOf(totals.sales)} />} refunds={<Money value={totalOf(totals.refunds)} />} />,
             }}
         />
     );
@@ -144,13 +154,13 @@ export function CertificatesTable({ rows, totals }: { readonly rows: ReadonlyArr
 }
 
 /** Деньги по способам и итог одного блока панели «Всего». Рассрочку показывает только блок, где она есть. */
-function TotalsLines({ amounts, installment }: { readonly amounts: SummaryRefundAmounts; readonly installment?: number | undefined }) {
+function TotalsLines({ amounts, installment }: { readonly amounts: SummaryAmounts; readonly installment: boolean }) {
     return (
         <>
             <Text typeSet="expressive" noWrap>Наличные: <Money value={amounts.cash} /></Text>
             <Text typeSet="expressive" noWrap>Безналичные: <Money value={amounts.cashless} /></Text>
-            {installment !== undefined && <Text typeSet="expressive" noWrap>Рассрочка: <Money value={installment} /></Text>}
-            <Text typeSet="expressive" strong noWrap>Итого: <Money value={refundTotalOf(amounts) + (installment ?? 0)} /></Text>
+            {installment && <Text typeSet="expressive" noWrap>Рассрочка: <Money value={amounts.installment} /></Text>}
+            <Text typeSet="expressive" strong noWrap>Итого: <Money value={totalOf(amounts)} /></Text>
         </>
     );
 }
@@ -180,24 +190,27 @@ function TotalsTile({ title, children }: { readonly title: string; readonly chil
  * Три блока не делят 8 или 16 колонок поровну, поэтому «Продажи» и «Возвраты» стоят рядом
  * по половине строки, а «Общий», их сумма, — строкой ниже на всю ширину.
  *
- * Ниже на всю ширину стоят сертификаты: их деньги во «Всего» не входят.
+ * Ниже на всю ширину стоят сертификаты: их деньги во «Всего» не входят. Кассовая сводка
+ * сертификатов не показывает и не передаёт `certificates`; рассрочка у неё есть и в «Возвратах».
  */
-export function SummaryTotalsPanel({ totals, certificates }: { readonly totals: SummaryTotals; readonly certificates: PaymentTotals }) {
+export function SummaryTotalsPanel({ totals, certificates, variant = 'period' }: { readonly totals: SummaryTotals; readonly certificates?: PaymentTotals | undefined; readonly variant?: SummaryVariant }) {
     return (
         <Panel title="Всего">
             <Grid gutter="narrow">
                 <Column span={{ md: 4, lg: 8 }}>
-                    <TotalsTile title="Продажи"><TotalsLines amounts={totals.sales} installment={totals.sales.installment} /></TotalsTile>
+                    <TotalsTile title="Продажи"><TotalsLines amounts={totals.sales} installment /></TotalsTile>
                 </Column>
                 <Column span={{ md: 4, lg: 8 }}>
-                    <TotalsTile title="Возвраты"><TotalsLines amounts={totals.refunds} /></TotalsTile>
+                    <TotalsTile title="Возвраты"><TotalsLines amounts={totals.refunds} installment={variant === 'cash'} /></TotalsTile>
                 </Column>
                 <Column>
-                    <TotalsTile title="Общий"><TotalsLines amounts={totals.all} installment={totals.all.installment} /></TotalsTile>
+                    <TotalsTile title="Общий"><TotalsLines amounts={totals.all} installment /></TotalsTile>
                 </Column>
-                <Column>
-                    <Text typeSet="expressive" noWrap>Сертификаты: <Money value={certificates.cash + certificates.cashless} /></Text>
-                </Column>
+                {certificates !== undefined && (
+                    <Column>
+                        <Text typeSet="expressive" noWrap>Сертификаты: <Money value={certificates.cash + certificates.cashless} /></Text>
+                    </Column>
+                )}
             </Grid>
         </Panel>
     );

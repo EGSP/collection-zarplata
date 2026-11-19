@@ -42,8 +42,10 @@ function subsectionTitles(fileName: string): ReadonlyArray<string> {
  */
 const accountingRules = { title: 'Правила учёта', name: 'accounting-rules' };
 
-/** Дочерняя страница правил учёта: условия изменения и отмены продажи. */
+/** Дочерние страницы правил учёта: условия изменения и отмены продажи и два отчёта о деньгах. */
 const saleEditingRules = { title: 'Правила редактирования продаж', name: 'sale-editing-rules' };
+const periodSummaryRules = { title: 'Сводка за период', name: 'accounting-rules/period-summary' };
+const cashSummaryRules = { title: 'Кассовая сводка', name: 'accounting-rules/cash-summary' };
 
 /** Пункты меню для подразделов файла раздела. */
 function subsectionItems(name: string): Array<DefaultTheme.SidebarItem> {
@@ -82,7 +84,7 @@ function architectureSections(): Array<DefaultTheme.SidebarItem> {
  */
 function sidebar(): Array<DefaultTheme.SidebarItem> {
     return [
-        { text: accountingRules.title, link: `/${accountingRules.name}`, items: [...subsectionItems(accountingRules.name), pageItem(saleEditingRules.title, saleEditingRules.name, [])] },
+        { text: accountingRules.title, link: `/${accountingRules.name}`, items: [...subsectionItems(accountingRules.name), pageItem(saleEditingRules.title, saleEditingRules.name, []), pageItem(periodSummaryRules.title, periodSummaryRules.name, []), pageItem(cashSummaryRules.title, cashSummaryRules.name, [])] },
         { text: 'Архитектура', link: '/', items: architectureSections() },
     ];
 }

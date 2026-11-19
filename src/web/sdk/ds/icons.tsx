@@ -152,6 +152,14 @@ export const Icons = {
     scrollBackward: LeftOutlined,
     /** Прокрутка ряда к концу: кнопка у правого края полосы вкладок. */
     scrollForward: RightOutlined,
+    /** Переход на предыдущий день, например в кассовой сводке. */
+    previousDay: LeftOutlined,
+    /** Переход на следующий день. */
+    nextDay: RightOutlined,
+    /** Вкладка «Касса» страницы «Сводка»: деньги кассы за день. */
+    cashSummary: WalletOutlined,
+    /** Вкладка «Период» страницы «Сводка»: сводка за выбранные дни. */
+    periodSummary: CalendarOutlined,
     /** Список всех открытых вкладок. */
     tabList: UnorderedListOutlined,
     /**
