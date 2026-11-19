@@ -6,10 +6,10 @@ import { checkVersionsOnWake, clientVersions, dismissVersionUpdate, versionUpdat
 /**
  * Подпись сообщает версии загруженной страницы, даже если сервер уже обновлён или недоступен.
  */
-export function ApplicationVersionsText() {
+export function ApplicationVersionsText({ showSeparator = true }: { readonly showSeparator?: boolean }) {
     return (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            Платформа {clientVersions.platform} · Конфигурация {clientVersions.configuration}
+            Платформа {clientVersions.platform}{showSeparator ? ' · ' : ' '}Конфигурация {clientVersions.configuration}
         </Typography.Text>
     );
 }

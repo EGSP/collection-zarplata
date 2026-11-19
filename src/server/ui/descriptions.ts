@@ -357,12 +357,13 @@ export interface PageView {
 /**
  * Ответ `GET /api/metadata`: объекты конфигурации, которые пользователь вправе читать, и страницы,
  * которые он вправе открывать, в порядке файлов реестра, а также схема оболочки, в которой
- * оставлены только эти объекты и страницы.
+ * оставлены только эти объекты и страницы. Имя пользователя нужно для подписи в меню.
  */
 export interface MetadataResponse {
     readonly objects: ReadonlyArray<ObjectView>;
     readonly pages: ReadonlyArray<PageView>;
     readonly shell: ShellView;
+    readonly userName: string;
 }
 
 /** Адрес открываемой записи ИБ. Служебные записи не становятся прикладными ссылками полей. */

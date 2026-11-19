@@ -43,15 +43,16 @@ export class UiService {
     /**
      * Ответ `GET /api/metadata`: объекты, которые пользователь вправе читать, с действиями,
      * на которые у него есть права, страницы, которые он вправе открывать, и схема оболочки
-     * из этих же объектов и страниц. Сбой чтения ролей отклоняет промис ошибкой базы.
+     * из этих же объектов и страниц. Имя уже прочитано при проверке сессии. Сбой чтения ролей
+     * отклоняет промис ошибкой базы.
      */
-    async metadataResponse(userGuid: string): Promise<MetadataResponse> {
+    async metadataResponse(userGuid: string, userName: string): Promise<MetadataResponse> {
         this.views ??= this.metadata.objects.map((object) => ({ object, view: buildObjectView(object) }));
         const rights = await Effect.runPromise(this.rightsGuard.rightsOf(userGuid).pipe(Effect.provideService(Database, this.database.effect)));
         const objects = this.views.flatMap(({ object, view }) => restrictObjectView(object, view, rights.allows, rights) ?? []);
         const pages = this.pages.filter((page) => rights.allows(pageOpenRight(page.name)));
         // Схема отбирается по уже отобранным описаниям: пункт без описания клиент не смог бы ни подписать, ни открыть.
         const available = new Set([...objects.map((object) => `${object.kind}.${object.name}`), ...pages.map((page) => `${pageKind}.${page.name}`)]);
-        return { objects, pages, shell: restrictShell(applicationShell, (item) => available.has(`${item.kind}.${item.name}`)) };
+        return { objects, pages, shell: restrictShell(applicationShell, (item) => available.has(`${item.kind}.${item.name}`)), userName };
     }
 }

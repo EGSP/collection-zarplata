@@ -79,8 +79,8 @@ export class AuthenticationService {
         return { access, refresh };
     }
 
-    /** Проверяет подпись, срок, пользователя, текущий токен и сессию; отмечает успешное подключение. */
-    async authenticate(access: string | undefined): Promise<string> {
+    /** Проверяет токен и сессию, отмечает подключение и возвращает подтверждённые имя и UUID пользователя. */
+    async authenticate(access: string | undefined): Promise<{ readonly guid: string; readonly name: string }> {
         if (access === undefined) throw new UnauthorizedException('Требуется вход');
         let guid: string | undefined;
         let sessionHash: string | undefined;
@@ -94,8 +94,8 @@ export class AuthenticationService {
             throw new UnauthorizedException('Требуется повторный вход');
         }
         if (guid === undefined || sessionHash === undefined || typeof sessionGuid !== 'string') throw new UnauthorizedException('Требуется повторный вход');
-        const user = await Effect.runPromise(this.database.effect.get<UserRow>(select('platform_users', {
-            columns: ['guid', 'disabledAt'], where: [{ column: 'guid', operator: '=', value: guid }],
+        const user = await Effect.runPromise(this.database.effect.get<UserRow & { name: string }>(select('platform_users', {
+            columns: ['guid', 'name', 'disabledAt'], where: [{ column: 'guid', operator: '=', value: guid }],
         })));
         if (user === undefined || user.disabledAt !== null) throw new UnauthorizedException('Требуется повторный вход');
         const session = await Effect.runPromise(this.database.effect.get<TokenRow>(select('platform_tokens', {
@@ -112,7 +112,7 @@ export class AuthenticationService {
             throw new UnauthorizedException('Требуется повторный вход');
         }
         await Effect.runPromise(this.database.effect.run(update('platform_sessions', { lastConnectedAt: new Date().toISOString() }, [{ column: 'guid', operator: '=', value: sessionGuid }])));
-        return guid;
+        return { guid: user.guid, name: user.name };
     }
 
     /** Однократно расходует refresh-токен и выдаёт новую пару в той же транзакции. */
