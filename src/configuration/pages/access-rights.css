@@ -1,0 +1,84 @@
+/* Дерево и список прокручиваются внутри своих панелей, в том числе при узкой области. */
+.access-rights-tree,
+.access-rights-overview {
+    max-block-size: 58vh;
+    overflow: auto;
+}
+
+.access-rights-picker {
+    inline-size: min(100%, 360px);
+}
+
+.access-rights-read-only {
+    display: block;
+    margin-block-start: 8px;
+}
+
+.access-rights-row {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    max-inline-size: 100%;
+}
+
+.access-rights-row-title,
+.access-rights-overview li {
+    overflow-wrap: anywhere;
+}
+
+.access-rights-row-title small {
+    opacity: 0.7;
+}
+
+.access-rights-overview {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.access-rights-overview li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+}
+
+.access-rights-overview li + li {
+    border-block-start: 1px solid #e0e0e0;
+}
+
+/* Средний тег Carbon для светлой темы: высота 24 px и оттенки IBM 20/70. */
+.access-rights-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-block-size: 24px;
+    padding-inline: 8px;
+    border: 0;
+    border-radius: 999px;
+    background: #e0e0e0;
+    color: #525252;
+    font: inherit;
+    font-size: 12px;
+    line-height: 16px;
+    white-space: nowrap;
+}
+
+.access-rights-tag--deny { background: #ffd7d9; color: #a2191f; }
+.access-rights-tag--read { background: #d0e2ff; color: #0043ce; }
+.access-rights-tag--edit { background: #9ef0f0; color: #005d5d; }
+.access-rights-tag--allow { background: #a7f0ba; color: #0e6027; }
+.access-rights-tag--full { background: #e8daff; color: #6929c4; }
+.access-rights-tag--partial { background: #e5e0df; color: #565151; }
+
+button.access-rights-tag { cursor: pointer; }
+button.access-rights-tag:hover { filter: brightness(0.94); }
+button.access-rights-tag:focus-visible { outline: 2px solid #0f62fe; outline-offset: 2px; }
+
+@media (max-width: 671px) {
+    .access-rights-tree {
+        max-block-size: 42vh;
+    }
+}
