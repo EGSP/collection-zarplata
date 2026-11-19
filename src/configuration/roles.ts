@@ -1,12 +1,15 @@
 /**
  * Роли конфигурации: полный доступ, работа продавца, чтение и проверка пробной политики.
  *
- * Доступ к данным задаёт типизированная схема, страницы и платформенные операции описывает `Rights`:
+ * Доступ к данным, страницам и платформенным операциям задаёт типизированная схема:
  * право несуществующего объекта или действия — ошибка компиляции.
  */
 import { accessSchema } from '../server/authorization/access-schema.js';
 import { role } from '../server/authorization/roles.js';
-import { Rights } from './configuration.generated.js';
+import { Payroll } from './pages/payroll.page.js';
+import { PeriodSummary } from './pages/period-summary.page.js';
+import { SellerWorkplace } from './pages/seller-workplace.page.js';
+import { AccessRights } from './pages/access-rights.page.js';
 
 import { AppliedCoupons } from './registers/applied-coupons.register.js';
 import { Certificate } from './documents/certificate.document.js';
@@ -42,11 +45,11 @@ export const roles = [
     // Просмотр полного дерева и оснований доступа без прав на прикладные данные и управление пользователями.
     role('accessAuditor')
         .title('Просмотр прав доступа')
-        .grant(Rights.page.accessRights.open, Rights.platform.authorization.read),
+        .access(accessSchema().page(AccessRights, 'allow').platform('authorization', 'read', 'allow')),
     role('seller')
         .title('Продавец')
-        .grant(Rights.page.sellerWorkplace.open)
         .access(accessSchema()
+            .page(SellerWorkplace, 'allow')
             .object(PhysicalPersons, access => access.level('edit'))
             .object(Employees, access => access.level('read'))
             .object(Nomenclature, access => access.level('read'))
@@ -76,12 +79,12 @@ export const roles = [
             .object(AppliedCoupons, access => access.level('read'))
             .object(CertificateBalances, access => access.level('read')))
         // Продавцы видят начисление всех сотрудников, но период не закрывают: права на «Закрыть период» нет.
-        .grant(Rights.page.payroll.open)
         .access(accessSchema()
+            .page(Payroll, 'allow')
             .object(PeriodClosing, access => access.level('read').action('payrollPreview', 'allow')))
         // Сводку за период и кассовую сводку продавец видит так же, как зарплату: отчёты только читают.
-        .grant(Rights.page.periodSummary.open)
         .access(accessSchema()
+            .page(PeriodSummary, 'allow')
             .object(PeriodClosing, access => access.action('periodSummary', 'allow').action('cashSummary', 'allow'))),
     role('reader')
         .title('Только чтение')
@@ -98,8 +101,8 @@ export const roles = [
             .object(PeriodClosing, access => access.level('read'))
             .object(SampleRegister, access => access.level('read')))
         // Продажи: чтение документов и справочника и рабочее место, на котором без права записи нет кнопок создания.
-        .grant(Rights.page.sellerWorkplace.open)
         .access(accessSchema()
+            .page(SellerWorkplace, 'allow')
             .object(Discounts, access => access.level('read'))
             .object(Coupons, access => access.level('read'))
             .object(PaymentReceivers, access => access.level('read'))

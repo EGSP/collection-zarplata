@@ -12,7 +12,7 @@ import { readUserAccounts } from '../users/users.js';
 import type { UserAccount } from '../users/descriptions.js';
 import type { AccessExplanation, AccessNode, AccessUser } from './access-descriptions.js';
 import { RightsGuardPlatform } from './rights-guard.platform.js';
-import { describeObjectRights, pageOpenRight, platformRights } from './rights.js';
+import { describeObjectRights, describePlatformRights, pageOpenRight, platformRights } from './rights.js';
 
 /** Ключ обозначает место в дереве; right хранит право независимо от повторов объекта в меню. */
 interface RightNode {
@@ -21,11 +21,6 @@ interface RightNode {
     readonly right: string | null;
     readonly children: readonly RightNode[];
 }
-
-/** Названия служебных разделов; сами права читаются из platformRights, поэтому новые не теряются. */
-const platformTitles: Readonly<Record<keyof typeof platformRights, string>> = {
-    authorization: 'Права доступа', journal: 'Журнал действий', documents: 'Документы', backups: 'Резервные копии',
-};
 
 function leaf(key: string, title: string): RightNode {
     return { key, title, right: key, children: [] };
@@ -66,10 +61,9 @@ export const describeAccessTree = Effect.fn('authorization.describeTree')(functi
     const other = definitions.filter((node) => !included.has(node.key));
     if (other.length > 0) nodes.push({ key: 'other', title: 'Прочее', right: null, children: other.map((node) => placed(node, 'other')) });
     nodes.push({ key: 'platform', title: 'Платформа', right: null,
-        children: (Object.keys(platformRights) as (keyof typeof platformRights)[]).map((name) => ({
-            key: `platform.${name}`, title: platformTitles[name], right: null,
-            children: Object.entries(platformRights[name]).map(([permission, right]) => leaf(right.key,
-                permission === 'read' ? 'Чтение' : permission === 'write' ? 'Запись' : permission === 'repost' ? 'Перепроведение документов' : permission)),
+        children: describePlatformRights().map(section => ({
+            key: `platform.${section.name}`, title: section.title, right: null,
+            children: section.operations.map(operation => leaf(operation.right.key, operation.title)),
         })),
     });
     return nodes;
