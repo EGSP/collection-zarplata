@@ -30,6 +30,8 @@ export interface AccessTree {
 /** Итоговый уровень и источник, рассчитанные сервером. */
 export interface AccessEffective {
     readonly level: Exclude<AccessLevel, 'inherit'>;
+    /** Путь настройки. Значение 'default' означает, что разрешение не задано. */
+    readonly sourcePath: string;
     readonly source: string;
 }
 
@@ -50,6 +52,8 @@ export interface AccessNodeSetting extends AccessAddress {
     readonly call: boolean;
     readonly levels: readonly AccessLevel[];
     readonly selected: AccessLevel;
+    /** Действующий уровень отличается от уровня без правок этого назначения в базе. */
+    readonly differsFromBaseline: boolean;
     readonly effective: AccessEffective;
 }
 

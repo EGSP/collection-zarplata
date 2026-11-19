@@ -1,4 +1,3 @@
-import { DownOutlined } from '@ant-design/icons';
 import { Alert, Card, Dropdown, Empty, Flex, Input, Select, Spin, Tooltip, Tree, Typography } from 'antd';
 import type { TreeProps } from 'antd';
 import { useMemo, useState, type Key, type ReactNode } from 'react';
@@ -18,6 +17,9 @@ const labels: Record<AccessLevel | 'partial', string> = {
     full: 'Полный доступ',
     partial: 'Частичный доступ',
 };
+
+/** Итог наследования выделяется одинаковым серым цветом для любого уровня. */
+type AccessTagTone = keyof typeof labels | 'effective';
 
 /** Поиск буквальной подстроки по названию или ключу, включая кириллицу. */
 function normalized(value: string): string {
@@ -44,44 +46,68 @@ function addressKey({ kind, name, path }: AccessAddress): string {
     return JSON.stringify([kind, name, path]);
 }
 
+/** Проверяет всё дерево, чтобы скрытые поиском или свёрнутые настройки отмечали предков. */
+function branchesWithSettings(nodes: readonly AccessNode[], settings: ReadonlyMap<string, AccessNodeSetting>): ReadonlySet<string> {
+    const branches = new Set<string>();
+
+    /** Возвращает признак настройки в этом узле или ниже. */
+    function visit(node: AccessNode): boolean {
+        const descendants = node.children.map(visit).some(Boolean);
+        if (descendants) branches.add(node.key);
+        const setting = node.address === null ? undefined : settings.get(addressKey(node.address));
+        return descendants || (setting !== undefined && (setting.selected !== 'inherit' || setting.differsFromBaseline));
+    }
+
+    nodes.forEach(visit);
+    return branches;
+}
+
 /** Пикер различает пользователя и роль даже при одинаковых названиях. */
 function subjectKey({ subjectKind, subject }: AccessSubject): string {
     return `${subjectKind}:${subject}`;
 }
 
-/** Подсказка раскрывает итог при наследовании и при сочетании точечных настроек. */
+/** Объясняет действующее право обычной фразой, включая запрет по умолчанию. */
 function accessHint(access: AccessEffective): string {
-    return `Итог: ${labels[access.level]}. Источник: ${access.source}.`;
+    return access.sourcePath === 'default'
+        ? 'Доступ закрыт по умолчанию.'
+        : `Действует право «${labels[access.level]}», заданное в узле «${access.source}».`;
 }
 
 /** Тег показывает право текстом и цветом, даже если управлять им нельзя. */
-function AccessTag({ level, hint }: { readonly level: AccessLevel | 'partial'; readonly hint: string }) {
+function AccessTag({ level, hint, tone = level }: { readonly level: keyof typeof labels; readonly hint: string; readonly tone?: AccessTagTone }) {
     return <Tooltip title={hint}>
-        <span className={`access-rights-tag access-rights-tag--${level}`} aria-label={`${labels[level]}. ${hint}`}>{labels[level]}</span>
+        <span className={`access-rights-tag access-rights-tag--${tone}`} aria-label={`${labels[level]}. ${hint}`}>{labels[level]}</span>
     </Tooltip>;
 }
 
-/** Редактируемый тег открывает только допустимые для этого узла уровни. */
+/** Тег настройки открывает допустимые уровни, а серый тег рядом показывает итог наследования. */
 function SettingTag({ setting, editable, busy, onChange }: {
     readonly setting: AccessNodeSetting;
     readonly editable: boolean;
     readonly busy: boolean;
     readonly onChange: (setting: AccessNodeSetting, level: AccessLevel) => void;
 }) {
+    const [open, setOpen] = useState(false);
     const hint = accessHint(setting.effective);
-    if (!editable) return <AccessTag level={setting.selected} hint={hint} />;
-    return <Dropdown
+    const level = setting.selected;
+    const tag = editable ? <Dropdown
         trigger={['click']}
         autoFocus
         disabled={busy}
+        open={open && !busy}
+        onOpenChange={setOpen}
+        popupRender={menu => <div className="access-rights-menu">
+            {menu}
+            <p className="access-rights-menu-explanation">{hint}</p>
+        </div>}
         menu={{
             selectable: true,
-            selectedKeys: [setting.selected],
-            items: [
-                ...setting.levels.map(level => ({ key: level, label: labels[level] })),
-                { type: 'divider' },
-                { key: 'effective', disabled: true, label: hint },
-            ],
+            selectedKeys: [level],
+            items: setting.levels.map(level => ({
+                key: level,
+                label: labels[level],
+            })),
             onClick: ({ key, domEvent }) => {
                 domEvent.stopPropagation();
                 const level = setting.levels.find(level => level === key);
@@ -91,15 +117,20 @@ function SettingTag({ setting, editable, busy, onChange }: {
     >
         <button
             type="button"
-            className={`access-rights-tag access-rights-tag--${setting.selected}`}
-            aria-label={`Доступ к «${setting.title}»: ${labels[setting.selected]}. ${hint}`}
+            className={`access-rights-tag access-rights-tag--${level}`}
+            aria-label={`Доступ к «${setting.title}»: ${labels[level]}. ${hint}`}
             aria-haspopup="menu"
+            aria-expanded={open && !busy}
             aria-disabled={busy}
             title={hint}
             onClick={event => event.stopPropagation()}
             onKeyDown={event => event.stopPropagation()}
-        >{labels[setting.selected]} <DownOutlined /></button>
-    </Dropdown>;
+        >{labels[level]}</button>
+    </Dropdown> : <AccessTag level={level} hint={hint} />;
+    return <span className="access-rights-setting">
+        {tag}
+        {level === 'inherit' && <AccessTag level={setting.effective.level} hint={hint} tone="effective" />}
+    </span>;
 }
 
 /** Один список показывает итог для всех пользователей и ролей, включая запреты. */
@@ -121,15 +152,12 @@ function AccessOverview({ detail }: { readonly detail: AccessExplanation }) {
     </ul>;
 }
 
-/** Строки одного дерева служат для обзора или для настройки выбранного назначения. */
-function renderTree(nodes: readonly AccessNode[], renderTag: (address: AccessAddress) => ReactNode, showCount: boolean): NonNullable<TreeProps['treeData']> {
+/** Собирает данные Tree с одним способом отображения строк на всех уровнях. */
+function renderTree(nodes: readonly AccessNode[], renderRow: (node: AccessNode) => ReactNode): NonNullable<TreeProps['treeData']> {
     return nodes.map(node => ({
         key: node.key,
-        title: <span className="access-rights-row">
-            <span className="access-rights-row-title">{node.title}{showCount && <small> ({node.count})</small>}</span>
-            {node.address !== null && renderTag(node.address)}
-        </span>,
-        children: renderTree(node.children, renderTag, showCount),
+        title: renderRow(node),
+        children: renderTree(node.children, renderRow),
     }));
 }
 
@@ -140,6 +168,7 @@ export default function AccessRightsPage() {
     const [search, setSearch] = useState('');
     const [selected, setSelected] = useState<string | null>(null);
     const [subject, setSubject] = useState<AccessSubject>();
+    const [selectedSubjectNode, setSelectedSubjectNode] = useState<string | null>(null);
     const [expandedKeys, setExpandedKeys] = useState<Key[]>([]);
     const [saving, setSaving] = useState(false);
     const explanation = useActionResult<AccessExplanation>({ object: target, action: 'explain', payload: { key: selected ?? '' }, enabled: selected !== null && subject === undefined });
@@ -152,6 +181,7 @@ export default function AccessRightsPage() {
     const detail = explanation.data?.key === selected ? explanation.data : undefined;
     const data = subject !== undefined && settings.data?.subject === subject.subject && settings.data.subjectKind === subject.subjectKind ? settings.data : undefined;
     const settingsByAddress = useMemo(() => new Map(data?.nodes.map(node => [addressKey(node), node])), [data]);
+    const markedBranches = useMemo(() => branchesWithSettings(tree.data?.nodes ?? [], settingsByAddress), [tree.data, settingsByAddress]);
     const filtered = useMemo(() => searchTree(tree.data?.nodes ?? [], search), [tree.data, search]);
 
     /** Обновляет раскрытые пути только при изменении поиска и сохраняет ручное раскрытие. */
@@ -181,10 +211,35 @@ export default function AccessRightsPage() {
         }
     }
 
-    const treeData = renderTree(filtered.nodes, address => {
-        const setting = settingsByAddress.get(addressKey(address));
-        return setting === undefined ? null : <SettingTag setting={setting} editable={data?.editable === true} busy={saving} onChange={save} />;
-    }, subject === undefined);
+    /** Выделяет явное назначение текстом, а изменения текущего узла и потомков отдельной меткой. */
+    function renderRow(node: AccessNode) {
+        const setting = node.address === null ? undefined : settingsByAddress.get(addressKey(node.address));
+        const muted = data !== undefined && (setting === undefined || setting.selected === 'inherit');
+        const changed = setting?.differsFromBaseline === true;
+        const markedBranch = markedBranches.has(node.key);
+        const marker = changed && markedBranch ? 'Право отличается от базового. В поддереве есть настроенные права.'
+            : changed ? 'Право отличается от базового.'
+                : markedBranch ? 'В поддереве есть настроенные права.' : undefined;
+        return <span className="access-rights-row">
+            <span className={muted ? 'access-rights-row-title access-rights-row-title--muted' : 'access-rights-row-title'}>
+                {node.title}{subject === undefined && <small> ({node.count})</small>}
+            </span>
+            {marker !== undefined && <Tooltip title={marker}>
+                <span className="access-rights-marker" role="img" aria-label={marker} />
+            </Tooltip>}
+            {setting !== undefined && <SettingTag setting={setting} editable={data?.editable === true} busy={saving} onChange={save} />}
+        </span>;
+    }
+
+    const treeData = renderTree(filtered.nodes, renderRow);
+    const selectedNode = subject === undefined ? selected : selectedSubjectNode;
+
+    /** В обзоре выбор открывает панель, в режиме настроек подсвечивает строку. */
+    function selectNode(keys: Key[]) {
+        const key = keys[0] === undefined ? null : String(keys[0]);
+        if (subject === undefined) setSelected(key);
+        else setSelectedSubjectNode(key);
+    }
 
     return <Page title="Права доступа">
         <Card size="small">
@@ -198,7 +253,10 @@ export default function AccessRightsPage() {
                 disabled={saving || tree.data === undefined}
                 value={subject === undefined ? undefined : subjectKey(subject)}
                 options={tree.data?.subjects.map(option => ({ value: subjectKey(option), label: `${option.title} (${subjectKinds[option.subjectKind].toLocaleLowerCase('ru')})` })) ?? []}
-                onChange={value => setSubject(tree.data?.subjects.find(option => subjectKey(option) === value))}
+                onChange={value => {
+                    setSubject(tree.data?.subjects.find(option => subjectKey(option) === value));
+                    setSelectedSubjectNode(null);
+                }}
             />
             {subject !== undefined && (data === undefined ? settings.loading ? <Spin size="small" /> : <Alert type="error" title="Не удалось получить настройки доступа" />
                 : data.readOnly && <Typography.Text className="access-rights-read-only" type="secondary">Права этой роли заданы в конфигурации.</Typography.Text>)}
@@ -212,9 +270,9 @@ export default function AccessRightsPage() {
                             : filtered.nodes.length === 0 ? <Empty description="Ничего не найдено" />
                             : <div className="access-rights-tree">
                                 <Tree aria-label="Дерево прав доступа" blockNode treeData={treeData} expandedKeys={expandedKeys} autoExpandParent={false}
-                                    selectedKeys={subject === undefined && selected !== null ? [selected] : []} onExpand={keys => setExpandedKeys(keys)}
-                                    selectable={subject === undefined}
-                                    onSelect={keys => setSelected(keys.length === 0 ? null : String(keys[0]))} />
+                                    selectedKeys={selectedNode === null ? [] : [selectedNode]} onExpand={keys => setExpandedKeys(keys)}
+                                    selectable={subject === undefined || data !== undefined}
+                                    onSelect={selectNode} />
                             </div>}
                     </Flex>
                 </Card>

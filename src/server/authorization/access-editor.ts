@@ -50,9 +50,14 @@ export const accessEditorAction = Effect.fn('authorization.editor')(function* (a
         yield* database.run(insert('platform_access_settings', { subjectKind, subject, kind, name, path, level }));
     }
     const settings = yield* database.all<AccessSetting>({ sql: 'SELECT * FROM platform_access_settings', parameters: [] });
-    const resolved = guard.rightsFromRoles(subjectKind === 'role' ? [subject] : account!.roles, settings, subjectKind === 'user' ? subject : null);
+    const roleNames = subjectKind === 'role' ? [subject] : account!.roles;
+    const userGuid = subjectKind === 'user' ? subject : null;
+    const resolved = guard.rightsFromRoles(roleNames, settings, userGuid);
     const explicit = subjectKind === 'role' ? role!.access.entries : [];
-    const overrides = readOnly ? [] : settings.filter(setting => setting.subjectKind === subjectKind && setting.subject === subject);
+    /** База для сравнения сохраняет права конфигурации и других назначений. */
+    const isOverride = (setting: AccessSetting) => setting.subjectKind === subjectKind && setting.subject === subject;
+    const overrides = readOnly ? [] : settings.filter(isOverride);
+    const baseline = overrides.length > 0 ? guard.rightsFromRoles(roleNames, settings.filter(setting => !isOverride(setting)), userGuid) : undefined;
     return {
         subjects: accessSubjects(guard, accounts),
         subjectKind, subject, readOnly, editable: !readOnly && (yield* guard.rightsOf(user)).allows(platformRights.authorization.write),
@@ -62,7 +67,9 @@ export const accessEditorAction = Effect.fn('authorization.editor')(function* (a
             const override = overrides.find(setting => accessAddressKey(setting) === key);
             const fullAtRoot = subjectKind === 'role' && role!.all && path === '';
             const selected = override?.level ?? configured?.level ?? (fullAtRoot ? call ? 'allow' : 'full' : 'inherit');
-            return { kind, name, path, title, call, levels: accessLevels(node), selected, effective: describeEffectiveAccess(resolved, node, nodes) };
+            const effective = describeEffectiveAccess(resolved, node, nodes);
+            const differsFromBaseline = baseline !== undefined && describeEffectiveAccess(baseline, node, nodes).level !== effective.level;
+            return { kind, name, path, title, call, levels: accessLevels(node), selected, differsFromBaseline, effective };
         }),
     } satisfies AccessSettings;
 });
