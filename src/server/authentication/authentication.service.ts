@@ -49,34 +49,38 @@ export class AuthenticationService {
      * Тем же поиском пользуется модуль первичных данных, чтобы писать записи от имени начального пользователя.
      */
     activeUserGuid(pin: string): Effect.Effect<string | undefined, DatabaseError> {
-        return this.database.effect.get<UserRow>(select('platform_users', {
-            columns: ['guid', 'disabledAt'], where: [{ column: 'pinHash', operator: '=', value: this.pinHash(pin) }],
-        })).pipe(Effect.map((user) => user === undefined || user.disabledAt !== null ? undefined : user.guid));
+        return this.database.effect.get<{ guid: string }>({
+            sql: 'SELECT users.guid FROM platform_user_credentials AS credentials JOIN catalog_users AS users ON users.guid = credentials.userGuid WHERE credentials.pinHash = ? AND users.disabledAt IS NULL',
+            parameters: [this.pinHash(pin)],
+        }).pipe(Effect.map(user => user?.guid));
     }
 
-    /** Находит активного пользователя по PIN и выдаёт пару; неверный PIN даёт 401. */
+    /** Проверяет PIN и выдаёт пару в одной транзакции, чтобы смена PIN или отключение не пропустили новую сессию. */
     async login(pin: string): Promise<TokenPair> {
-        const userGuid = await Effect.runPromise(this.activeUserGuid(pin));
-        if (userGuid === undefined) throw new UnauthorizedException('Неверный PIN');
-        return this.issue(userGuid);
+        return Effect.runPromise(this.database.effect.transaction(Effect.gen(function* (this: AuthenticationService) {
+            const userGuid = yield* this.activeUserGuid(pin);
+            if (userGuid === undefined) throw new UnauthorizedException('Неверный PIN');
+            return yield* this.issue(userGuid);
+        }.bind(this))));
     }
 
-    /** Создаёт сессию и первую пару токенов атомарно; UUID остаётся прежним при ротации. */
-    private async issue(userGuid: string): Promise<TokenPair> {
-        const sessionGuid = randomUUID();
-        const now = new Date().toISOString();
-        const expiresAt = new Date(Date.now() + this.settings.refreshTokenLifetimeSeconds * 1000).toISOString();
-        const refresh = randomBytes(32).toString('base64url');
-        const access = await new SignJWT({ sessionGuid }).setProtectedHeader({ alg: 'HS256' })
-            .setSubject(userGuid).setJti(this.tokenHash(refresh)).setIssuedAt().setExpirationTime(`${this.settings.accessTokenLifetimeSeconds}s`).sign(this.signingKey);
-        const database = this.database.effect;
-        await Effect.runPromise(database.transaction(Effect.gen(function* (this: AuthenticationService) {
+    /** Создаёт сессию и первую пару токенов внутри транзакции входа. UUID остаётся прежним при ротации. */
+    private issue(userGuid: string): Effect.Effect<TokenPair, DatabaseError> {
+        return Effect.gen(function* (this: AuthenticationService) {
+            const sessionGuid = randomUUID();
+            const now = new Date().toISOString();
+            const expiresAt = new Date(Date.now() + this.settings.refreshTokenLifetimeSeconds * 1000).toISOString();
+            const refresh = randomBytes(32).toString('base64url');
+            const refreshHash = this.tokenHash(refresh);
+            const access = yield* Effect.promise(() => new SignJWT({ sessionGuid }).setProtectedHeader({ alg: 'HS256' })
+                .setSubject(userGuid).setJti(refreshHash).setIssuedAt().setExpirationTime(`${this.settings.accessTokenLifetimeSeconds}s`).sign(this.signingKey));
+            const database = this.database.effect;
             yield* database.run(insert('platform_sessions', { guid: sessionGuid, userGuid, createdAt: now, lastConnectedAt: now, refreshedAt: now, expiresAt, revokedAt: null }));
             yield* database.run(insert('platform_tokens', {
-                guid: this.tokenHash(refresh), userGuid, sessionGuid, expiresAt, revokedAt: null,
+                guid: refreshHash, userGuid, sessionGuid, expiresAt, revokedAt: null,
             }));
-        }.bind(this))));
-        return { access, refresh };
+            return { access, refresh };
+        }.bind(this));
     }
 
     /** Проверяет токен и сессию, отмечает подключение и возвращает подтверждённые имя и UUID пользователя. */
@@ -94,7 +98,7 @@ export class AuthenticationService {
             throw new UnauthorizedException('Требуется повторный вход');
         }
         if (guid === undefined || sessionHash === undefined || typeof sessionGuid !== 'string') throw new UnauthorizedException('Требуется повторный вход');
-        const user = await Effect.runPromise(this.database.effect.get<UserRow & { name: string }>(select('platform_users', {
+        const user = await Effect.runPromise(this.database.effect.get<UserRow & { name: string }>(select('catalog_users', {
             columns: ['guid', 'name', 'disabledAt'], where: [{ column: 'guid', operator: '=', value: guid }],
         })));
         if (user === undefined || user.disabledAt !== null) throw new UnauthorizedException('Требуется повторный вход');
@@ -134,7 +138,7 @@ export class AuthenticationService {
             if (session === undefined || session.userGuid !== row.userGuid || session.revokedAt !== null || session.expiresAt <= new Date().toISOString()) {
                 throw new UnauthorizedException('Требуется повторный вход');
             }
-            const user = yield* database.get<UserRow>(select('platform_users', {
+            const user = yield* database.get<UserRow>(select('catalog_users', {
                 columns: ['guid', 'disabledAt'], where: [{ column: 'guid', operator: '=', value: row.userGuid }],
             }));
             if (user === undefined || user.disabledAt !== null) throw new UnauthorizedException('Требуется повторный вход');

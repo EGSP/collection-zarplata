@@ -43,7 +43,7 @@ covers:
 | Свойство | Значение |
 |---|---|
 | `target.kind` | Вид объекта: `catalog`, `document`, `register`, `informationRegister`; для служебных операций `platform` |
-| `target.name` | Имя объекта из метаданных; для служебной операции её цель, например `records`, `users`, `authorization`, `journal`, `documents` |
+| `target.name` | Имя объекта из метаданных или цель служебной операции, например `records`, `authorization`, `journal`, `documents` |
 | `action` | Имя стандартного или собственного действия |
 | `payload` | Входные данные действия; можно опустить, если они не требуются |
 

@@ -1,5 +1,5 @@
 /**
- * Чтение полных записей и проверка входных данных по метаданным.
+ * Чтение и сохранение полных записей, проверка входных данных по метаданным.
  *
  * Модуль общий для диспетчера и шагов проведения: оба читают записи и проверяют входные данные
  * по одним правилам. Запросы строит общий билдер, а функции получают базу из окружения Effect и не зависят от
@@ -148,3 +148,34 @@ export function loadRecord(description: ObjectDescription, guid: string): Effect
         return record;
     });
 }
+
+/** Записывает подготовленные поля и строки частей. Вызывающий код открывает транзакцию и проверяет вход. */
+export const storeRecord = Effect.fnUntraced(function* (
+    description: ObjectDescription,
+    values: RecordValue & { readonly guid: string },
+    parts: RecordValue,
+    creating: boolean,
+) {
+    const database = yield* Database;
+    const builder = query(description);
+    const where = [{ column: 'guid', operator: '=' as const, value: values.guid }];
+    if (creating) {
+        yield* database.run(builder.insert(values));
+    } else {
+        // Обновление не снимает ранее установленную пометку удаления.
+        const { guid, deletedAt: _deletedAt, ...changed } = values;
+        const result = yield* database.run(builder.update(changed, where));
+        if (result.changes === 0) return yield* new DataNotFoundError({ message: `Запись ${description.name} с guid ${guid} не найдена` });
+    }
+    for (const part of description.tableParts) {
+        const table = builder.tablePart(part.name);
+        // Табличная часть заменяется целиком в транзакции записи.
+        yield* database.run(table.remove([{ column: 'ownerGuid', operator: '=', value: values.guid }]));
+        const rows = parts[part.name] as RecordValue[];
+        for (const [index, row] of rows.entries()) {
+            const fields: RecordValue = { ownerGuid: values.guid, lineNumber: index + 1 };
+            for (const field of part.fields) fields[field.name] = row[field.name] ?? null;
+            yield* database.run(table.insert(fields));
+        }
+    }
+});

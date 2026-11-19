@@ -5,6 +5,7 @@ import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
 import { DataService } from '../data/data.service.js';
 import { Database } from '../database/database.effect.js';
 import { DatabaseService } from '../database/database.service.js';
+import { MetadataService } from '../metadata/metadata.service.js';
 import { ServerPort } from '../settings/server-port.js';
 import { SettingsService } from '../settings/settings.service.js';
 import { InitialDataError } from './initial-data.errors.js';
@@ -35,6 +36,7 @@ export class InitialDataService {
         private readonly authentication: AuthenticationService,
         private readonly rightsGuard: RightsGuardPlatform,
         private readonly data: DataService,
+        private readonly metadata: MetadataService,
     ) {}
 
     /**
@@ -51,7 +53,9 @@ export class InitialDataService {
      * и отклоняет промис.
      */
     run(): Promise<void> {
-        const program = createInitialUsers(this.settings.initialUsers, this.rightsGuard.roles.map((role) => role.name), (pin) => this.authentication.pinHash(pin)).pipe(
+        const users = this.metadata.find('catalog', 'users');
+        if (users === undefined) throw new Error('Не подключён встроенный справочник пользователей');
+        const program = createInitialUsers(users, this.settings.initialUsers, this.rightsGuard.roles.map((role) => role.name), (pin) => this.authentication.pinHash(pin)).pipe(
             Effect.andThen(this.operatorPin()),
             Effect.andThen((pin) => Effect.all([
                 this.importCatalog('physical-persons', pin).pipe(Effect.andThen(this.createRandomEmployees(pin))),
