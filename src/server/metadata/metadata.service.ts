@@ -1,13 +1,14 @@
 import { AuthenticationService } from '../authentication/authentication.service.js';
 import { RightsGuardPlatform } from '../authorization/rights-guard.platform.js';
-import { Users } from '../users/object.js';
-import { userStorage } from '../users/storage.js';
+import { DatabaseService } from '../database/database.service.js';
+import { Users, usersCatalog } from '../users/object.js';
+import { userAdministration, userRecordBehavior } from '../users/administration.js';
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Effect } from 'effect';
 import { configurationModules, formElementModules, objectFormModules } from '../../configuration/configuration.generated.js';
 import type { ObjectDescription, ObjectKind } from './descriptions.js';
-import { loadConfiguration } from './registry.js';
 import { platformObjectBuilders } from './platform-objects.js';
+import { loadConfiguration } from './registry.js';
 
 /**
  * Сервис метаданных — единственный источник описаний объектов конфигурации для платформы.
@@ -23,14 +24,17 @@ export class MetadataService implements OnModuleInit {
     private readonly logger = new Logger(MetadataService.name);
     private descriptions: ReadonlyArray<ObjectDescription> | undefined;
 
-    constructor(private readonly authentication: AuthenticationService, private readonly rights: RightsGuardPlatform) {}
+    constructor(private readonly database: DatabaseService, private readonly authentication: AuthenticationService, private readonly rights: RightsGuardPlatform) {}
 
+    /** Собирает метаданные и подключает служебные операции встроенного справочника. */
     onModuleInit(): void {
+        const roles = this.rights.roles;
+        const users = usersCatalog(userAdministration(this.database.effect, roles, pin => this.authentication.pinHash(pin)));
         // Сборка синхронна: функции целей ссылок и проверки не обращаются к внешним ресурсам.
-        this.descriptions = Effect.runSync(loadConfiguration(configurationModules, formElementModules, objectFormModules, platformObjectBuilders));
-        // Меняется только способ хранения. Поля, ссылки и формы уже проверены общим commit.
-        this.descriptions = this.descriptions.map(object => object.kind === Users.kind && object.name === Users.name
-            ? Object.freeze({ ...object, storage: userStorage(pin => this.authentication.pinHash(pin), this.rights.roles) }) : object);
+        const platformObjects = platformObjectBuilders.map(builder => builder === Users ? users : builder);
+        const descriptions = Effect.runSync(loadConfiguration(configurationModules, formElementModules, objectFormModules, platformObjects));
+        this.descriptions = descriptions.map(object => object.kind === users.kind && object.name === users.name
+            ? Object.freeze({ ...object, platformBehavior: userRecordBehavior(roles) }) : object);
         this.logger.log(`Метаданные собраны: объектов ${this.descriptions.length}`);
     }
 

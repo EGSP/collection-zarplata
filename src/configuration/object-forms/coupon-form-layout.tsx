@@ -42,7 +42,8 @@ function CouponFormLayout({ state }: { readonly state: RecordFormState }) {
     return (
         <RecordFormPage state={state}>
             <RecordFormLayout state={state} groups={groups} />
-            {state.record !== null && <CouponApplications coupon={String(state.record['guid'])} />}
+            {state.record !== null && state.object.functions.some(declared => declared.name === 'applications')
+                && <CouponApplications coupon={String(state.record['guid'])} />}
         </RecordFormPage>
     );
 }

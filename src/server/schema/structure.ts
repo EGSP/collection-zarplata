@@ -106,11 +106,10 @@ const platformTables: readonly TableStructure[] = [
             index('platform_journal', 'traceGuid', ['traceGuid']),
         ],
     },
-    { name: 'platform_users', columns: [column('guid', 'TEXT', true), column('name', 'TEXT', true), column('pinHash', 'TEXT', true), column('disabledAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_users', 'pinHash', ['pinHash'], true)] },
-    // Первичный ключ начинается с пользователя и покрывает единственный способ чтения: роли одного пользователя.
+    // Строка существует только после установки PIN, а уникальный индекс позволяет искать по HMAC.
+    { name: 'platform_user_credentials', columns: [column('userGuid', 'TEXT', true), column('pinHash', 'TEXT', true)], primaryKey: ['userGuid'], indexes: [index('platform_user_credentials', 'pinHash', ['pinHash'], true)] },
     // Настройки узлов дополняют роли конфигурации; расширения обработчиков сюда не записываются.
     { name: 'platform_access_settings', columns: [column('subjectKind', 'TEXT', true), column('subject', 'TEXT', true), column('kind', 'TEXT', true), column('name', 'TEXT', true), column('path', 'TEXT', true), column('level', 'TEXT', true)], primaryKey: ['subjectKind', 'subject', 'kind', 'name', 'path'], indexes: [] },
-    { name: 'platform_user_roles', columns: [column('userGuid', 'TEXT', true), column('role', 'TEXT', true)], primaryKey: ['userGuid', 'role'], indexes: [] },
     // Сессия переживает ротацию токенов; прежние токены без sessionGuid больше не принимаются.
     { name: 'platform_sessions', columns: [column('guid', 'TEXT', true), column('userGuid', 'TEXT', true), column('createdAt', 'TEXT', true), column('lastConnectedAt', 'TEXT', true), column('refreshedAt', 'TEXT', true), column('expiresAt', 'TEXT', true), column('revokedAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_sessions', 'userGuid', ['userGuid'])] },
     { name: 'platform_tokens', columns: [column('guid', 'TEXT', true), column('userGuid', 'TEXT', true), column('sessionGuid', 'TEXT'), column('expiresAt', 'TEXT', true), column('revokedAt', 'TEXT')], primaryKey: ['guid'], indexes: [index('platform_tokens', 'userGuid', ['userGuid']), index('platform_tokens', 'sessionGuid', ['sessionGuid'])] },
@@ -118,7 +117,7 @@ const platformTables: readonly TableStructure[] = [
 
 /** Строит все прикладные и служебные таблицы в устойчивом порядке; имена проверяются при построении SQL. */
 export function describeSchema(objects: readonly ObjectDescription[]): SchemaStructure {
-    const tables = [...platformTables, ...objects.filter(object => object.storage === undefined).flatMap((object) => [objectTable(object), ...tableParts(object)])];
+    const tables = [...platformTables, ...objects.flatMap((object) => [objectTable(object), ...tableParts(object)])];
     const names = new Set<string>();
     for (const table of tables) {
         sqlIdentifier(table.name);

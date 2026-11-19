@@ -1,11 +1,12 @@
-import { CertificatesTable, Money, OperationsTable, summaryLayout, SummaryTotalsPanel } from './period-summary-tables';
-import { DataTable, StickyRail } from '../../web/sdk';
-import { Alert, Button } from 'antd';
+import { CertificatesTable, Money, OperationsTable, summaryLayout, SummaryTotalsPanel, type SummaryVariant } from './period-summary-tables';
+import { DataTable, Icons, StickyRail } from '../../web/sdk';
+import { Alert, Button, Tabs } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { Column, FieldDisplay, FieldInput, FluidField, isEmptyFieldValue, Grid, Layer, Page, Panel, RecordLink, Stack, Text, useActionResult, useRecordList, type AccountingTone } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PeriodSummary } from '../period-summary';
+import type { CashSummary } from '../cash-summary';
 
 /** Сегодняшний день датой `ГГГГ-ММ-ДД` по часам браузера: отчёт по умолчанию строится за него. */
 function today(): string {
@@ -13,12 +14,15 @@ function today(): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-/** Следующий день даты `ГГГГ-ММ-ДД`. Считается в UTC, как на сервере, чтобы переход на летнее время не сдвигал день. */
-function nextDay(day: string): string {
+/** День, сдвинутый на `days` дней. Считается в UTC, как на сервере, чтобы переход на летнее время не сдвигал день. */
+function shiftDay(day: string, days: number): string {
     const date = new Date(`${day}T00:00:00.000Z`);
-    date.setUTCDate(date.getUTCDate() + 1);
+    date.setUTCDate(date.getUTCDate() + days);
     return date.toISOString().slice(0, 10);
 }
+
+/** Следующий день даты `ГГГГ-ММ-ДД`. */
+const nextDay = (day: string): string => shiftDay(day, 1);
 
 /** Поле дня периода: дата без времени. */
 const dayField = { kind: 'date', target: null } as const;
@@ -68,6 +72,38 @@ function FilledZone({ title, tone, children }: { readonly title: string; readonl
 
 
 /**
+ * Продажи и возвраты двух зон 1С с итогом «Всего» на рельсе справа; на узкой области итог стоит
+ * под зонами. Обе вкладки показывают зоны одинаково и различаются правилами сумм (`variant`)
+ * и тем, что касса не показывает сертификаты.
+ */
+function Zones({ operations, totals, certificates, variant }: {
+    readonly operations: PeriodSummary['operations'];
+    readonly totals: PeriodSummary['totals'];
+    readonly certificates?: PeriodSummary['certificates']['totals'] | undefined;
+    readonly variant: SummaryVariant;
+}) {
+    return (
+        <Grid>
+            <Column span={{ lg: 12 }}>
+                <Panel title="Продажи и возвраты">
+                    <Stack gap={5}>
+                        <FilledZone title="Проведено в 1С" tone="warning">
+                            <OperationsTable rows={operations.posted.rows} totals={operations.posted.totals} variant={variant} />
+                        </FilledZone>
+                        <FilledZone title="Не проведено в 1С">
+                            <OperationsTable rows={operations.notPosted.rows} totals={operations.notPosted.totals} variant={variant} />
+                        </FilledZone>
+                    </Stack>
+                </Panel>
+            </Column>
+            <Column span={{ lg: 4 }}>
+                <StickyRail from="lg"><SummaryTotalsPanel totals={totals} certificates={certificates} variant={variant} /></StickyRail>
+            </Column>
+        </Grid>
+    );
+}
+
+/**
  * Отчёт за период: продажи, взносы и должники, товары в отвесе. Продажи и возвраты сгруппированы в две зоны:
  * проведённое в 1С залито цветом предупреждения, непроведённое — серым фоном вложенной поверхности,
  * чтобы их нельзя было спутать. Итоги обеих зон стоят на рельсе справа, на узкой области под ними. Взносы
@@ -79,23 +115,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
     const { payments, weighings, debtors, certificates } = summary;
     return (
         <Stack gap={5}>
-            <Grid>
-                <Column span={{ lg: 12 }}>
-                    <Panel title="Продажи и возвраты">
-                        <Stack gap={5}>
-                            <FilledZone title="Проведено в 1С" tone="warning">
-                                <OperationsTable rows={summary.operations.posted.rows} totals={summary.operations.posted.totals} />
-                            </FilledZone>
-                            <FilledZone title="Не проведено в 1С">
-                                <OperationsTable rows={summary.operations.notPosted.rows} totals={summary.operations.notPosted.totals} />
-                            </FilledZone>
-                        </Stack>
-                    </Panel>
-                </Column>
-                <Column span={{ lg: 4 }}>
-                    <StickyRail from="lg"><SummaryTotalsPanel totals={summary.totals} certificates={certificates.totals} /></StickyRail>
-                </Column>
-            </Grid>
+            <Zones operations={summary.operations} totals={summary.totals} certificates={certificates.totals} variant="period" />
             <Panel title="Сертификаты">
                 <CertificatesTable rows={certificates.rows} totals={certificates.totals} />
             </Panel>
@@ -179,7 +199,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
 }
 
 /**
- * Страница «Сводка за период». Период задаётся днями включительно. По умолчанию он начинается
+ * Вкладка «Период»: сводка за период. Период задаётся днями включительно. По умолчанию он начинается
  * с первого дня незакрытого периода, то есть со дня после последнего проведённого закрытия,
  * и заканчивается сегодня; без закрытий отчёт строится за сегодня. Кнопки после дат ставят
  * незакрытый период и сегодняшний день. Начало незакрытого периода подставляется, только пока
@@ -188,7 +208,7 @@ function Summary({ summary }: { readonly summary: PeriodSummary }) {
  * и суммы блоков согласованы между собой. Должники считаются на конец периода: долг рассрочки
  * уменьшают только взносы, внесённые по последний день периода.
  */
-export default function PeriodSummaryPage() {
+function PeriodTab() {
     const [from, setFrom] = useState<string>(today);
     const [to, setTo] = useState<string>(today);
     const [chosen, setChosen] = useState(false);
@@ -204,39 +224,109 @@ export default function PeriodSummaryPage() {
     }, [chosen, unclosedStart]);
     const report = useActionResult<PeriodSummary>({ object: Objects.document.periodClosing, action: 'periodSummary', payload: { periodStart: from, periodEnd: to }, enabled: from <= to });
     return (
-        <Page title="Сводка за период">
-            <Stack gap={5}>
-                <Panel>
-                    {/* Поля периода стоят в колонках сетки, как поля форм, кнопки выбора — в оставшихся колонках строки. */}
-                    <Grid gutter="narrow">
-                        <Column span={{ md: 4 }}>
-                            <FluidField label="С" required empty={isEmptyFieldValue(from)}>
-                                {/* Пустое значение не принимается: отчёт всегда строится за какие-то дни. */}
-                                <FieldInput field={dayField} value={from} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setFrom(value); } }} />
-                            </FluidField>
-                        </Column>
-                        <Column span={{ md: 4 }}>
-                            <FluidField label="По" required empty={isEmptyFieldValue(to)}>
-                                <FieldInput field={dayField} value={to} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setTo(value); } }} />
-                            </FluidField>
-                        </Column>
-                        <Column span={{ md: 8 }}>
-                            <Stack orientation="horizontal" gap={3} wrap>
-                                {/* Без проведённых закрытий незакрытый период начинается с начала учёта: дня для кнопки нет. */}
-                                <Button disabled={unclosedStart === null} onClick={() => { setChosen(true); if (unclosedStart !== null) setFrom(unclosedStart); setTo(today()); }}>С незакрытого периода</Button>
-                                <Button onClick={() => { setChosen(true); setFrom(today()); setTo(today()); }}>За сегодня</Button>
-                            </Stack>
-                        </Column>
-                    </Grid>
-                </Panel>
-                {from > to ? (
-                    <Alert type="warning" showIcon title="Начало периода позже его конца" />
-                ) : report.data === undefined ? (
-                    report.loading
-                        ? <Text tone="secondary">Загрузка…</Text>
-                        : <Alert type="error" showIcon title="Не удалось построить отчёт" description="Нет права на отчёт, или сервер отклонил запрос" />
-                ) : <Summary summary={report.data} />}
-            </Stack>
+        <Stack gap={5}>
+            <Panel>
+                {/* Поля периода стоят в колонках сетки, как поля форм, кнопки выбора — в оставшихся колонках строки. */}
+                <Grid gutter="narrow">
+                    <Column span={{ md: 4 }}>
+                        <FluidField label="С" required empty={isEmptyFieldValue(from)}>
+                            {/* Пустое значение не принимается: отчёт всегда строится за какие-то дни. */}
+                            <FieldInput field={dayField} value={from} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setFrom(value); } }} />
+                        </FluidField>
+                    </Column>
+                    <Column span={{ md: 4 }}>
+                        <FluidField label="По" required empty={isEmptyFieldValue(to)}>
+                            <FieldInput field={dayField} value={to} onChange={(value) => { if (typeof value === 'string') { setChosen(true); setTo(value); } }} />
+                        </FluidField>
+                    </Column>
+                    <Column span={{ md: 8 }}>
+                        <Stack orientation="horizontal" gap={3} wrap>
+                            {/* Без проведённых закрытий незакрытый период начинается с начала учёта: дня для кнопки нет. */}
+                            <Button disabled={unclosedStart === null} onClick={() => { setChosen(true); if (unclosedStart !== null) setFrom(unclosedStart); setTo(today()); }}>С незакрытого периода</Button>
+                            <Button onClick={() => { setChosen(true); setFrom(today()); setTo(today()); }}>За сегодня</Button>
+                        </Stack>
+                    </Column>
+                </Grid>
+            </Panel>
+            {from > to ? (
+                <Alert type="warning" showIcon title="Начало периода позже его конца" />
+            ) : report.data === undefined ? (
+                report.loading
+                    ? <Text tone="secondary">Загрузка…</Text>
+                    : <Alert type="error" showIcon title="Не удалось построить отчёт" description="Нет права на отчёт, или сервер отклонил запрос" />
+            ) : <Summary summary={report.data} />}
+        </Stack>
+    );
+}
+
+/** Ответ на запрос отчёта: загрузка, ошибка или готовые данные. */
+function ReportState<Data>({ report, children }: { readonly report: { readonly data: Data | undefined; readonly loading: boolean }; readonly children: (data: Data) => ReactNode }) {
+    if (report.data !== undefined) return <>{children(report.data)}</>;
+    return report.loading
+        ? <Text tone="secondary">Загрузка…</Text>
+        : <Alert type="error" showIcon title="Не удалось построить отчёт" description="Нет права на отчёт, или сервер отклонил запрос" />;
+}
+
+/**
+ * Вкладка «Касса»: кассовая сводка за один день для сверки с кассовым чеком закрытия дня.
+ * Правила сумм отличаются от сводки за период раскладкой рассрочки (раздел «Правила учёта»,
+ * «Кассовая сводка»), поэтому «Итого» кассы может не совпадать с вкладкой «Период» за тот же день.
+ *
+ * День по умолчанию сегодняшний. Стрелки переходят на соседний день; будущих дней касса
+ * не показывает, поэтому стрелка вперёд на сегодняшнем дне недоступна, а выбранный в поле
+ * будущий день заменяется сегодняшним.
+ */
+function CashTab() {
+    const [day, setDay] = useState<string>(today);
+    const current = today();
+    const report = useActionResult<CashSummary>({ object: Objects.document.periodClosing, action: 'cashSummary', payload: { summaryDay: day } });
+    return (
+        <Stack gap={5}>
+            <Panel>
+                <Grid gutter="narrow">
+                    <Column span={{ md: 4 }}>
+                        <FluidField label="День" required empty={isEmptyFieldValue(day)}>
+                            {/* Пустое значение не принимается: касса всегда показывает какой-то день. */}
+                            <FieldInput field={dayField} value={day} onChange={(value) => { if (typeof value === 'string') setDay(value > current ? current : value); }} />
+                        </FluidField>
+                    </Column>
+                    <Column span={{ md: 4 }}>
+                        <Stack orientation="horizontal" gap={3}>
+                            <Button aria-label="Предыдущий день" icon={<Icons.previousDay />} onClick={() => setDay(shiftDay(day, -1))} />
+                            <Button aria-label="Следующий день" icon={<Icons.nextDay />} disabled={day >= current} onClick={() => setDay(shiftDay(day, 1))} />
+                            <Button disabled={day === current} onClick={() => setDay(today())}>Сегодня</Button>
+                        </Stack>
+                    </Column>
+                </Grid>
+            </Panel>
+            <ReportState report={report}>
+                {(summary) => <Zones operations={summary.operations} totals={summary.totals} variant="cash" />}
+            </ReportState>
+        </Stack>
+    );
+}
+
+/**
+ * Подпись вкладки с иконкой по правилам Carbon Tabs: иконка 16 px стоит справа от подписи
+ * через 8 px. Иконки есть у всех вкладок страницы: Carbon не смешивает вкладки с иконкой и без.
+ */
+function TabTitle({ title, icon }: { readonly title: string; readonly icon: ReactNode }) {
+    return <Stack orientation="horizontal" gap={3} align="center">{title}{icon}</Stack>;
+}
+
+/**
+ * Страница «Сводка» из двух вкладок. «Касса» открыта по умолчанию: продавцы чаще всего
+ * сверяют день с кассовым чеком. «Период» — сводка за период со всеми таблицами. Вкладки
+ * не размонтируются при переключении, поэтому выбранные день и период сохраняются.
+ */
+export default function PeriodSummaryPage() {
+    const [tab, setTab] = useState('cash');
+    return (
+        <Page title="Сводка">
+            <Tabs activeKey={tab} onChange={setTab} items={[
+                { key: 'cash', label: <TabTitle title="Касса" icon={<Icons.cashSummary />} />, children: <CashTab /> },
+                { key: 'period', label: <TabTitle title="Период" icon={<Icons.periodSummary />} />, children: <PeriodTab /> },
+            ]} />
         </Page>
     );
 }

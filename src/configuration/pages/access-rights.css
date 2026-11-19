@@ -1,0 +1,131 @@
+/* Дерево и список прокручиваются внутри своих панелей, в том числе при узкой области. */
+.access-rights-tree,
+.access-rights-overview {
+    max-block-size: 58vh;
+    overflow: auto;
+}
+
+.access-rights-picker {
+    inline-size: min(100%, 360px);
+}
+
+.access-rights-read-only {
+    display: block;
+    margin-block-start: 8px;
+}
+
+.access-rights-row {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    max-inline-size: 100%;
+}
+
+/* Пара тегов остаётся рядом с названием и переносится при узком экране. */
+.access-rights-setting {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    max-inline-size: 100%;
+}
+
+.access-rights-row-title,
+.access-rights-overview li {
+    overflow-wrap: anywhere;
+}
+
+/* Приглушаем только название, сохраняя читаемость текста и цвет тега. */
+.access-rights-row-title--muted {
+    color: #666;
+}
+
+/* Ромб ставится после названия, чтобы не сдвигать начало строк дерева. */
+.access-rights-marker {
+    flex: 0 0 7px;
+    block-size: 7px;
+    background: #6929c4;
+    transform: rotate(45deg);
+}
+
+.access-rights-row-title small {
+    opacity: 0.7;
+}
+
+.access-rights-overview {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.access-rights-overview li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+}
+
+.access-rights-overview li + li {
+    border-block-start: 1px solid #e0e0e0;
+}
+
+/* Средний тег Carbon для светлой темы: высота 24 px и оттенки IBM 20/70 и контур 40 у редактируемых тегов. */
+.access-rights-tag {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 24px;
+    padding-inline: 8px;
+    border: 0;
+    border-radius: 999px;
+    background: #e0e0e0;
+    color: #525252;
+    font: inherit;
+    font-size: 12px;
+    line-height: 16px;
+    white-space: nowrap;
+}
+
+.access-rights-tag--inherit { background: #f4f4f4; }
+.access-rights-tag--deny { background: #ffd7d9; color: #a2191f; --tag-border: #ff8389; }
+.access-rights-tag--read { background: #d0e2ff; color: #0043ce; --tag-border: #78a9ff; }
+.access-rights-tag--edit { background: #9ef0f0; color: #005d5d; --tag-border: #3ddbd9; }
+.access-rights-tag--allow { background: #a7f0ba; color: #0e6027; --tag-border: #42be65; }
+.access-rights-tag--full { background: #e8daff; color: #6929c4; --tag-border: #be95ff; }
+.access-rights-tag--partial { background: #e5e0df; color: #565151; }
+
+button.access-rights-tag {
+    border: 1px solid var(--tag-border, #a8a8a8);
+    cursor: pointer;
+}
+button.access-rights-tag:hover { filter: brightness(0.94); }
+button.access-rights-tag:focus-visible { outline: 2px solid #0f62fe; outline-offset: 2px; }
+
+/* Пояснение относится ко всему меню, поэтому выводится отдельно от его вариантов. */
+.access-rights-menu {
+    max-inline-size: min(320px, calc(100vw - 24px));
+    border-radius: 4px;
+    background: #fff;
+    color: #161616;
+    box-shadow: 0 2px 6px #0003;
+}
+
+.access-rights-menu > .ant-dropdown-menu {
+    box-shadow: none;
+}
+
+.access-rights-menu-explanation {
+    margin: 0;
+    padding: 12px;
+    border-block-start: 1px solid #e0e0e0;
+    font-size: 14px;
+    line-height: 20px;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 671px) {
+    .access-rights-tree {
+        max-block-size: 42vh;
+    }
+}

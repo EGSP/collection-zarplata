@@ -45,7 +45,7 @@ export const LaunchArguments = Symbol('LaunchArguments');
 export const pinPattern = /^[0-9]{4,12}$/;
 
 /**
- * Значение `--test-pin`: PIN и необязательный список ролей через запятую, например `111111:reader`.
+ * Значение `--test-pin`: PIN и необязательный список ролей через запятую, например `111111:seller`.
  * Существование ролей здесь не проверяется: их знает конфигурация, и неизвестную роль отклоняет создание пользователя.
  */
 const testUserPattern = /^([0-9]{4,12})(?::([A-Za-z0-9]+(?:,[A-Za-z0-9]+)*))?$/;
@@ -99,7 +99,7 @@ function readArguments(values: readonly string[], autoLoginVariable: string | un
         } else if (name === 'test-environment') {
             throw new Error('Параметр --test-environment принимает только true или false');
         } else if (name === 'database' || name === 'test-database' || name === 'port' || name === 'test-pin' || name === 'auto-login-pin' || name === 'test-backup-schedule') {
-            throw new Error(`Неверное значение параметра запуска ${argument}: ожидается --database=file|memory, --test-database=<файл>, --port=1…65535, --test-pin из 4–12 цифр с необязательными ролями (--test-pin=111111:reader), --auto-login-pin из 4–12 цифр или --test-backup-schedule=<строка cron>`);
+            throw new Error(`Неверное значение параметра запуска ${argument}: ожидается --database=file|memory, --test-database=<файл>, --port=1…65535, --test-pin из 4–12 цифр с необязательными ролями (--test-pin=111111:seller), --auto-login-pin из 4–12 цифр или --test-backup-schedule=<строка cron>`);
         } else {
             throw new Error(`Неизвестный параметр запуска ${argument}. Допустимы --database, --test-database, --port, --test-pin, --auto-login-pin, --test-environment и --test-backup-schedule`);
         }

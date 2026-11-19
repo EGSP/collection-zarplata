@@ -3,18 +3,20 @@ import { Database } from '../database/database.effect.js';
 import { select } from '../database/sql.builder.js';
 import type { UserAccount } from './descriptions.js';
 
-/** Читаем только публичные колонки: расширение служебной таблицы не раскроет секреты. */
+/** Читает публичные поля справочника и назначения для редактора и дерева прав. */
 export const readUserAccounts = Effect.fn('users.read')(function* () {
     const database = yield* Database;
-    const users = yield* database.all<Omit<UserAccount, 'roles'>>(select('platform_users', {
+    const users = yield* database.all<Omit<UserAccount, 'roles'>>(select('catalog_users', {
         columns: ['guid', 'name', 'disabledAt'], orderBy: [{ column: 'name', direction: 'ASC' }],
     }));
-    const assignments = yield* database.all<{ userGuid: string; role: string }>(select('platform_user_roles', { columns: ['userGuid', 'role'] }));
+    const assignments = yield* database.all<{ ownerGuid: string; role: string }>(select('catalog_users_roles', {
+        columns: ['ownerGuid', 'role'], orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
+    }));
     const roles = new Map<string, string[]>();
     for (const assignment of assignments) {
-        const names = roles.get(assignment.userGuid) ?? [];
+        const names = roles.get(assignment.ownerGuid) ?? [];
         names.push(assignment.role);
-        roles.set(assignment.userGuid, names);
+        roles.set(assignment.ownerGuid, names);
     }
     return users.map((user): UserAccount => ({ ...user, roles: roles.get(user.guid) ?? [] }));
 });

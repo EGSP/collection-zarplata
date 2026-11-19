@@ -1,14 +1,15 @@
 import { platformObjectBuilders } from '../metadata/platform-objects.js';
-import { configurationModules } from '../../configuration/configuration.generated.js';
+import { configurationModules, pageModules } from '../../configuration/configuration.generated.js';
 import { isObjectBuilder } from '../metadata/builders.js';
-import { resolveAccess, type AccessDefinition, type AccessTarget, type AccessDecision } from './access-schema.js';
+import { isPageBuilder } from '../ui/pages.js';
+import { resolveAccess, type AccessDefinition, type AccessTarget, type AccessDecision, type AccessEntry } from './access-schema.js';
 import { Injectable } from '@nestjs/common';
 import { Effect } from 'effect';
 import { roles as configurationRoles } from '../../configuration/roles.js';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
 import { RightsDeniedError } from './authorization.errors.js';
-import { rightAccessPath, type Right } from './rights.js';
+import { describePlatformRights, pageOpenRight, rightAccessPath, type Right } from './rights.js';
 import { commitRoles, type RoleDescription } from './roles.js';
 import { userRoleNames } from './user-roles.js';
 
@@ -44,7 +45,18 @@ export interface UserRights {
 export class RightsGuardPlatform {
     /** Роли конфигурации в порядке объявления. */
     readonly roles: ReadonlyArray<RoleDescription>;
+    private readonly objects = [...platformObjectBuilders, ...configurationModules.flatMap(module => Object.values(module.exports).filter(isObjectBuilder))];
+    private readonly pages = pageModules.flatMap(module => Object.values(module.exports).filter(isPageBuilder));
+    private readonly platform = describePlatformRights();
+    private readonly callPaths = new Map<string, { target: AccessTarget; path: string }>([
+        ...this.pages.map(page => [pageOpenRight(page.name).key, { target: page, path: 'actions.open' }] as const),
+        ...this.platform.flatMap(section => section.operations.map(({ right, operation }) => [right.key, { target: section, path: `actions.${operation}` }] as const)),
+    ]);
+    private readonly fullAccess: readonly AccessEntry[] = [...this.objects, ...this.pages, ...this.platform].map(({ kind, name }) => ({
+        target: { kind, name }, path: '', level: 'full',
+    }));
 
+    /** Проверяет объявления ролей до обработки запросов. */
     constructor() {
         // Сборка синхронна: проверка ролей не обращается к внешним ресурсам.
         this.roles = Effect.runSync(commitRoles(configurationRoles));
@@ -57,36 +69,29 @@ export class RightsGuardPlatform {
     rightsFromRoles(names: ReadonlyArray<string>, settings: readonly AccessSetting[] = [], userGuid: string | null = null): UserRights {
         const assigned = new Set(names);
         const roles = this.roles.filter((role) => assigned.has(role.name));
-        const objects = [...platformObjectBuilders, ...configurationModules.flatMap(module => Object.values(module.exports).filter(isObjectBuilder))];
-        const defaults = objects.map(object => object['~state'].access);
+        const defaults = this.objects.map(object => object['~state'].access);
         const definitions: AccessDefinition[] = [...defaults, ...roles.map(role => {
-            const legacy = [...role.rights].flatMap(key => {
-                const [kind, name, permission, ...rest] = key.split('.');
-                if (!['catalog', 'document', 'register', 'informationRegister'].includes(kind!)) return [];
-                return [{ target: { kind: kind as AccessTarget['kind'], name: name! }, path: rightAccessPath([permission!, ...rest]), level: permission === 'read' ? 'read' as const : permission === 'write' ? 'edit' as const : 'allow' as const }];
-            });
-            // Полный доступ роли записан явно у каждого объекта, а не только признаком `full`:
-            // признак действует, лишь пока ни одна роль пользователя не задала узел, и роль
-            // «Только чтение» с `level('read')` отнимала бы у администратора запись. Роли
-            // складываются, поэтому дополнительная роль не уменьшает права.
-            const all = role.all ? objects.map(object => ({ target: { kind: object.kind, name: object.name }, path: '', level: 'full' as const })) : [];
-            const overrides = settings.filter(setting => setting.subjectKind === 'role' && setting.subject === role.name);
-            return { groups: role.access.groups, entries: [...all, ...role.access.entries, ...legacy].filter(entry => !overrides.some(setting => setting.kind === entry.target.kind && setting.name === entry.target.name && setting.path === entry.path)).concat(overrides.map(settingEntry)) };
+            // Полный доступ на корнях сочетается с уровнями других ролей и с точечными исключениями.
+            const entries = role.all ? [...this.fullAccess, ...role.access.entries] : role.access.entries;
+            // Фиксированная роль всегда берёт права из конфигурации, в том числе на старой базе.
+            const overrides = role.readOnly ? [] : settings.filter(setting => setting.subjectKind === 'role' && setting.subject === role.name);
+            return { groups: role.access.groups, entries: entries.filter(entry => !overrides.some(setting => setting.kind === entry.target.kind && setting.name === entry.target.name && setting.path === entry.path)).concat(overrides.map(settingEntry)) };
         }), { groups: [], entries: settings.filter(setting => setting.subjectKind === 'user' && setting.subject === userGuid).map(settingEntry) }];
         const full = roles.some(role => role.all);
-        const decision = (target: AccessTarget, path: string) => resolveAccess(definitions, target, path, full);
+        const decision = (target: AccessTarget, path: string) => resolveAccess(definitions, target, path);
+        /** Все вызовы проверяются по дереву; чтение и запись проверяют доступные поля объекта. */
         const allows = (right: Right) => {
+            const call = this.callPaths.get(right.key);
+            if (call !== undefined) return decision(call.target, call.path).level === 'allow';
             const [kind, name, ...segments] = right.key.split('.');
-            if (!['catalog', 'document', 'register', 'informationRegister'].includes(kind!)) return roles.some(role => role.all || role.rights.has(right.key));
-            const target = { kind: kind as AccessTarget['kind'], name: name! };
-            const result = decision(target, rightAccessPath(segments));
+            const object = this.objects.find(object => object.kind === kind && object.name === name);
+            if (object === undefined) return false;
             if (segments[0] === 'read' || segments[0] === 'write') {
-                const object = objects.find(object => object.kind === kind && object.name === name);
-                const state = object?.withStandardFields()['~state'];
-                const names = state === undefined ? [] : [...state.fields.map(field => field.name), ...state.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))];
-                return names.some(name => { const level = decision(target, `fields.${name}`).level; return segments[0] === 'write' ? level === 'edit' : level === 'edit' || level === 'read'; });
+                const state = object.withStandardFields()['~state'];
+                const names = [...state.fields.map(field => field.name), ...state.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))];
+                return names.some(name => { const level = decision(object, `fields.${name}`).level; return segments[0] === 'write' ? level === 'edit' : level === 'edit' || level === 'read'; });
             }
-            return result.level === 'allow';
+            return decision(object, rightAccessPath(segments)).level === 'allow';
         };
         const grantedBy = (right: Right) => allows(right) ? roles.filter(role => this.rightsFromRoles([role.name], settings).allows(right)) : [];
         return { roles: roles.map(role => role.name), definitions, full, decision, allows, grantedBy };

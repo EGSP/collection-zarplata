@@ -6,7 +6,7 @@
  * Период задаётся днями включительно. День события сравнивается по первым десяти знакам даты,
  * как в политике закрытого периода и в расчёте зарплаты.
  */
-import { addSummaryTotals, summaryOperations, summaryTotals, type SummaryTotals } from './period-summary-operations.js';
+import { addSummaryAmounts, addSummaryTotals, emptySummaryAmounts, summaryOperations, summaryTotals, type SummaryAmounts, type SummaryTotals } from './period-summary-operations.js';
 import { initialPayments } from './installment-initial-payments.js';
 import { Effect } from 'effect';
 import { callFunction } from '../server/data/action-context.js';
@@ -173,7 +173,7 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
     // взносы периода — в таблице «Взносы». Первоначальный взнос продажи вне периода тоже идёт
     // в таблицу: строки этой продажи в сводке нет, и иначе деньги пропали бы из итога.
     const periodSales = new Set(saleGuids);
-    const initial = new Map<string, number>();
+    const initial = new Map<string, SummaryAmounts>();
     const paymentRows: SummaryPaymentRow[] = [];
     for (const installment of installments) {
         const payments = installmentPayments.filter((payment) => payment.ownerGuid === installment.guid);
@@ -181,7 +181,8 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         for (const payment of payments) {
             if (!inPeriod(payment.date)) continue;
             if (initialOfInstallment.has(payment) && periodSales.has(installment.sale)) {
-                initial.set(installment.sale, (initial.get(installment.sale) ?? 0) + payment.amount);
+                // В сводке за период первоначальный взнос целиком стоит в колонке «Рассрочка».
+                initial.set(installment.sale, addSummaryAmounts(initial.get(installment.sale) ?? emptySummaryAmounts(), { cash: 0, cashless: 0, installment: payment.amount }));
                 continue;
             }
             paymentRows.push({ installment: installment.guid, sale: installment.sale, person: installment.person, date: payment.date, method: payment.method, amount: payment.amount });
@@ -258,7 +259,7 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
     const operations = summaryOperations(periodFigures.sales, periodFigures.refunds, from, initial, paymentRows);
     const result: PeriodSummary = {
         from, to, operations,
-        totals: addSummaryTotals(operations.totals, summaryTotals({ ...paymentTotals, installment: 0 }, { cash: 0, cashless: 0 })),
+        totals: addSummaryTotals(operations.totals, summaryTotals({ ...paymentTotals, installment: 0 }, emptySummaryAmounts())),
         payments: { rows: paymentRows, totals: paymentTotals },
         certificates: { rows: certificateRows, totals: certificateTotals },
         weighings: { rows: weighingRows, total: weighingRows.reduce((sum, row) => sum + row.total, 0) },

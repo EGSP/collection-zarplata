@@ -3,10 +3,10 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Effect } from 'effect';
-import { assignUserRoles } from '../authorization/user-roles.js';
+import { storeRecord } from '../data/records.js';
 import { Database } from '../database/database.effect.js';
-import type { DatabaseError } from '../database/database.errors.js';
-import { insert } from '../database/sql.builder.js';
+import { insert, query } from '../database/sql.builder.js';
+import type { ObjectDescription } from '../metadata/descriptions.js';
 import type { InitialUser } from '../settings/settings.service.js';
 import { InitialDataError } from './initial-data.errors.js';
 
@@ -18,10 +18,11 @@ import { InitialDataError } from './initial-data.errors.js';
  * чтобы опечатка в настройках не ждала следующей новой базы.
  */
 export function createInitialUsers(
+    catalog: ObjectDescription,
     users: ReadonlyArray<InitialUser>,
     knownRoles: ReadonlyArray<string>,
     pinHash: (pin: string) => string,
-): Effect.Effect<void, InitialDataError | DatabaseError, Database> {
+) {
     return Effect.gen(function* () {
         if (users.length === 0) return;
         for (const user of users) {
@@ -34,14 +35,14 @@ export function createInitialUsers(
         }
         const database = yield* Database;
         yield* database.transaction(Effect.gen(function* () {
-            const row = yield* database.get<{ total: number }>({ sql: 'SELECT COUNT(*) AS total FROM platform_users', parameters: [] });
+            const row = yield* database.get(query(catalog).count({}));
             if ((row?.total ?? 0) !== 0) return;
             for (const user of users) {
                 const guid = randomUUID();
-                yield* database.run(insert('platform_users', {
-                    guid, name: user.name.trim(), pinHash: pinHash(user.pin), disabledAt: null,
-                }));
-                yield* assignUserRoles(guid, user.roles ?? knownRoles);
+                const roles = [...new Set(user.roles ?? knownRoles)].sort().map(role => ({ role }));
+                // Общая запись справочника используется и до появления пользователя, от имени которого можно вызвать API.
+                yield* storeRecord(catalog, { guid, name: user.name.trim(), disabledAt: null, deletedAt: null }, { roles }, true);
+                yield* database.run(insert('platform_user_credentials', { userGuid: guid, pinHash: pinHash(user.pin) }));
             }
         }));
     });

@@ -35,6 +35,7 @@ import { WorkplaceMenu, useWorkplaceItems } from './workplaces';
  */
 export function ApplicationLayout() {
     const { token } = theme.useToken();
+    const userName = useMetadata().data?.userName;
     const strategy = useNavigationStrategy();
     // Где развёрнутая панель выдвигается (overlay, bottom), признак «развёрнута» хранит выезжающая панель:
     // её открытие спрашивает владельца, и меню не выдвинется поверх уже открытой панели страницы.
@@ -92,6 +93,7 @@ export function ApplicationLayout() {
                 >
                     <NavigationPanel
                         collapsed={collapsed}
+                        userName={userName}
                         switcherTitle={strategy.switcherTitle(expanded)}
                         onSwitch={() => setExpanded(!expanded)}
                         onNavigate={afterNavigation}
@@ -104,6 +106,7 @@ export function ApplicationLayout() {
             <Drawer control={sideMenu} placement={menuPlacement} width={navigationWidths.expanded}>
                 <NavigationPanel
                     collapsed={false}
+                    userName={userName}
                     switcherTitle={strategy.switcherTitle(expanded)}
                     onSwitch={collapse}
                     onNavigate={afterNavigation}
@@ -124,7 +127,7 @@ export function ApplicationLayout() {
                         доступен без затемнения. Меню закрывают шеврон в шапке, Switcher бара и Esc.
                         Шапка та же, что у списка вкладок на `sm`: обе панели устроены одинаково. */}
                     <Drawer control={bottomMenu} mode="inline" placement={menuPlacement}>
-                        <DrawerHeader typeSet="expressive" title="Меню" closeLabel="Закрыть меню" onClose={collapse} />
+                        <DrawerHeader typeSet="expressive" title={userName ? `Меню - ${userName}` : 'Меню'} closeLabel="Закрыть меню" onClose={collapse} />
                         {/* Меню на `sm` в наборе стилей expressive: строка 64, текст 16, иконка 24. */}
                         <ConfigProvider theme={{ token: { fontSize: token.fontSizeLG }, components: { Menu: { itemHeight: componentSizes.xl, iconSize: iconSizes.lg } } }}>
                             {/* Меню занимает место под шапкой: его пункты прокручиваются внутри, а шапка стоит на месте. */}
@@ -148,7 +151,9 @@ const menuPlacement = { sm: 'bottom', md: 'left' } as const;
 interface NavigationPanelProperties {
     /** Панель свёрнута в полосу иконок: заголовки пунктов скрыты в подсказки. */
     readonly collapsed: boolean;
-    /** В мобильном меню версии остаются только на странице входа. */
+    /** Имя пользователя для подписи над версиями в развёрнутой боковой панели. */
+    readonly userName?: string | undefined;
+    /** В мобильном меню нижняя подпись скрыта: имя показывает шапка. */
     readonly showVersions?: boolean;
     /** Мобильное меню открывается кнопкой бара и не повторяет её вместе с заголовком. */
     readonly showHeader?: boolean;
@@ -163,10 +168,10 @@ interface NavigationPanelProperties {
 /**
  * Содержимое боковой панели. Одно и то же в закреплённой панели и в выдвинутой поверх страницы,
  * поэтому пункты в обоих режимах совпадают. Switcher и рабочие места отделены разделителями;
- * прокручиваются только подсистемы, а служебные пункты стоят внизу. Под ними выводятся версии;
- * в полосе иконок им негде поместиться, и они видны после разворачивания панели.
+ * прокручиваются только подсистемы, а служебные пункты стоят внизу. Имя и версии видны
+ * внизу развёрнутой панели.
  */
-function NavigationPanel({ collapsed, showVersions = true, showHeader = true, switcherTitle, onSwitch, onNavigate, onOpenSubsystem }: NavigationPanelProperties) {
+function NavigationPanel({ collapsed, userName, showVersions = true, showHeader = true, switcherTitle, onSwitch, onNavigate, onOpenSubsystem }: NavigationPanelProperties) {
     const { token } = theme.useToken();
     return (
         <Flex vertical style={{ height: '100%' }}>
@@ -188,9 +193,10 @@ function NavigationPanel({ collapsed, showVersions = true, showHeader = true, sw
                 <ServiceMenu onNavigate={onNavigate} />
             </NavigationScrollArea>
             {collapsed || !showVersions ? null : (
-                <div style={{ padding: token.paddingXS, textAlign: 'center' }}>
-                    <ApplicationVersionsText />
-                </div>
+                <Flex vertical align="center" style={{ padding: token.paddingXS }}>
+                    {userName && <Typography.Text strong ellipsis={{ tooltip: userName }} style={{ maxWidth: '100%' }}>{userName}</Typography.Text>}
+                    <ApplicationVersionsText showSeparator={false} />
+                </Flex>
             )}
         </Flex>
     );
