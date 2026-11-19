@@ -49,15 +49,14 @@ function storeRole(name: string, title: string) {
             // Вкладку «Отвесы» на рабочем месте читает функция отвеса `heldGoods`.
             .object(Weighing, access => access.level('edit').post('allow').action('applySale', 'allow').function('heldGoods', 'allow'))
             // Ленту продаж и возвратов на рабочем месте читает функция возврата `sellerFeed`.
-            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow').function('figures', 'allow').function('refundPlan', 'allow'))
+            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow'))
             .object(SaleInstallment, access => access.level('edit').post('allow').action('pay', 'allow').action('settleByBank', 'allow').function('figures', 'allow'))
             // Сертификаты обоих видов выдаёт и продавец; вкладку «Сертификаты» читает функция `activeCertificates`.
             .object(Certificate, access => access.level('edit').post('allow').action('exchange', 'allow').action('application', 'allow').function('activeCertificates', 'allow')))
-        // Рабочее место и формы показывают итоги по продажам и оплатам.
+        // Проведение проверяет предел возврата по движениям продажи.
         .access(accessSchema()
             .object(SalesNetOfReturns, access => access.level('read'))
             .object(InstallmentDebts, access => access.level('read'))
-            .object(MoneyReceipts, access => access.level('read'))
             .object(UnarrangedInstallments, access => access.level('read'))
             .object(AppliedCoupons, access => access.level('read'))
             .object(CertificateBalances, access => access.level('read')))
@@ -81,5 +80,7 @@ export const roles = [
             // Закрытие периода записывает и проводит документ вложенным действием.
             .object(PeriodClosing, access => access.level('edit').post('allow').action('closePeriod', 'allow'))
             .object(Coupons, access => access.level('edit').function('applications', 'allow'))
-            .object(PaymentReceivers, access => access.level('edit'))),
+            .object(PaymentReceivers, access => access.level('edit'))
+            // Движения денег нужны управляющему для сверки; продавец видит итоги в сводке.
+            .object(MoneyReceipts, access => access.level('read'))),
 ];
