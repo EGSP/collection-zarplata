@@ -1,0 +1,94 @@
+.cash-day-picker {
+    flex: 0 0 min(208px, 100%);
+}
+
+.cash-day-navigation,
+.cash-day-strip,
+.cash-day-month-days {
+    display: flex;
+    gap: var(--cash-day-gap);
+}
+
+.cash-day-navigation {
+    align-items: flex-start;
+    gap: var(--cash-day-trigger-gap);
+}
+
+.cash-day-navigation .cash-day-calendar-trigger {
+    flex: none;
+    inline-size: var(--cash-day-size);
+    block-size: var(--cash-day-size);
+}
+
+.cash-day-month {
+    position: relative;
+    padding-block-end: 18px;
+}
+
+.cash-day-month-title {
+    position: absolute;
+    inset: auto 0 0;
+    overflow: hidden;
+    color: var(--cash-day-secondary);
+    font-size: 12px;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    text-transform: capitalize;
+    white-space: nowrap;
+}
+
+.cash-day-square {
+    box-sizing: border-box;
+    inline-size: var(--cash-day-size);
+    block-size: var(--cash-day-size);
+    padding: 0;
+    border: 1px solid var(--cash-day-border);
+    border-radius: var(--cash-day-radius);
+    background: transparent;
+    color: var(--cash-day-text);
+    font: inherit;
+    cursor: pointer;
+}
+
+.cash-day-square[data-tone="neutral"] { background: var(--cash-day-neutral); }
+.cash-day-square[data-tone="checked"] { background: var(--cash-day-checked); }
+.cash-day-square[data-tone="remarks"] { background: var(--cash-day-remarks); }
+.cash-day-square[data-tone="closed"] { background: #ffd6e8; }
+.cash-day-square:disabled { color: var(--cash-day-secondary); cursor: default; }
+.cash-day-square[aria-current="date"] { box-shadow: inset 0 0 0 2px var(--cash-day-focus); font-weight: 600; }
+.cash-day-square:focus-visible { outline: 2px solid var(--cash-day-focus); outline-offset: -4px; }
+
+.cash-day-calendar {
+    padding: 16px;
+}
+
+.cash-day-calendar-months {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 224px), 1fr));
+    align-items: start;
+    gap: 24px;
+}
+
+.cash-day-calendar-month h3 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    text-transform: capitalize;
+}
+
+.cash-day-calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: var(--cash-day-gap);
+}
+
+.cash-day-calendar-grid .cash-day-square {
+    inline-size: 100%;
+    block-size: auto;
+    aspect-ratio: 1;
+}
+
+.cash-day-weekday {
+    color: var(--cash-day-secondary);
+    font-size: 12px;
+    text-align: center;
+}
