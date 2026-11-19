@@ -59,8 +59,11 @@ function moduleOf(file: string, specifier: string): string {
     return resolved.replace(/\.(?:js|jsx|ts|tsx)$/, '').replace(/\/index$/, '');
 }
 
-/** Файл клиента в каталоге конфигурации: компонент страницы или элемента либо вспомогательный компонент рядом с ним. */
+/** Файл клиента в каталоге конфигурации: компонент страницы или элемента либо вспомогательный компонент или таблица стилей рядом с ним. */
 function isClientModule(module: string): boolean {
+    if (module.startsWith('configuration/') && module.endsWith('.css')) {
+        return globSync(module, { cwd: sourceDirectory }).length > 0;
+    }
     return clientGeneratedModules.includes(module) || globSync(`${module}.tsx`, { cwd: sourceDirectory }).length > 0;
 }
 

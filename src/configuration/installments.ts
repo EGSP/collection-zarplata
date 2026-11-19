@@ -262,7 +262,15 @@ const installmentRulesPolicy = (name: InstallmentName, cancelledWithBasis: Cance
             yield* requireRight(Rights.document.sale.actions.saveChanges);
         }
         const closes = (existingRecord?.closedAt ?? null) === null && (proposedRecord.closedAt ?? null) !== null;
-        if (closes) yield* requireRight(proposedRecord.type === ownInstallment ? Rights.document[name].actions.close : Rights.document[name].actions.settleByBank);
+        // Для смены типа существующей собственной рассрочки нужно то же право, что для её закрытия.
+        // Иначе право на банковское погашение позволит закрыть долг после смены типа.
+        const changesOwnType = existingRecord?.type === ownInstallment && (proposedRecord.type ?? null) !== null && proposedRecord.type !== ownInstallment;
+        if (changesOwnType || (closes && proposedRecord.type === ownInstallment)) {
+            yield* requireRight(Rights.document[name].actions.close);
+        }
+        if (closes && proposedRecord.type !== ownInstallment) {
+            yield* requireRight(Rights.document[name].actions.settleByBank);
+        }
         // Рассрочку создают только с полными данными: черновик без типа, физического лица
         // и ставки не записывается, иначе долг покупателя остался бы без условий.
         yield* checkCustomer(proposedRecord);

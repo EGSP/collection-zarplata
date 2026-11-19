@@ -1,12 +1,9 @@
-/**
- * Роли конфигурации: полный доступ, работа продавца, чтение и проверка пробной политики.
- *
- * Доступ к данным задаёт типизированная схема, страницы и платформенные операции описывает `Rights`:
- * право несуществующего объекта или действия — ошибка компиляции.
- */
+/** Роли магазина и доступ к операциям рабочего места продавца. */
 import { accessSchema } from '../server/authorization/access-schema.js';
 import { role } from '../server/authorization/roles.js';
-import { Rights } from './configuration.generated.js';
+import { Payroll } from './pages/payroll.page.js';
+import { PeriodSummary } from './pages/period-summary.page.js';
+import { SellerWorkplace } from './pages/seller-workplace.page.js';
 
 import { AppliedCoupons } from './registers/applied-coupons.register.js';
 import { Certificate } from './documents/certificate.document.js';
@@ -14,7 +11,6 @@ import { CertificateBalances } from './registers/certificate-balances.register.j
 import { Coupons } from './catalogs/coupons.catalog.js';
 import { Discounts } from './catalogs/discounts.catalog.js';
 import { Employees } from './catalogs/employees.catalog.js';
-import { ExternalLinks } from './information-registers/external-links.information-register.js';
 import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { InstallmentRates } from './catalogs/installment-rates.catalog.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
@@ -26,27 +22,17 @@ import { Refund } from './documents/refund.document.js';
 import { Sale } from './documents/sale.document.js';
 import { SaleInstallment } from './documents/sale-installment.document.js';
 import { SalesNetOfReturns } from './registers/sales-net-of-returns.register.js';
-import { Sample } from './catalogs/sample.catalog.js';
-import { SampleDelegate } from './catalogs/sample-delegate.catalog.js';
-import { SampleDocument } from './documents/sample.document.js';
-import { SampleRegister } from './registers/sample.register.js';
 import { Shift } from './documents/shift.document.js';
 import { UnarrangedInstallments } from './registers/unarranged-installments.register.js';
 import { Weighing } from './documents/weighing.document.js';
 
-/** Наборы прав, назначаемые пользователям по имени роли. */
-export const roles = [
-    role('administrator')
-        .title('Администратор')
-        .grantAll(),
-    // Просмотр полного дерева и оснований доступа без прав на прикладные данные и управление пользователями.
-    role('accessAuditor')
-        .title('Просмотр прав доступа')
-        .grant(Rights.page.accessRights.open, Rights.platform.authorization.read),
-    role('seller')
-        .title('Продавец')
-        .grant(Rights.page.sellerWorkplace.open)
+/** Обе прикладные роли выполняют одни и те же ежедневные операции магазина. */
+function storeRole(name: string, title: string) {
+    return role(name)
+        .title(title)
+        .readOnly()
         .access(accessSchema()
+            .page(SellerWorkplace, 'allow')
             .object(PhysicalPersons, access => access.level('edit'))
             .object(Employees, access => access.level('read'))
             .object(Nomenclature, access => access.level('read'))
@@ -63,79 +49,38 @@ export const roles = [
             // Вкладку «Отвесы» на рабочем месте читает функция отвеса `heldGoods`.
             .object(Weighing, access => access.level('edit').post('allow').action('applySale', 'allow').function('heldGoods', 'allow'))
             // Ленту продаж и возвратов на рабочем месте читает функция возврата `sellerFeed`.
-            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow').function('figures', 'allow').function('refundPlan', 'allow'))
+            .object(Refund, access => access.level('edit').post('allow').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow').function('sellerFeed', 'allow'))
             .object(SaleInstallment, access => access.level('edit').post('allow').action('pay', 'allow').action('settleByBank', 'allow').function('figures', 'allow'))
             // Сертификаты обоих видов выдаёт и продавец; вкладку «Сертификаты» читает функция `activeCertificates`.
             .object(Certificate, access => access.level('edit').post('allow').action('exchange', 'allow').action('application', 'allow').function('activeCertificates', 'allow')))
-        // Итоги регистров нужны рабочему месту и формам; право закрытия рассрочки продавцу не даётся.
+        // Проведение проверяет предел возврата по движениям продажи.
         .access(accessSchema()
             .object(SalesNetOfReturns, access => access.level('read'))
             .object(InstallmentDebts, access => access.level('read'))
-            .object(MoneyReceipts, access => access.level('read'))
             .object(UnarrangedInstallments, access => access.level('read'))
             .object(AppliedCoupons, access => access.level('read'))
             .object(CertificateBalances, access => access.level('read')))
         // Продавцы видят начисление всех сотрудников, но период не закрывают: права на «Закрыть период» нет.
-        .grant(Rights.page.payroll.open)
         .access(accessSchema()
+            .page(Payroll, 'allow')
             .object(PeriodClosing, access => access.level('read').action('payrollPreview', 'allow')))
         // Сводку за период и кассовую сводку продавец видит так же, как зарплату: отчёты только читают.
-        .grant(Rights.page.periodSummary.open)
         .access(accessSchema()
-            .object(PeriodClosing, access => access.action('periodSummary', 'allow').action('cashSummary', 'allow'))),
-    role('reader')
-        .title('Только чтение')
-        // Пробные сведения исключены, чтобы проверять скрытие клиентских блоков без запрещённых запросов.
+            .page(PeriodSummary, 'allow')
+            .object(PeriodClosing, access => access.action('periodSummary', 'allow').action('cashSummary', 'allow')));
+}
+
+/** При запуске сервер собирает права этих ролей из конфигурации. */
+export const roles = [
+    role('administrator').title('Администратор').readOnly().grantAll(),
+    storeRole('seller', 'Продавец'),
+    storeRole('manager', 'Управляющий')
         .access(accessSchema()
-            .object(PhysicalPersons, access => access.level('read'))
-            .object(Employees, access => access.level('read'))
-            .object(Nomenclature, access => access.level('read'))
-            .object(ExternalLinks, access => access.level('read'))
-            .object(Sample, access => access.level('read'))
-            .object(SampleDelegate, access => access.level('read'))
-            .object(Shift, access => access.level('read'))
-            .object(SampleDocument, access => access.level('read'))
-            .object(PeriodClosing, access => access.level('read'))
-            .object(SampleRegister, access => access.level('read')))
-        // Продажи: чтение документов и справочника и рабочее место, на котором без права записи нет кнопок создания.
-        .grant(Rights.page.sellerWorkplace.open)
-        .access(accessSchema()
-            .object(Discounts, access => access.level('read'))
-            .object(Coupons, access => access.level('read'))
-            .object(PaymentReceivers, access => access.level('read'))
-            .object(InstallmentRates, access => access.level('read'))
-            .object(Sale, access => access.level('read'))
-            .object(SaleInstallment, access => access.level('read'))
-            .object(Weighing, access => access.level('read'))
-            .object(Certificate, access => access.level('read'))
-            .object(Refund, access => access.level('read').action('returnedGoods', 'allow').action('saleRefunds', 'allow').action('settlementTerms', 'allow')))
-        // Регистры продаж: по ним читаются итоги по продажам, рассрочкам, сменам и способам оплаты.
-        .access(accessSchema()
-            .object(SalesNetOfReturns, access => access.level('read'))
-            .object(InstallmentDebts, access => access.level('read'))
-            .object(MoneyReceipts, access => access.level('read'))
-            .object(UnarrangedInstallments, access => access.level('read'))
-            .object(AppliedCoupons, access => access.level('read'))
-            .object(CertificateBalances, access => access.level('read')))
-        // Суммы рассрочек на формах продажи и рассрочки считает функция: без права формы их не покажут.
-        .access(accessSchema()
-            .object(Sale, access => access.function('figures', 'allow'))
-            .object(SaleInstallment, access => access.function('figures', 'allow'))
-            // Ленту продаж и возвратов на рабочем месте читает функция возврата, вкладку «Отвесы» — функция отвеса.
-            .object(Refund, access => access.function('sellerFeed', 'allow').function('figures', 'allow').function('refundPlan', 'allow'))
-            .object(Weighing, access => access.function('heldGoods', 'allow'))
-            .object(Certificate, access => access.function('activeCertificates', 'allow'))),
-    role('sampleEditor')
-        .title('Запись пробного документа')
-        // Права на действие «Принять строки» нет: на этой роли проверяется политика, которая его требует.
-        .access(accessSchema()
-            .object(Sample, access => access.level('read'))
-            .object(SampleDelegate, access => access.level('read'))
-            .object(SampleDocument, access => access.level('edit'))),
-    role('sampleDocumentReader')
-        .title('Чтение пробного документа без справочников')
-        // Права на пробный справочник нет: на этой роли проверяется, что ссылка на него показана как «Нет доступа».
-        .access(accessSchema()
-            .object(SampleDocument, access => access.level('read'))
-            .object(SampleRegister, access => access.level('read'))),
+            .object(SaleInstallment, access => access.action('close', 'allow'))
+            // Закрытие периода записывает и проводит документ вложенным действием.
+            .object(PeriodClosing, access => access.level('edit').post('allow').action('closePeriod', 'allow'))
+            .object(Coupons, access => access.level('edit').function('applications', 'allow'))
+            .object(PaymentReceivers, access => access.level('edit'))
+            // Движения денег нужны управляющему для сверки; продавец видит итоги в сводке.
+            .object(MoneyReceipts, access => access.level('read'))),
 ];

@@ -94,6 +94,20 @@ export const platformRights = Object.freeze({
     backups: Object.freeze({ read: right('platform', 'backups', 'read'), write: right('platform', 'backups', 'write') }),
 });
 
+/** Названия узлов платформы для дерева и редактора. Операции берутся из реестра прав. */
+export function describePlatformRights() {
+    const titles: Readonly<Record<keyof typeof platformRights, string>> = {
+        authorization: 'Права доступа', journal: 'Журнал действий', documents: 'Документы', backups: 'Резервные копии',
+    };
+    const operationTitles: Readonly<Record<string, string>> = { read: 'Чтение', write: 'Запись', repost: 'Перепроведение документов' };
+    return (Object.keys(platformRights) as (keyof typeof platformRights)[]).map(name => ({
+        kind: 'platform' as const,
+        name,
+        title: titles[name],
+        operations: Object.entries(platformRights[name]).map(([operation, right]) => ({ operation, right, title: operationTitles[operation] ?? operation })),
+    }));
+}
+
 /**
  * Стандартные права и собственные действия полного описания объекта. Источник стандартных
  * прав общий с диспетчером: новый вид разрешения автоматически появится и в дереве доступа.

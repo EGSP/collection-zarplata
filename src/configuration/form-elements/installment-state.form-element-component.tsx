@@ -78,9 +78,14 @@ export default function InstallmentState() {
     useEffect(() => {
         if (!closed && own && ownRate !== null && rate === null) form.setValue('rate', ownRate);
     }, [closed, own, ownRate, rate, form]);
+    // Тип записанной собственной рассрочки доступен для изменения с тем же правом, что и закрытие.
+    const typeReadOnly = saved?.type === ownInstallment && !form.view.actions.some(action => action.name === 'close');
     useFormRestrictions(installments, closed
         ? { readOnly: true, hiddenActions: ['pay', 'close', 'post', 'unpost', 'markDeleted'] }
-        : { readOnlyFields: inClosedPeriod ? ['payments', 'rate'] : ['payments'], hiddenActions: bank ? ['pay', 'close', 'post', 'settleByBank'] : ['pay', 'close', 'settleByBank'] });
+        : {
+            readOnlyFields: ['payments', ...inClosedPeriod ? ['rate'] as const : [], ...typeReadOnly ? ['type'] as const : []],
+            hiddenActions: bank ? ['pay', 'close', 'post', 'settleByBank'] : ['pay', 'close', 'settleByBank'],
+        });
     // У новой рассрочки состояния ещё нет, а действиям нужен `guid` записанной.
     if (saved === null) return null;
 

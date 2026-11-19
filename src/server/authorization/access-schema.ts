@@ -2,11 +2,15 @@ import type { StandardFields } from '../metadata/standard-fields.js';
 /** Типизированное дерево доступа. Раскладка формы не участвует в наследовании прав. */
 import type { ObjectBuilder, TablePartMap } from '../metadata/builders.js';
 import type { ObjectKind } from '../metadata/descriptions.js';
+import type { PageBuilder } from '../ui/pages.js';
+import type { platformRights } from './rights.js';
 
 export type DataAccess = 'inherit' | 'deny' | 'read' | 'edit';
 export type CallAccess = 'inherit' | 'deny' | 'allow';
 export type AccessLevel = DataAccess | CallAccess | 'full';
-export interface AccessTarget { readonly kind: ObjectKind; readonly name: string }
+/** Адрес корня схемы. У страниц и разделов платформы есть узлы вызовов. */
+export interface AccessTarget { readonly kind: ObjectKind | 'page' | 'platform'; readonly name: string }
+type PlatformSection = keyof typeof platformRights;
 export interface AccessEntry { readonly target: AccessTarget; readonly path: string; readonly level: AccessLevel }
 export interface AccessGroup { readonly target: AccessTarget; readonly name: string; readonly title?: string; readonly fields: readonly string[] }
 export interface AccessDefinition { readonly entries: readonly AccessEntry[]; readonly groups: readonly AccessGroup[] }
@@ -18,9 +22,27 @@ type Groups<Builder> = Builder extends { readonly '~accessGroups': infer Names e
 /** Схема не исполняет политику и не даёт права сама по себе: её подключают к роли или обработчику. */
 export class AccessSchema implements AccessDefinition {
     constructor(readonly entries: readonly AccessEntry[] = [], readonly groups: readonly AccessGroup[] = []) {}
+    /** Подключает поддерево данных и операций одного объекта. */
     object<Builder extends ObjectBuilder>(object: Builder, define: (schema: ObjectAccessSchema<Builder, Groups<Builder>>) => AccessDefinition): AccessSchema {
         const addition = define(new ObjectAccessSchema(object));
         return new AccessSchema([...this.entries, ...addition.entries], [...this.groups, ...addition.groups]);
+    }
+
+    /** Задаёт право открытия страницы. Операции, которые она вызывает, имеют собственные права. */
+    page(page: PageBuilder, level: CallAccess): AccessSchema {
+        return this.withOperation({ kind: page.kind, name: page.name }, 'open', level);
+    }
+
+    /** Задаёт право на одну операцию служебного раздела платформы. */
+    platform<const Section extends PlatformSection>(section: Section, operation: keyof (typeof platformRights)[Section] & string, level: CallAccess): AccessSchema {
+        return this.withOperation({ kind: 'platform', name: section }, operation, level);
+    }
+
+    /** У страницы и платформы вызовы наследуют решение корня по тем же правилам, что у объектов. */
+    private withOperation(target: AccessTarget, operation: string, level: CallAccess): AccessSchema {
+        const path = `actions.${operation}`;
+        const otherEntries = this.entries.filter(entry => entry.target.kind !== target.kind || entry.target.name !== target.name || entry.path !== path);
+        return new AccessSchema([...otherEntries, { target, path, level }], this.groups);
     }
 }
 
@@ -63,7 +85,7 @@ export function accessSchema(object?: ObjectBuilder): AccessSchema { return obje
 export interface AccessDecision { readonly level: Exclude<AccessLevel, 'inherit' | 'full'>; readonly source: string; readonly specificity: number }
 const priority: Record<Exclude<AccessLevel, 'inherit'>, number> = { deny: 0, read: 1, allow: 1, edit: 2, full: 3 };
 /** Объединяем явные настройки узла до наследования: запрет выигрывает при равной точности. */
-export function resolveAccess(definitions: readonly AccessDefinition[], target: AccessTarget, path: string, full = false): AccessDecision {
+export function resolveAccess(definitions: readonly AccessDefinition[], target: AccessTarget, path: string): AccessDecision {
     const same = (candidate: AccessTarget) => candidate.kind === target.kind && candidate.name === target.name;
     const groups = definitions.flatMap(definition => definition.groups).filter(group => same(group.target));
     if (path.startsWith('fields.') && definitions.some(definition => definition.entries.some(entry => same(entry.target) && entry.path.startsWith('internal.') && (path === `fields.${entry.path.slice(9)}` || path.startsWith(`fields.${entry.path.slice(9)}.`))))) return { level: 'deny', source: 'internal', specificity: 1000 };
@@ -79,7 +101,7 @@ export function resolveAccess(definitions: readonly AccessDefinition[], target: 
         const level = entry.level === 'full' ? (call ? 'allow' : 'edit') : entry.level;
         return [{ level, source: entry.path || 'object', specificity }] as AccessDecision[];
     });
-    if (candidates.length === 0) return { level: full ? (path.startsWith('actions') || path.startsWith('functions') ? 'allow' : 'edit') : 'deny', source: full ? 'full' : 'default', specificity: -1 };
+    if (candidates.length === 0) return { level: 'deny', source: 'default', specificity: -1 };
     const maximum = Math.max(...candidates.map(candidate => candidate.specificity));
     return candidates.filter(candidate => candidate.specificity === maximum).sort((left, right) => (left.level === 'deny' ? -1 : right.level === 'deny' ? 1 : priority[right.level] - priority[left.level]) || left.source.localeCompare(right.source))[0]!;
 }
