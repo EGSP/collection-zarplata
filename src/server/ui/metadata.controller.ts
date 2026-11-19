@@ -13,8 +13,9 @@ import { UiService } from './ui.service.js';
 export class MetadataController {
     constructor(private readonly ui: UiService) {}
 
+    /** Возвращает имя из проверенной сессии вместе с доступными описаниями. */
     @Get()
     metadata(@Req() request: AuthenticatedRequest): Promise<MetadataResponse> {
-        return this.ui.metadataResponse(request.userGuid);
+        return this.ui.metadataResponse(request.userGuid, request.userName);
     }
 }
