@@ -34,6 +34,18 @@ export interface CashSummary {
     readonly totals: SummaryTotals;
 }
 
+/** Отчёт для экрана сверки с отпечатком именно показанных строк и сумм. */
+export interface CashSummaryForReview extends CashSummary {
+    readonly reviewVersion: string;
+}
+
+/** Отпечаток защищает отметку от изменения отчёта между просмотром и нажатием кнопки. */
+export const cashSummaryVersion = Effect.fnUntraced(function* (summary: CashSummary) {
+    const bytes = new TextEncoder().encode(JSON.stringify(summary));
+    const digest = yield* Effect.promise(() => crypto.subtle.digest('SHA-256', bytes));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+});
+
 /** Отбор действующих проведённых документов. */
 const active = [
     { column: 'posted', operator: '=', value: true },

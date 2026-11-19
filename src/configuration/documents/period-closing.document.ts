@@ -19,9 +19,10 @@ import { numberAndDate } from '../money.js';
 import { periodClosingHead } from '../period-closing.js';
 import { calculatePayroll, type PayrollResult } from '../payroll.js';
 import { periodSummary } from '../period-summary.js';
-import { cashSummary } from '../cash-summary.js';
+import { cashSummary, cashSummaryVersion } from '../cash-summary.js';
 import { dayOf, lastClosedThrough } from '../policies/closed-period.js';
 import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
+import { checkCashDayReviews } from './cash-day.document.js';
 import { SaleInstallment } from './sale-installment.document.js';
 import { Sale } from './sale.document.js';
 import { Shift } from './shift.document.js';
@@ -143,6 +144,7 @@ const closingRulesPolicy: Policy<ClosingRecord> = {
         : Effect.void,
     post: ({ document }) => Effect.gen(function* () {
         yield* checkClosingConditions(document.closedThrough);
+        yield* checkCashDayReviews(document.closedThrough);
         yield* checkPayroll(document);
     }),
     unpost: ({ document }) => Effect.gen(function* () {
@@ -219,4 +221,8 @@ export const PeriodClosing = closing
         .title('Кассовая сводка')
         // Не `day`: платформа не принимает имён, совпадающих с ключевыми словами SQL.
         .input((input) => input.field('summaryDay', (field) => field.date().title('День').required()))
-        .handle((input) => cashSummary(input.summaryDay)));
+        .handle((input) => Effect.gen(function* () {
+            const summary = yield* cashSummary(input.summaryDay);
+            const reviewVersion = yield* cashSummaryVersion(summary);
+            return { ...summary, reviewVersion };
+        })));

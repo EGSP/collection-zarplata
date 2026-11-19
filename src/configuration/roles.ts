@@ -6,6 +6,7 @@ import { PeriodSummary } from './pages/period-summary.page.js';
 import { SellerWorkplace } from './pages/seller-workplace.page.js';
 
 import { AppliedCoupons } from './registers/applied-coupons.register.js';
+import { CashDay } from './documents/cash-day.document.js';
 import { Certificate } from './documents/certificate.document.js';
 import { CertificateBalances } from './registers/certificate-balances.register.js';
 import { Coupons } from './catalogs/coupons.catalog.js';
@@ -67,6 +68,7 @@ function storeRole(name: string, title: string) {
         // Сводку за период и кассовую сводку продавец видит так же, как зарплату: отчёты только читают.
         .access(accessSchema()
             .page(PeriodSummary, 'allow')
+            .object(CashDay, access => access.level('read').functions('allow'))
             .object(PeriodClosing, access => access.action('periodSummary', 'allow').action('cashSummary', 'allow')));
 }
 
@@ -77,6 +79,7 @@ export const roles = [
     storeRole('manager', 'Управляющий')
         .access(accessSchema()
             .object(SaleInstallment, access => access.action('close', 'allow'))
+            .object(CashDay, access => access.action('recordReview', 'allow'))
             // Закрытие периода записывает и проводит документ вложенным действием.
             .object(PeriodClosing, access => access.level('edit').post('allow').action('closePeriod', 'allow'))
             .object(Coupons, access => access.level('edit').function('applications', 'allow'))

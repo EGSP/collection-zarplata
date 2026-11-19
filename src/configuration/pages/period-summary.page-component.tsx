@@ -1,24 +1,19 @@
 import { CertificatesTable, Money, OperationsTable, summaryLayout, SummaryTotalsPanel, type SummaryVariant } from './period-summary-tables';
+import { CashDayNavigation, shiftDay } from './cash-day-navigation';
+import { CashDayReview } from './cash-day-review';
 import { DataTable, Icons, StickyRail } from '../../web/sdk';
 import { Alert, Button, Tabs } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { Column, FieldDisplay, FieldInput, FluidField, isEmptyFieldValue, Grid, Layer, Page, Panel, RecordLink, Stack, Text, useActionResult, useRecordList, type AccountingTone } from '../../web/sdk';
+import { Column, FieldDisplay, FieldInput, FluidField, isEmptyFieldValue, Grid, Layer, Page, Panel, RecordLink, Stack, Text, useActionResult, useFunctionResult, useRecordList, type AccountingTone } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { PeriodSummary } from '../period-summary';
-import type { CashSummary } from '../cash-summary';
+import type { CashSummaryForReview } from '../cash-summary';
 
 /** Сегодняшний день датой `ГГГГ-ММ-ДД` по часам браузера: отчёт по умолчанию строится за него. */
 function today(): string {
     const date = new Date();
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-/** День, сдвинутый на `days` дней. Считается в UTC, как на сервере, чтобы переход на летнее время не сдвигал день. */
-function shiftDay(day: string, days: number): string {
-    const date = new Date(`${day}T00:00:00.000Z`);
-    date.setUTCDate(date.getUTCDate() + days);
-    return date.toISOString().slice(0, 10);
 }
 
 /** Следующий день даты `ГГГГ-ММ-ДД`. */
@@ -272,32 +267,30 @@ function ReportState<Data>({ report, children }: { readonly report: { readonly d
  * Правила сумм отличаются от сводки за период раскладкой рассрочки (раздел «Правила учёта»,
  * «Кассовая сводка»), поэтому «Итого» кассы может не совпадать с вкладкой «Период» за тот же день.
  *
- * День по умолчанию сегодняшний. Стрелки переходят на соседний день; будущих дней касса
- * не показывает, поэтому стрелка вперёд на сегодняшнем дне недоступна, а выбранный в поле
- * будущий день заменяется сегодняшним.
+ * Пикер и полоса меняют одну выбранную дату. Будущие даты видны на полосе, но не открываются.
  */
 function CashTab() {
     const [day, setDay] = useState<string>(today);
     const current = today();
-    const report = useActionResult<CashSummary>({ object: Objects.document.periodClosing, action: 'cashSummary', payload: { summaryDay: day } });
+    const daysBefore = 6;
+    const daysAfter = 6;
+    const report = useActionResult<CashSummaryForReview>({ object: Objects.document.periodClosing, action: 'cashSummary', payload: { summaryDay: day } });
+    const calendar = useFunctionResult({
+        object: Objects.document.cashDay, name: 'reviewCalendar',
+        payload: { firstDate: shiftDay(day, -daysBefore), lastDate: shiftDay(day, daysAfter) },
+    });
+    const statuses = calendar.data === undefined ? undefined : new Map(calendar.data.days.map((record) => [record.cashDate, record.reviewStatus]));
+    const closedThrough = calendar.data?.closedThrough ?? null;
+    const summary = report.data;
     return (
         <Stack gap={5}>
             <Panel>
-                <Grid gutter="narrow">
-                    <Column span={{ md: 4 }}>
-                        <FluidField label="День" required empty={isEmptyFieldValue(day)}>
-                            {/* Пустое значение не принимается: касса всегда показывает какой-то день. */}
-                            <FieldInput field={dayField} value={day} onChange={(value) => { if (typeof value === 'string') setDay(value > current ? current : value); }} />
-                        </FluidField>
-                    </Column>
-                    <Column span={{ md: 4 }}>
-                        <Stack orientation="horizontal" gap={3}>
-                            <Button aria-label="Предыдущий день" icon={<Icons.previousDay />} onClick={() => setDay(shiftDay(day, -1))} />
-                            <Button aria-label="Следующий день" icon={<Icons.nextDay />} disabled={day >= current} onClick={() => setDay(shiftDay(day, 1))} />
-                            <Button disabled={day === current} onClick={() => setDay(today())}>Сегодня</Button>
-                        </Stack>
-                    </Column>
-                </Grid>
+                <CashDayNavigation day={day} today={current} onDayChange={setDay} statuses={statuses} closedThrough={closedThrough} daysBefore={daysBefore} daysAfter={daysAfter}
+                    renderSelectedDay={calendar.data === undefined || summary?.day !== day ? undefined : (trigger) => (
+                        <CashDayReview key={day} trigger={trigger} day={day} closed={closedThrough !== null && day <= closedThrough}
+                            summaryVersion={summary.reviewVersion} refresh={report.refresh}
+                            renderSnapshot={(snapshot) => <Zones operations={snapshot.operations} totals={snapshot.totals} variant="cash" />} />
+                    )} />
             </Panel>
             <ReportState report={report}>
                 {(summary) => <Zones operations={summary.operations} totals={summary.totals} variant="cash" />}

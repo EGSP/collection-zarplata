@@ -18,6 +18,7 @@ import { PaymentReceivers } from './catalogs/payment-receivers.catalog.js';
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { SampleDelegate } from './catalogs/sample-delegate.catalog.js';
 import { Sample } from './catalogs/sample.catalog.js';
+import { CashDay } from './documents/cash-day.document.js';
 import { Certificate } from './documents/certificate.document.js';
 import { PeriodClosing } from './documents/period-closing.document.js';
 import { Refund } from './documents/refund.document.js';
@@ -53,7 +54,7 @@ export const applicationShell = shell()
         .title('Продажи')
         .icon('trade')
         .group('Рабочие места', [SellerWorkplace])
-        .group('Документы', [Sale, Weighing, Refund, SaleInstallment, Certificate])
+        .group('Документы', [Sale, Weighing, Refund, SaleInstallment, Certificate, CashDay])
         .group('Регистры', [SalesNetOfReturns, InstallmentDebts, MoneyReceipts, UnarrangedInstallments, AppliedCoupons, CertificateBalances])
         .group('Справочники', [Discounts, Coupons, PaymentReceivers, InstallmentRates])
         .group('Зарплата', [Payroll, PeriodClosing])
