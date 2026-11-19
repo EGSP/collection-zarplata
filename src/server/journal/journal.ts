@@ -12,7 +12,7 @@ import { Effect } from 'effect';
 import { newGuid } from '../common/guid.js';
 import { Database } from '../database/database.effect.js';
 import type { DatabaseError } from '../database/database.errors.js';
-import { insert, select, type SqlCondition } from '../database/sql.builder.js';
+import { insert, select, type SqlFilter } from '../database/sql.builder.js';
 import type { ObjectDescription } from '../metadata/descriptions.js';
 import { Metadata } from '../metadata/metadata.effect.js';
 import { ActionContext } from '../data/action-context.js';
@@ -102,7 +102,7 @@ const entriesFromRows = Effect.fn('journal.entriesFromRows')(function* (rows: re
     const names = new Map<string, string>();
     // Ограничиваем число параметров и для trace, у которого нет размера страницы.
     for (let offset = 0; offset < identifiers.length; offset += 500) {
-        const users = yield* database.all<{ guid: string; name: string }>(select('platform_users', {
+        const users = yield* database.all<{ guid: string; name: string }>(select('catalog_users', {
             columns: ['guid', 'name'],
             where: [{ any: identifiers.slice(offset, offset + 500).map((guid) => ({ column: 'guid', operator: '=' as const, value: guid })) }],
         }));
@@ -115,7 +115,7 @@ const entriesFromRows = Effect.fn('journal.entriesFromRows')(function* (rows: re
  * Страница строк по отбору, новые действия первыми. `rowid` различает действия, начатые в одну
  * миллисекунду: строки вставляются в порядке завершения действий.
  */
-function page(where: readonly SqlCondition[], payload: RecordValue): Effect.Effect<unknown, DatabaseError, Database> {
+function page(where: readonly SqlFilter[], payload: RecordValue): Effect.Effect<unknown, DatabaseError, Database> {
     return Effect.gen(function* () {
         const { page, pageSize, offset } = pageOptions(payload);
         const database = yield* Database;
@@ -145,7 +145,11 @@ function history(payload: RecordValue): Effect.Effect<unknown, DatabaseError | D
         if (description === undefined) {
             return yield* new DataNotFoundError({ message: `Объект ${kind}.${name} не найден` });
         }
-        const where: SqlCondition[] = [{ column: 'targetKind', operator: '=', value: kind }, { column: 'targetName', operator: '=', value: name }];
+        const where: SqlFilter[] = [{ column: 'targetName', operator: '=', value: name }];
+        // История встроенного справочника охватывает и события до перехода на общий API.
+        where.push(kind === 'catalog' && name === 'users'
+            ? { any: [{ column: 'targetKind', operator: '=', value: kind }, { column: 'targetKind', operator: '=', value: 'platform' }] }
+            : { column: 'targetKind', operator: '=', value: kind });
         if (description.kind === 'informationRegister' && payload['targetGuid'] !== undefined) {
             return yield* new DataValidationError({ message: 'История сведений определяется измерениями в targetKey', fields: ['payload.targetGuid'] });
         }

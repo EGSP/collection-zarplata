@@ -27,7 +27,7 @@ import { displayedKind, formatSearchValue, normalizeSearchText } from '../ui/val
 import { ActionContext, ActionDispatcher, FunctionDispatcher } from './action-context.js';
 import { DataNotFoundError, DataValidationError } from './data.errors.js';
 import { afterSave, markDeleted, post, unpost } from './posting.js';
-import { filterValue, guidValue, loadRecord, objectValue, pageOptions, sqlOperators, stringValue, validated, type RecordValue } from './records.js';
+import { filterValue, guidValue, loadRecord, objectValue, pageOptions, sqlOperators, storeRecord, stringValue, validated, type RecordValue } from './records.js';
 import type { ConfigurationRequirements } from '../metadata/builders.js';
 import { readOnlyDatabase } from './read-only-database.js';
 import { enforcePolicies, type PolicyInvocation } from './policies.js';
@@ -274,20 +274,18 @@ export class DataService {
             const computed = yield* calculatedInput(declared.input, declared.tableParts, payload, 'payload');
             const input = yield* validated(functionInputSchema(description, name)!, computed, 'payload');
             // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
-            const result = description.storage?.callFunction?.(name, input as RecordValue) ?? declared.handler(input as never);
+            const result = declared.handler(input as never);
             if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик функции должен вернуть Effect'));
             return yield* (result as Effect.Effect<unknown, unknown, ActionRequirements>).pipe(
                 Effect.provideService(Database, readOnlyDatabase(this.database.effect)),
                 Effect.provideService(ActionDispatcher, deniedActionDispatcher),
-                Effect.provideService(ReadonlyDatabase, description.storage === undefined ? (yield* ReadonlyDatabase) : readOnlyDatabase(this.database.effect)),
             );
         }.bind(this));
     }
 
     /** Выбирает стандартное или собственное действие; неизвестное действие возвращает 404. */
     private dispatch(description: ObjectDescription, action: string, payload: unknown): Effect.Effect<unknown, unknown, ActionRequirements> {
-        // Адаптер перечисляет поддержанные операции: неподдержанная запись не должна попасть в SQL-представление.
-        if (description.storage !== undefined && !description.storage.standardActions.includes(action) && !description.actions.some(candidate => candidate.name === action)) {
+        if (description.platformBehavior?.unavailableActions.includes(action)) {
             return Effect.fail(new DataNotFoundError({ message: `Действие «${action}» для ${description.name} не предусмотрено` }));
         }
         if (description.kind === 'informationRegister') {
@@ -333,13 +331,13 @@ export class DataService {
                 const computed = yield* calculatedInput(custom.input, custom.tableParts, payload, 'payload');
                 const input = yield* validated(schema, computed, 'payload');
                 // Описания хранят обработчики с разными типами аргументов; вызов допустим после проверки по его схеме.
-                const result = description.storage?.action?.(action, input as RecordValue) ?? custom.handler!(input as never);
+                const result = custom.handler!(input as never);
                 if (!Effect.isEffect(result)) return yield* Effect.die(new Error('Обработчик действия должен вернуть Effect'));
-                const value = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ConfigurationRequirements>, Database, description.storage === undefined ? readOnlyDatabase(this.database.effect) : this.database.effect);
+                const value = yield* Effect.provideService(result as Effect.Effect<unknown, unknown, ConfigurationRequirements>, Database, readOnlyDatabase(this.database.effect));
                 // Платформа не знает, что именно изменил обработчик: изменения записей попадают в журнал
                 // строками вложенных действий, а эта строка связывает их с вызовом через parentActionGuid.
-                const recordGuid = description.storage !== undefined && typeof (input as RecordValue)['guid'] === 'string' ? (input as RecordValue)['guid'] as string : null;
-                yield* writeJournal({ occurredAt, target: { kind: description.kind, name: description.name, guid: recordGuid }, action, changes: description.storage?.journalChanges?.(action, input as RecordValue) ?? null });
+                const journal = description.platformBehavior?.actionJournal(action, input as RecordValue);
+                yield* writeJournal({ occurredAt, target: { kind: description.kind, name: description.name, guid: journal?.guid ?? null }, action, changes: journal?.changes ?? null });
                 return value;
             }.bind(this));
         }
@@ -633,8 +631,10 @@ export class DataService {
             const access = yield* currentAccess;
             const safeInput = writableInput(description, objectValue(request['fields'], 'payload.fields'), existingRecord, access);
             const computed = yield* calculatedInput(description.fields, description.tableParts, safeInput, 'payload.fields');
-            const input = yield* validated(inputSchema(description), computed, 'payload.fields') as Effect.Effect<RecordValue, DataValidationError>;
-            const values: RecordValue = { guid, deletedAt: null };
+            const validatedInput = yield* validated(inputSchema(description), computed, 'payload.fields') as Effect.Effect<RecordValue, DataValidationError>;
+            const input = description.platformBehavior === undefined ? validatedInput
+                : yield* description.platformBehavior.prepareSave(validatedInput, existingRecord);
+            const values: RecordValue & { guid: string } = { guid, deletedAt: null };
             for (const field of description.fields) {
                 if (!field.managed) values[field.name] = input[field.name] ?? null;
             }
@@ -655,42 +655,13 @@ export class DataService {
             };
             return {
                 policyArguments: { action: 'save', input: { existingRecord: existingRecord ?? null, proposedRecord } },
-                execute: this.applySave(description, guid, input, values, creating),
+                execute: Effect.gen(function* () {
+                    yield* storeRecord(description, values, input, creating);
+                    const saved = yield* afterSave(description, guid);
+                    if (description.platformBehavior !== undefined) yield* description.platformBehavior.afterSave(saved, existingRecord);
+                    return saved;
+                }),
             } satisfies MutationOperation;
-        }.bind(this));
-    }
-
-    /** Сохраняет подготовленные поля и части; проведённый документ затем проводит заново. */
-    private applySave(
-        description: ObjectDescription,
-        guid: string,
-        input: RecordValue,
-        values: RecordValue,
-        creating: boolean,
-    ): Effect.Effect<RecordValue, unknown, ActionRequirements> {
-        return Effect.gen(function* (this: DataService) {
-            if (description.storage !== undefined) return yield* description.storage.save(guid, input, creating);
-            const database = this.database.effect;
-            if (creating) {
-                yield* database.run(query(description).insert(values));
-            } else {
-                // Обновление не снимает ранее установленную пометку удаления.
-                const { guid: _guid, deletedAt: _deletedAt, ...changed } = values;
-                const result = yield* database.run(query(description).update(changed, [{ column: 'guid', operator: '=', value: guid }]));
-                if (result.changes === 0) return yield* new DataNotFoundError({ message: `Запись ${description.name} с guid ${guid} не найдена` });
-            }
-            for (const part of description.tableParts) {
-                const partQuery = query(description).tablePart(part.name);
-                // Табличная часть передана целиком; удаление старых строк и вставка новых атомарны.
-                yield* database.run(partQuery.remove([{ column: 'ownerGuid', operator: '=', value: guid }]));
-                const rows = input[part.name] as RecordValue[];
-                for (const [index, row] of rows.entries()) {
-                    const fields: RecordValue & { ownerGuid: string; lineNumber: number } = { ownerGuid: guid, lineNumber: index + 1 };
-                    for (const field of part.fields) fields[field.name] = row[field.name] ?? null;
-                    yield* database.run(partQuery.insert(fields));
-                }
-            }
-            return yield* afterSave(description, guid);
         }.bind(this));
     }
 

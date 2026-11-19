@@ -344,8 +344,8 @@ export interface LookupDescription {
  * платформа читает его из разных модулей, и изменение в одном месте незаметно сломало бы другие.
  */
 export interface ObjectDescription {
-    /** Служебное хранение; не передаётся клиенту и не входит в прикладную синхронизацию. */
-    readonly storage?: import('../data/object-storage.js').ObjectStorage;
+    /** Серверные расширения для встроенного объекта, подключаемые после проверки метаданных. */
+    readonly platformBehavior?: import('../data/platform-object-behavior.js').PlatformObjectBehavior;
     readonly access?: AccessDefinition;
     readonly kind: ObjectKind;
     readonly name: string;
