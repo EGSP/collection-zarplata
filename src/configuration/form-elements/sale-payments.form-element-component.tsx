@@ -1,5 +1,5 @@
 import { Form } from 'antd';
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { RecordOf } from '../../server/metadata/index';
 import { Column, FieldInput, FieldLabel, isEmptyFieldValue, Grid, newRowValues, Stack, TablePart, useFormData, useFormValue, type EnteredValue, type TablePartInputProperties, type TablePartOptions } from '../../web/sdk';
 import { PaymentReceiverDefaults } from './payment-receiver-default';
@@ -66,7 +66,8 @@ function Labelled({ title, empty, disabled, onBlur, children }: { readonly title
  * записанная до появления оплат, показывает таблицу.
  *
  * В таблице способ строки выбирается кнопками из одних значков, название способа в подсказке.
- * Каждый способ выбирается не больше чем в одной строке: занятый способ в остальных строках недоступен. Первая строка сложной оплаты пустая,
+ * Денежный способ можно повторить для разных приёмников. «Рассрочку» можно выбрать в одной строке.
+ * Первая строка сложной оплаты пустая,
  * а каждая следующая получает сумму, которую осталось оплатить: продавцу не нужно считать
  * остаток самому.
  */
@@ -133,10 +134,7 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
             values.setFieldValue('payments', current.map((payment, position) => position === index ? { ...payment, receiver: receiver as PaymentLine['receiver'] } : payment));
         }} />;
 
-    // У продажи не больше одной оплаты каждого способа: занятый способ недоступен в остальных строках.
-    // Перечень пересоздаётся только при смене занятых способов, чтобы контекст не менялся при каждой отрисовке.
-    const takenKey = JSON.stringify([...new Set(rows.flatMap((payment) => payment.method ?? []))]);
-    const taken = useMemo(() => JSON.parse(takenKey) as ReadonlyArray<string>, [takenKey]);
+    const taken = rows.some((payment) => payment.method === installmentMethod) ? [installmentMethod] : [];
     const options: TablePartOptions = {
         columnSizes,
         columnInputs: { method: PaymentMethodIcons },
