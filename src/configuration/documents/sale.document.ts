@@ -106,8 +106,8 @@ const installmentAmount = (record: SaleRecord) => record.payments.filter(byInsta
  * появления оплат, это поле пусто. Простой способ допускает не больше одной оплаты, а не ровно
  * одну: у продажи с нулевой суммой оплат нет, потому что сумма оплаты больше нуля.
  *
- * У продажи не больше одной строки каждого способа: две строки наличными при сложной оплате
- * ничего не добавляют к учёту, а возврат и отчёты читают оплату по способам.
+ * При сложной оплате денежный способ можно повторить, чтобы записать деньги по приёмникам.
+ * Строка рассрочки одна: её сумма определяет, сколько долга оформляет продажа.
  *
  * Способ «Рассрочка» допустим у строки сложной оплаты и у единственной оплаты продажи со способом
  * «Рассрочка». У такой строки «Куда оплачено» пусто: деньги по ней не приняты и придут взносами
@@ -130,15 +130,12 @@ const checkPayments = (record: SaleRecord, existing: SaleRecord | null) => {
         return Effect.void;
     }
     if (mode === null) return Effect.fail(new DataValidationError({ message: 'Укажите способ оплаты продажи', fields: ['payload.fields.paymentMode'] }));
-    // Рассрочка по продаже оформляется на одну сумму, поэтому и оплата рассрочкой у продажи одна.
-    const methods = new Set<string>();
-    for (const [index, payment] of record.payments.entries()) {
-        if (methods.has(payment.method)) return rejected(`Строка оплаты ${index + 1}: способ «${payment.method}» уже указан. У продажи не больше одной оплаты каждого способа`);
-        methods.add(payment.method);
-    }
+    let installmentSeen = false;
     for (const [index, payment] of record.payments.entries()) {
         if (!byInstallment(payment)) continue;
         const place = `Строка оплаты ${index + 1}`;
+        if (installmentSeen) return rejected(`${place}: у продажи допускается одна оплата способом «${installmentMethod}»`);
+        installmentSeen = true;
         if (mode !== complexPayment && mode !== installmentMethod) return rejected(`${place}: способ «${installmentMethod}» допустим только при способе оплаты продажи «${installmentMethod}» или «${complexPayment}»`);
         // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
         if ((payment.receiver ?? null) !== null) return rejected(`${place}: у оплаты способом «${installmentMethod}» «Куда оплачено» не заполняется`);

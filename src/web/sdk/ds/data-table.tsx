@@ -135,6 +135,14 @@ export interface DataTableExpansion<Row> {
 export type DataTableRowState = 'muted' | 'locked';
 
 /** Свойства таблицы данных. */
+/** Значения выровненной линии по ключам колонок. */
+type DataTableCells = Readonly<Record<string, unknown>>;
+
+/** Отличает список линий итогов от одной строки значений по колонкам. */
+function hasSummaryLines(summary: DataTableCells | ReadonlyArray<DataTableCells>): summary is ReadonlyArray<DataTableCells> {
+    return Array.isArray(summary);
+}
+
 export interface DataTableProperties<Row> {
     readonly columns: ReadonlyArray<DataTableColumn<Row>>;
     readonly rows: ReadonlyArray<Row>;
@@ -153,11 +161,16 @@ export interface DataTableProperties<Row> {
     /** Пользователь щёлкнул заголовок сортируемой колонки. */
     readonly onSort?: ((key: string) => void) | undefined;
     /**
-     * Строка «Итого» под строками: значения по именам колонок. Значение колонки примитивного типа
-     * таблица форматирует по типу, как значения строк: сумму итога передают копейками, подпись — строкой.
-     * Колонке свободного типа передают готовое содержимое. Без свойства строки итогов нет.
+     * Итоги по ключам колонок. Один объект использует всю схему. Массив выводит несколько линий,
+     * пропуская для каждой из них части схемы, в которых нет ни одного ключа из объекта.
+     * Сумму можно передать копейками, подпись строкой, а собственное содержимое элементом.
      */
-    readonly summary?: { readonly [key: string]: unknown } | undefined;
+    readonly summary?: DataTableCells | ReadonlyArray<DataTableCells> | undefined;
+    /**
+     * Содержимое дополнительной подстроки записи по ключам колонок. Она повторяет сетку
+     * соответствующей линии схемы. Передайте `null` для пустой ячейки или `undefined` вместо всей подстроки.
+     */
+    readonly subrow?: ((row: Row, index: number) => Readonly<Record<string, ReactNode>> | undefined) | undefined;
     /**
      * Страницы с сервера (`ListPagination`): таблица сообщает экрану номер и размер нужной
      * страницы, экран передаёт её строки в `rows`. Без свойства строки у клиента, и таблица делит
@@ -235,6 +248,7 @@ function dataTableStyleSheet(): string {
         // Колонка из одного поля занимает все уровни. Строки схемы разделены пунктиром, как уровни.
         `.${line} { display: grid; }`,
         `.${line} + .${line} { border-top: 1px dashed var(--data-table-subrow-border); }`,
+        `.${line}[data-subrow] > .${cell} { align-items: flex-start; }`,
         // Полужирный шрифт задаётся ячейкам, а не строке: минимумы колонок в `ch` считаются по шрифту
         // строки, и у полужирной строки заголовка колонки вышли бы шире, чем у строк данных.
         // Заливки строк кладутся слоем поверх цвета фона: у закреплённой строки цвет фона непрозрачный,
@@ -322,7 +336,7 @@ const cellPadding = spacing[5];
 
 /** Таблица данных. Правила и пример описаны во вводном комментарии модуля. */
 export function DataTable<Row>(properties: DataTableProperties<Row>) {
-    const { columns, rows: sourceRows, rowKey, pagination, pinnedRows, layouts, selection, expansion, sort, onSort, summary, loading = false, emptyText = 'Строк нет', rowState, onRowClick, onRowDoubleClick, interactive = false } = properties;
+    const { columns, rows: sourceRows, rowKey, pagination, pinnedRows, layouts, selection, expansion, sort, onSort, summary, subrow, loading = false, emptyText = 'Строк нет', rowState, onRowClick, onRowDoubleClick, interactive = false } = properties;
     const point = useBreakpoint();
     // Поведение при переполнении: переопределение экрана или значение платформы для текущей точки.
     // Поведение и закрепление выбираются по одной компоновке: запись экрана выше значений платформы.
@@ -388,7 +402,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
     // Уровни строки схемы: столько, сколько полей в самой высокой её группе. Таблица с группами или
     // несколькими строками схемы разделяет записи заметнее и чередует их фон.
     const levelsOf = (line: ReadonlyArray<ReadonlyArray<DataTableColumn<Row>>>) => Math.max(1, ...line.map((group) => group.length));
-    const stacked = lines.length > 1 || lines.some((line) => levelsOf(line) > 1);
+    const stacked = subrow !== undefined || lines.length > 1 || lines.some((line) => levelsOf(line) > 1);
     // Колонки служебных элементов стоят перед колонками данных: раскрытие строки, затем выбор.
     const serviceColumns = (expansion === undefined ? 0 : 1) + (selection === undefined ? 0 : 1);
     const tracks = [...Array.from({ length: serviceColumns }, () => columnTrack('control')), 'minmax(var(--data-table-lines-minimum), 1fr)'];
@@ -405,13 +419,14 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
             : stacked ? `repeat(${levelsOf(line)}, minmax(${stackedHeight}px, auto))` : `minmax(${rowHeight}px, auto)`,
     });
     /** Область строк схемы у записи, заголовка или итогов: `cells` выводит ячейки одной строки схемы. */
-    const linesOf = (cells: (line: ReadonlyArray<ReadonlyArray<DataTableColumn<Row>>>) => ReactNode, summaryRow = false) => (
+    const linesOf = (cells: (line: ReadonlyArray<ReadonlyArray<DataTableColumn<Row>>>) => ReactNode, extra?: ReactNode) => (
         <div className={classes.lines}>
-            {lines.map((line, lineIndex) => <div key={lineIndex} className={classes.line} style={lineStyle(line, summaryRow)}>{cells(line)}</div>)}
+            {lines.map((line, lineIndex) => <div key={lineIndex} className={classes.line} style={lineStyle(line, false)}>{cells(line)}</div>)}
+            {extra}
         </div>
     );
     // Расчётная высота записи без раскрытия: уровни всех строк схемы и граница под записью.
-    const recordHeight = (stacked ? lines.reduce((sum, line) => sum + levelsOf(line) * stackedHeight, 0) : rowHeight) + 1;
+    const recordHeight = (stacked ? lines.reduce((sum, line) => sum + levelsOf(line) * stackedHeight, subrow === undefined ? 0 : stackedHeight) : rowHeight) + 1;
     // Высота в `rows` записей; при `fill` таблица доходит до нижнего края экрана, но не ниже неё.
     const rowsHeight = visibleRows === undefined ? undefined : `calc(var(--data-table-header-height, ${recordHeight}px) + ${visibleRows * recordHeight}px + var(--data-table-summary-height, 0px))`;
     const variables = {
@@ -521,6 +536,19 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         }
         return undefined;
     };
+    /** Использует сетку исходной линии и сохраняет пустые места под соседними колонками. */
+    const alignedLines = (values: DataTableCells, sparse: boolean, detail = false) => lines.map((line, lineIndex) => {
+        if (sparse && !line.some((group) => group.some((column) => Object.hasOwn(values, column.key)))) return null;
+        return (
+            <div key={lineIndex} className={classes.line} style={lineStyle(line, true)} data-subrow={detail || undefined}>
+                {line.map((group, groupIndex) => {
+                    const column = group.find((candidate) => Object.hasOwn(values, candidate.key)) ?? group[0]!;
+                    return <div key={column.key} role={role} {...cellProperties(column)} {...placement(groupIndex, 0, 1)}>{summaryContent(column, values[column.key])}</div>;
+                })}
+            </div>
+        );
+    });
+
     const body = rows.map((row, index) => {
         const key = rowKey(row, index);
         const expandable = expansion?.isExpandable(row, index) === true;
@@ -529,6 +557,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         const state = rowState?.(row, index);
         const disabled = selection?.isDisabled?.(row, index) === true;
         const pinStyleOfRow = pinStyle(index);
+        const detail = subrow?.(row, index);
         // Щелчок по элементу управления в строке не считается щелчком по строке: иначе выбор
         // флажком или нажатие кнопки ещё и открывали бы запись.
         const fromControl = (event: MouseEvent) => event.target instanceof Element && event.target.closest('button, a, input, label, [role="button"], [data-cell-target]') !== null;
@@ -568,7 +597,7 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
                         <div key={column.key} role={role} {...cellProperties(column)} {...placement(groupIndex, level, group.length)} onMouseDown={focusContent}>
                             {cellContent(column, row, index)}
                         </div>
-                    ))))}
+                    ))), detail === undefined ? undefined : alignedLines(detail, true, true))}
                 </div>
                 {expanded && <div className={classes.expanded}>{expansion.render(row, index)}</div>}
             </Fragment>
@@ -579,12 +608,11 @@ export function DataTable<Row>(properties: DataTableProperties<Row>) {
         <div ref={summaryRow} role="row" className={classes.row} data-summary {...(pinned.summary ? { 'data-pinned': true, style: { bottom: 0 } } : {})}>
             {expansion !== undefined && <div role={role} {...serviceCell} />}
             {selection !== undefined && <div role={role} {...serviceCell} />}
-            {linesOf((line) => line.map((group, groupIndex) => {
-                // Строка итогов в один уровень: группа выводит поле с итогом, а без итога — первое
-                // поле, поэтому подпись «Итого» и сумма стоят на одной линии.
-                const column = group.find((candidate) => summary[candidate.key] !== undefined) ?? group[0]!;
-                return <div key={column.key} role={role} {...cellProperties(column)} {...placement(groupIndex, 0, 1)}>{summaryContent(column, summary[column.key])}</div>;
-            }), true)}
+            <div className={classes.lines}>
+                {hasSummaryLines(summary)
+                    ? summary.map((values, index) => <Fragment key={index}>{alignedLines(values, true)}</Fragment>)
+                    : alignedLines(summary, false)}
+            </div>
         </div>
     );
 

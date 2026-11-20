@@ -7,11 +7,13 @@
  * других дней стоят отдельно. Так видно, сколько принесли продажи периода и сколько ушло на возвраты
  * прошлых продаж.
  */
+import { Listy } from 'antd';
 import { useState, type ReactNode } from 'react';
-import { Column, DataTable, Divider, FieldDisplay, Grid, Icons, Layer, Panel, RecordLink, Stack, Text, useOpenRecord } from '../../web/sdk';
+import { Column, DataTable, Divider, FieldDisplay, Grid, Icons, Layer, Panel, RecordLink, Stack, Text, spacing, useBreakpoint, useOpenRecord } from '../../web/sdk';
 import { Objects } from '../objects.generated';
 import type { SummaryAmounts, SummaryLink, SummaryOperation, SummaryTotals } from '../period-summary-operations';
 import type { PaymentTotals, SummaryCertificateRow } from '../period-summary';
+import type { BreakdownEntry, SummaryBreakdown } from '../summary-breakdown';
 import { documentNumber, feedDate, feedGoods } from '../shell-components/seller-feed-format';
 
 /** Денежная сумма в том же виде, что в формах. */
@@ -38,6 +40,62 @@ export type SummaryVariant = 'period' | 'cash';
  * нет. В кассовой сводке — сумма, как в кассовом чеке, вместе с долгом рассрочки.
  */
 const totalOf = (amounts: SummaryAmounts) => amounts.cash + amounts.cashless + amounts.installment;
+
+/** Выводит сумму размером с подпись, со знаком поступления или выдачи. */
+function BreakdownAmount({ value }: { readonly value: number }) {
+    return <Text.Label noWrap>{value > 0 && '+'}<Money value={value} /></Text.Label>;
+}
+
+/** В ячейке таблицы название каждой позиции стоит над её суммой. */
+function BreakdownCell({ entries }: { readonly entries: ReadonlyArray<BreakdownEntry> }) {
+    return (
+        <div style={{ minWidth: 0, alignSelf: 'flex-start', paddingBlock: spacing[2] }}>
+            <Stack gap={2}>
+                {entries.map(({ kind, name, amount }) => (
+                    <Stack key={JSON.stringify([kind, name])} gap={1}>
+                        <Text.Label ellipsis>{name}</Text.Label>
+                        <BreakdownAmount value={amount} />
+                    </Stack>
+                ))}
+            </Stack>
+        </div>
+    );
+}
+
+/** Для подстроки перечисляет только денежные колонки, сохраняя пустые ячейки под документом и товарами. */
+function breakdownCells(breakdown: SummaryBreakdown) {
+    return {
+        cash: <BreakdownCell entries={breakdown.cash} />,
+        cashless: <BreakdownCell entries={breakdown.cashless} />,
+        installment: <BreakdownCell entries={breakdown.installment} />,
+        total: <BreakdownCell entries={breakdown.total} />,
+    };
+}
+
+/** На узкой схеме название итога помещается над наличными, а суммы остаются на одной высоте. */
+function CompactTotalAmount({ title, value }: { readonly title?: string; readonly value: number }) {
+    return (
+        <div style={{ alignSelf: 'flex-end', paddingBlock: spacing[2] }}>
+            <Stack gap={1}>
+                {title && <Text.Label>{title}</Text.Label>}
+                <Text strong noWrap><Money value={value} /></Text>
+            </Stack>
+        </div>
+    );
+}
+
+/** Строит денежную линию итогов, сохраняя выравнивание по колонкам обеих схем. */
+function cashAmountCells(title: string, amounts: SummaryAmounts, compact: boolean) {
+    if (compact) {
+        return {
+            cash: <CompactTotalAmount title={title} value={amounts.cash} />,
+            cashless: <CompactTotalAmount value={amounts.cashless} />,
+            installment: <CompactTotalAmount value={amounts.installment} />,
+            total: <CompactTotalAmount value={totalOf(amounts)} />,
+        };
+    }
+    return { document: title, cash: amounts.cash, cashless: amounts.cashless, installment: amounts.installment, total: totalOf(amounts) };
+}
 
 /**
  * Две подстроки в ячейке строки итогов: «Продажи» сверху и «Возвраты» под пунктиром. Строка итогов
@@ -80,10 +138,14 @@ function LinkLine({ link }: { readonly link: SummaryLink }) {
  * других дней. Строки документов показывают деньги целиком, как и раньше.
  *
  * В кассовой сводке (`variant="cash"`) колонка «Рассрочка» есть и у возвратов: погашение долга.
+ * Расшифровка стоит отдельной подстрокой под денежными колонками каждой записи. В итогах сетка
+ * подстраивает высоту каждой из четырёх линий под её самую высокую ячейку.
  */
 export function OperationsTable({ rows, totals, variant = 'period' }: { readonly rows: ReadonlyArray<SummaryOperation>; readonly totals: SummaryTotals; readonly variant?: SummaryVariant }) {
     const open = useOpenRecord();
+    const compact = useBreakpoint() === 'sm';
     const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+    const breakdown = variant === 'cash' ? totals.breakdown : undefined;
     return (
         <DataTable<SummaryOperation>
             rowKey={(row) => row.key}
@@ -91,6 +153,7 @@ export function OperationsTable({ rows, totals, variant = 'period' }: { readonly
             emptyText="Продаж и возвратов нет"
             // На узком экране документ и товары занимают первую линию, четыре суммы вторую.
             layouts={{ sm: { lines: [{ line: ['document', 'goods'] }, { line: ['cash', 'cashless', 'installment', 'total'] }] }, md: summaryLayout, lg: { lines: [] } }}
+            subrow={breakdown === undefined ? undefined : (row) => row.breakdown && breakdownCells(row.breakdown)}
             onRowClick={(row) => { void open(row.kind === 'sale' ? Objects.document.sale : Objects.document.refund, row.guid, 'tab'); }}
             expansion={{
                 isExpandable: (row) => row.links.length > 0,
@@ -107,7 +170,12 @@ export function OperationsTable({ rows, totals, variant = 'period' }: { readonly
                 { key: 'installment', title: 'Рассрочка', type: 'money', value: (row) => row.amounts.installment },
                 { key: 'total', title: 'Итого', type: 'money', value: (row) => totalOf(row.amounts) },
             ]}
-            summary={{
+            summary={breakdown !== undefined ? [
+                cashAmountCells('Продажи', totals.sales, compact),
+                breakdownCells(breakdown.sales),
+                cashAmountCells('Возвраты', totals.refunds, compact),
+                breakdownCells(breakdown.refunds),
+            ] : {
                 document: <SummaryLines sales="Продажи" refunds="Возвраты" />,
                 cash: <SummaryLines sales={<Money value={totals.sales.cash} />} refunds={<Money value={totals.refunds.cash} />} />,
                 cashless: <SummaryLines sales={<Money value={totals.sales.cashless} />} refunds={<Money value={totals.refunds.cashless} />} />,
@@ -153,14 +221,51 @@ export function CertificatesTable({ rows, totals }: { readonly rows: ReadonlyArr
     );
 }
 
-/** Деньги по способам и итог одного блока панели «Всего». Рассрочку показывает только блок, где она есть. */
-function TotalsLines({ amounts, installment }: { readonly amounts: SummaryAmounts; readonly installment: boolean }) {
+/** Компактный Listy с отступом от итога. Название и сумма стоят рядом в каждом пункте. */
+function TotalsBreakdownList({ entries }: { readonly entries: ReadonlyArray<BreakdownEntry> }) {
+    return (
+        <div role="list">
+            <Listy
+                items={[...entries]}
+                rowKey={({ kind, name }) => JSON.stringify([kind, name])}
+                virtual={false}
+                styles={{
+                    root: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', rowGap: spacing[1] },
+                    item: { paddingBlock: 0, paddingInlineStart: spacing[5], paddingInlineEnd: 0, borderBottom: 0 },
+                }}
+                itemRender={({ name, amount }) => (
+                    <div role="listitem">
+                        <Stack orientation="horizontal" align="baseline" gap={3}>
+                            <Text.Label ellipsis>{name}</Text.Label>
+                            <BreakdownAmount value={amount} />
+                        </Stack>
+                    </div>
+                )}
+            />
+        </div>
+    );
+}
+
+/** Деньги по способам и итог одного блока панели «Всего», с расшифровкой кассы под каждой суммой. */
+function TotalsLines({ amounts, installment, breakdown }: {
+    readonly amounts: SummaryAmounts;
+    readonly installment: boolean;
+    readonly breakdown?: SummaryBreakdown | undefined;
+}) {
+    const lines = [
+        { title: 'Наличные', amount: amounts.cash, entries: breakdown?.cash },
+        { title: 'Безналичные', amount: amounts.cashless, entries: breakdown?.cashless },
+        ...(installment ? [{ title: 'Рассрочка', amount: amounts.installment, entries: breakdown?.installment }] : []),
+        { title: 'Итого', amount: totalOf(amounts), entries: breakdown?.total },
+    ];
     return (
         <>
-            <Text typeSet="expressive" noWrap>Наличные: <Money value={amounts.cash} /></Text>
-            <Text typeSet="expressive" noWrap>Безналичные: <Money value={amounts.cashless} /></Text>
-            {installment && <Text typeSet="expressive" noWrap>Рассрочка: <Money value={amounts.installment} /></Text>}
-            <Text typeSet="expressive" strong noWrap>Итого: <Money value={totalOf(amounts)} /></Text>
+            {lines.map(({ title, amount, entries }) => (
+                <Stack key={title} gap={2}>
+                    <Text typeSet="expressive" strong={title === 'Итого'} noWrap>{title}: <Money value={amount} /></Text>
+                    {entries !== undefined && entries.length > 0 && <TotalsBreakdownList entries={entries} />}
+                </Stack>
+            ))}
         </>
     );
 }
@@ -198,13 +303,13 @@ export function SummaryTotalsPanel({ totals, certificates, variant = 'period' }:
         <Panel title="Всего">
             <Grid gutter="narrow">
                 <Column span={{ md: 4, lg: 8 }}>
-                    <TotalsTile title="Продажи"><TotalsLines amounts={totals.sales} installment /></TotalsTile>
+                    <TotalsTile title="Продажи"><TotalsLines amounts={totals.sales} installment breakdown={totals.breakdown?.sales} /></TotalsTile>
                 </Column>
                 <Column span={{ md: 4, lg: 8 }}>
-                    <TotalsTile title="Возвраты"><TotalsLines amounts={totals.refunds} installment={variant === 'cash'} /></TotalsTile>
+                    <TotalsTile title="Возвраты"><TotalsLines amounts={totals.refunds} installment={variant === 'cash'} breakdown={totals.breakdown?.refunds} /></TotalsTile>
                 </Column>
                 <Column>
-                    <TotalsTile title="Общий"><TotalsLines amounts={totals.all} installment /></TotalsTile>
+                    <TotalsTile title="Общий"><TotalsLines amounts={totals.all} installment breakdown={totals.breakdown?.all} /></TotalsTile>
                 </Column>
                 {certificates !== undefined && (
                     <Column>
