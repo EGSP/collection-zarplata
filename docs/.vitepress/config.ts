@@ -2,11 +2,8 @@
  * Настройка сайта документации. VitePress собирает файлы каталога `docs` в `dist/docs`,
  * откуда их отдаёт сервер приложения по адресу `/docs`.
  *
- * Меню архитектуры не ведётся вручную: порядок разделов берётся из оглавления в корневом
- * ARCHITECTURE.md, а подразделы — из заголовков самих файлов. Строка оглавления с отступом
- * объявляет дочернюю страницу предыдущего раздела, например `docs/web-sdk/hooks.md`. Поэтому новый раздел достаточно
- * добавить файлом и строкой оглавления, и меню не расходится с тем, что читатель видит на GitHub.
- * Перед архитектурой в меню стоит раздел «Правила учёта».
+ * Настройка задаёт порядок разделов и их дочерних страниц. Пункты подразделов строятся
+ * из заголовков Markdown. Перед архитектурой в меню стоит раздел «Правила учёта».
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -36,10 +33,7 @@ function subsectionTitles(fileName: string): ReadonlyArray<string> {
     return titles;
 }
 
-/**
- * Раздел бизнес-правил магазина. В оглавление ARCHITECTURE.md он не входит: архитектура описывает
- * механизмы платформы, а не прикладные правила. Поэтому его место в меню задано здесь.
- */
+/** Раздел бизнес-правил магазина открывает меню документации. */
 const accountingRules = { title: 'Правила учёта', name: 'accounting-rules' };
 
 /** Дочерние страницы правил учёта: условия изменения и отмены продажи и два отчёта о деньгах. */
@@ -56,26 +50,46 @@ function subsectionItems(name: string): Array<DefaultTheme.SidebarItem> {
 }
 
 /** Пункт меню страницы: её подразделы, затем дочерние страницы, свёрнутые под ней. */
-function pageItem(title: string, name: string, children: ReadonlyArray<DefaultTheme.SidebarItem>): DefaultTheme.SidebarItem {
+function pageItem(title: string, name: string, children: ReadonlyArray<DefaultTheme.SidebarItem> = []): DefaultTheme.SidebarItem {
     const items = [...subsectionItems(name), ...children];
     return { text: title, link: `/${name}`, ...(items.length === 0 ? {} : { collapsed: true, items }) };
 }
 
-/**
- * Разделы архитектуры в порядке оглавления ARCHITECTURE.md. Строка без отступа задаёт раздел,
- * строка с отступом — дочернюю страницу ближайшего раздела выше.
- */
+/** Порядок разделов архитектуры и дочерних страниц в меню. */
 function architectureSections(): Array<DefaultTheme.SidebarItem> {
-    const contents = readFileSync(path.resolve(documentationRoot, '../ARCHITECTURE.md'), 'utf8');
-    const sections: Array<{ title: string; name: string; children: Array<DefaultTheme.SidebarItem> }> = [];
-    for (const entry of contents.matchAll(/^( *)- \[(.+)\]\(docs\/(.+)\.md\)$/gm)) {
-        const title = entry[2] ?? '';
-        const name = entry[3] ?? '';
-        const parent = sections.at(-1);
-        if ((entry[1] ?? '').length > 0 && parent !== undefined) parent.children.push(pageItem(title, name, []));
-        else sections.push({ title, name, children: [] });
-    }
-    return sections.map((section) => pageItem(section.title, section.name, section.children));
+    return [
+        pageItem('Принципы', 'principles'),
+        pageItem('Стек', 'stack'),
+        pageItem('Структура проекта', 'project-structure'),
+        pageItem('Метаданные', 'metadata'),
+        pageItem('База данных', 'database'),
+        pageItem('Резервное копирование', 'backup'),
+        pageItem('API данных', 'single-endpoint'),
+        pageItem('Вход в приложение', 'authentication'),
+        pageItem('Права (RBAC)', 'authorization'),
+        pageItem('Политики записи', 'write-policies'),
+        pageItem('Журнал действий', 'journal'),
+        pageItem('Первичные данные', 'initial-data'),
+        pageItem('Интерфейс (SDUI)', 'interface', [
+            pageItem('Описания интерфейса', 'interface/descriptions'),
+            pageItem('Оболочка и навигация', 'interface/shell'),
+            pageItem('Формы записей', 'interface/forms'),
+            pageItem('Списки и ссылки', 'interface/lists-and-references'),
+        ]),
+        pageItem('Web SDK', 'web-sdk', [
+            pageItem('Хуки', 'web-sdk/hooks'),
+            pageItem('Компоненты', 'web-sdk/components'),
+            pageItem('Поля ввода', 'web-sdk/fields'),
+            pageItem('Функции и типы', 'web-sdk/functions-and-types'),
+        ]),
+        pageItem('Компоненты и раскладка', 'components'),
+        pageItem('Сборка и запуск', 'build-and-launch'),
+        pageItem('Инструменты разработки', 'development-tools'),
+        pageItem('Документация', 'documentation'),
+        pageItem('Поставка', 'delivery'),
+        pageItem('Версии', 'versions'),
+        pageItem('Импорт из универсальной XML-выгрузки 1С', '1c-xml-import'),
+    ];
 }
 
 /**
@@ -84,7 +98,7 @@ function architectureSections(): Array<DefaultTheme.SidebarItem> {
  */
 function sidebar(): Array<DefaultTheme.SidebarItem> {
     return [
-        { text: accountingRules.title, link: `/${accountingRules.name}`, items: [...subsectionItems(accountingRules.name), pageItem(saleEditingRules.title, saleEditingRules.name, []), pageItem(periodSummaryRules.title, periodSummaryRules.name, []), pageItem(cashSummaryRules.title, cashSummaryRules.name, [])] },
+        { text: accountingRules.title, link: `/${accountingRules.name}`, items: [...subsectionItems(accountingRules.name), pageItem(saleEditingRules.title, saleEditingRules.name), pageItem(periodSummaryRules.title, periodSummaryRules.name), pageItem(cashSummaryRules.title, cashSummaryRules.name)] },
         { text: 'Архитектура', link: '/', items: architectureSections() },
     ];
 }

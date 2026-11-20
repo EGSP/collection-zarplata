@@ -117,7 +117,6 @@ repos/                исходники внешних библиотек дл�
 | Где искать | Назначение | Подробное описание |
 |---|---|---|
 | `docs/`, `docs/.vitepress/` | Страницы архитектуры и настройка сайта документации | [Документация](documentation.md) |
-| `ARCHITECTURE.md`, `PRODUCT.md` в корне | Оглавление архитектуры и описание продукта | [Архитектура](https://github.com/EGSP/collection-zarplata/blob/main/ARCHITECTURE.md), [продукт](https://github.com/EGSP/collection-zarplata/blob/main/PRODUCT.md) |
 | `scripts/` | Генерация реестров, проверка импортов и связи документации с кодом, сборка исполняемого файла | [Инструменты разработки](development-tools.md), [сборка и запуск](build-and-launch.md) |
 | `tools/1c-xml-import/` | Инструмент на Go для импорта XML из 1С, файлы сопоставления и их JSON Schema; собирается отдельно от приложения | [Импорт из 1С](1c-xml-import.md) |
 | `repos/` | Исходники внешних библиотек (git subtree) для чтения, без импортов в приложение | [Инструменты разработки](development-tools.md) |
