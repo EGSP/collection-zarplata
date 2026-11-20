@@ -10,6 +10,7 @@ import { couponKind } from './20261111_coupon_kind.js';
 import { certificateHolder } from './20261111_set_certificate_holder.js';
 import { fixedShopRoles } from './20261119_fixed_shop_roles.js';
 import { userCatalogStorage } from './20261119_user_catalog_storage.js';
+import { refundSettlementTotal } from './20261120_refund_settlement_total.js';
 import type { SchemaStructure } from '../structure.js';
 
 /** Разрешённые изменения и SQL-команды миграции, построенные по снимку конкретной базы. */
@@ -45,4 +46,4 @@ export interface SchemaMigration {
  * Реестр миграций. Добавляйте сюда импорт нового файла и его значение в порядке `id`.
  * Статический импорт включает миграции и в исполняемый файл без доступа к исходникам.
  */
-export const migrations: readonly SchemaMigration[] = [journalColumns, externalRecordReference, removeCatalogCode, installmentPaymentColumns, removeInstallment, renameRegisters, installmentBalanceTotal, salePaymentModeOptional, couponKind, certificateHolder, fixedShopRoles, userCatalogStorage];
+export const migrations: readonly SchemaMigration[] = [journalColumns, externalRecordReference, removeCatalogCode, installmentPaymentColumns, removeInstallment, renameRegisters, installmentBalanceTotal, salePaymentModeOptional, couponKind, certificateHolder, fixedShopRoles, userCatalogStorage, refundSettlementTotal];

@@ -21,7 +21,7 @@ import { DataPolicyError, DataValidationError } from '../../server/data/data.err
 import { query } from '../../server/database/sql.builder.js';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { formatDateTime, formatMoney, normalizeSearchText } from '../../server/ui/value-format.js';
-import { document, movements, type Policy, type RecordOf, type RegisterMovements } from '../../server/metadata/index.js';
+import { document, formula, movements, type Policy, type RecordOf, type RegisterMovements } from '../../server/metadata/index.js';
 import { InstallmentRates } from '../catalogs/installment-rates.catalog.js';
 import { Goods } from '../goods.js';
 import { installmentDebt, ownInstallment } from '../installments.js';
@@ -185,6 +185,8 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
 const refund = document('refund')
     .title('Возврат')
     .field('shift', (field) => field.reference(Shift).title('Смена').required())
+    // Список показывает весь расчёт, включая суммы в счёт долга и на сертификат.
+    .field('settlementTotal', (field) => field.money().title('Итого расчётов').required().computed(formula.sum('settlements', 'amount')))
     .tablePart('bases', (part) => part
         .title('На основании')
         .field('sale', (field) => field.reference(Sale).title('Продажа').required()))
@@ -492,6 +494,7 @@ const refundWithPolicies = refund
         .group('На основании', ['bases'])
         .group('Товары на возврат', ['goods'])
         .group('Расчёты возврата', ['settlements'])
+        .hide('settlementTotal')
         .hide('posted'))
     // Движения товаров записываются на продажу, а не на строку: предел действует на сумму по продаже.
     // Смена движений — смена продажи: возврат уменьшает результат тех, кто продал. Строки расчётов
