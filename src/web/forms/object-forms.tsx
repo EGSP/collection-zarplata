@@ -10,13 +10,14 @@
  * собственная форма без контракта показывается ошибкой, а не формой, которая молча не сообщает
  * области о записи и несохранённых изменениях.
  */
-import { Result } from 'antd';
+import { Button, Result } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { objectForms } from '../../configuration/object-forms.generated';
 import type { ObjectFormKind } from '../../server/metadata/object-forms';
-import type { PerformTarget } from '../data-provider/perform';
+import { Pending } from '../common/pending';
+import { perform, type PerformTarget } from '../data-provider/perform';
 import { ObjectList } from '../lists/object-list';
-import { StandardRecordForm, type FormPresentation, type FormValues, type FormView, type ObjectView, type RecordData } from '../sdk';
+import { StandardRecordForm, type FormPresentation, type FormValues, type FormView, type NewFormProperties, type ObjectView, type RecordData } from '../sdk';
 import { RecordFormHostContext, type RecordFormHostValue } from '../sdk/platform/record-form-contract';
 import { formElementComponent } from './form-elements';
 import type { ObjectFormPropertiesByKind } from './object-form-module';
@@ -56,26 +57,59 @@ interface ObjectRecordFormProperties {
     readonly reload: (() => Promise<RecordData>) | null;
     readonly presentation: FormPresentation;
     /** Значения новой записи от того, кто открыл форму; у существующей записи не учитываются. */
-    readonly initial?: FormValues | undefined;
+    readonly default?: FormValues | undefined;
 }
 
 /**
  * Форма записи или новой записи объекта в контексте формы записи. Вид формы определяется записью:
  * без записи открывается форма новой записи.
  */
-export function ObjectRecordForm({ object, view, record, reload, presentation, initial }: ObjectRecordFormProperties) {
+export function ObjectRecordForm({ object, view, record, reload, presentation, default: defaults }: ObjectRecordFormProperties) {
     if (record === null || reload === null) {
         const New = objectFormComponent(object, 'new', StandardRecordForm);
-        return (
-            <RecordFormHost object={object} record={null}>
-                <New object={object} view={view} presentation={presentation} initial={initial} />
-            </RecordFormHost>
-        );
+        return <PreparedNewRecordForm object={object} view={view} presentation={presentation} default={defaults} component={New} />;
     }
     const Existing = objectFormComponent(object, 'record', StandardRecordForm);
     return (
         <RecordFormHost object={object} record={record}>
             <Existing object={object} view={view} record={record} reload={reload} presentation={presentation} />
+        </RecordFormHost>
+    );
+}
+
+/** Открывает форму один раз с полным ответом сервера; ожидание и ошибка занимают только её область. */
+function PreparedNewRecordForm({ object, view, presentation, default: defaults, component: New }: NewFormProperties & {
+    readonly component: ComponentType<NewFormProperties>;
+}) {
+    const [attempt, setAttempt] = useState(0);
+    const [result, setResult] = useState<FormValues | Error | null>(null);
+    const { kind, name } = object;
+    useEffect(() => {
+        let active = true;
+        // Даём Strict Mode завершить проверочное монтирование до отправки запроса.
+        queueMicrotask(() => {
+            if (!active) return;
+            void perform<FormValues>({
+                target: { kind: 'platform', name: 'records' },
+                action: 'prepareNewRecord',
+                payload: { object: { kind, name }, default: defaults },
+            }).then(
+                values => { if (active) setResult(values); },
+                error => { if (active) setResult(error instanceof Error ? error : new Error('Не удалось загрузить начальные значения')); },
+            );
+        });
+        return () => { active = false; };
+    }, [kind, name, defaults, attempt]);
+
+    if (result === null) return <Pending label="Загружаем начальные значения" />;
+    if (result instanceof Error) {
+        return <Result status="error" title="Не удалось загрузить начальные значения" subTitle={result.message} extra={
+            <Button type="primary" onClick={() => { setResult(null); setAttempt(attempt + 1); }}>Повторить</Button>
+        } />;
+    }
+    return (
+        <RecordFormHost object={object} record={null}>
+            <New object={object} view={view} presentation={presentation} default={result} />
         </RecordFormHost>
     );
 }

@@ -5,50 +5,43 @@
  * нужных полей. На форме есть не все поля записи: поля только для чтения заполняет платформа,
  * а скрытые переопределением формы в описание не попадают.
  */
-import type { FormField, FormTablePart, FormView } from '../../../server/ui/descriptions';
+import type { FieldDefaultsSource, FormField, FormTablePart, FormView } from '../../../server/ui/descriptions';
+import { editableFormFields, initialFieldValues } from '../../../server/ui/form-initial-values';
 import type { RecordData } from '../../data-provider/records';
+import { perform } from '../../data-provider/perform';
+
+export { newRecordValues } from '../../../server/ui/form-initial-values';
 
 /** Значения формы: значения редактируемых полей по именам и строки табличных частей по именам частей. */
 export type FormValues = { readonly [name: string]: unknown };
 
-/**
- * Значение поля в новой записи или в новой строке. Строка с начальным значением из описания
- * получает его. Обязательный флажок сразу снят, а обязательные дата и время равны текущему
- * моменту: так заполняется дата нового документа. Остальные поля пусты.
- */
-function initialValue(field: FormField): unknown {
-    if (field.initial != null) return field.initial;
-    if (!field.rules.required) return null;
-    if (field.kind === 'boolean') return false;
-    if (field.kind === 'dateTime') return new Date().toISOString();
-    return null;
-}
-
-function initialValues(fields: ReadonlyArray<FormField>): { [name: string]: unknown } {
-    return Object.fromEntries(fields.map((field) => [field.name, initialValue(field)]));
-}
-
-/** Значения шапки для формы: пользовательские и вычисляемые; служебные поля остаются в записи. */
-function editableFields(form: FormView): ReadonlyArray<FormField> {
-    return form.fields.filter((field) => !field.readOnly || field.computed != null);
-}
-
-/** Значения формы новой записи: редактируемые поля шапки и пустые табличные части. */
-export function newRecordValues(form: FormView): FormValues {
-    return { ...initialValues(editableFields(form)), ...Object.fromEntries(form.tableParts.filter(part => part.access !== 'deny').map((part) => [part.name, []])) };
-}
-
-/**
- * Начальные значения окна входных данных действия. Они заполняются так же, как поля новой записи:
- * обязательные дата и время равны текущему моменту, например дата закрытия смены.
- */
+/** Постоянные и стандартные значения окна действия, доступные из описания формы. */
 export function newInputValues(fields: ReadonlyArray<FormField>): FormValues {
-    return initialValues(fields);
+    return initialFieldValues(fields);
 }
 
-/** Значения новой строки табличной части. */
+/** Постоянные и стандартные значения новой строки, доступные из описания. */
 export function newRowValues(part: FormTablePart): FormValues {
-    return initialValues(part.columns);
+    return initialFieldValues(part.columns);
+}
+
+/** Запрашивает только вычисляемые поля, которым при открытии не передали значения. */
+export function requestFieldDefaults(fields: readonly FormField[], source: FieldDefaultsSource | undefined, given: FormValues | undefined): Promise<FormValues> | undefined {
+    if (source === undefined) return undefined;
+    const names = fields.filter(field => field.serverDefault && (given === undefined || !Object.hasOwn(given, field.name))).map(field => field.name);
+    if (names.length === 0) return undefined;
+    return perform<FormValues>({
+        target: { kind: 'platform', name: 'records' },
+        action: 'prepareFieldDefaults',
+        payload: { ...source, fields: names },
+    });
+}
+
+/** Подготавливает новую строку целиком; при постоянных значениях работает синхронно. */
+export function prepareNewRowValues(part: FormTablePart, given: FormValues = {}): FormValues | Promise<FormValues> {
+    const defaults = newRowValues(part);
+    const pending = requestFieldDefaults(part.columns, part.defaultsSource, given);
+    return pending === undefined ? { ...defaults, ...given } : pending.then(values => ({ ...defaults, ...values, ...given }));
 }
 
 /** Строка табличной части, в которой оставлены только колонки из описания. */
@@ -60,7 +53,7 @@ function rowValues(part: FormTablePart, row: unknown): FormValues {
 /** Значения формы по записи с сервера либо по значениям, которые отдала форма Ant Design. */
 export function recordValues(form: FormView, record: RecordData): FormValues {
     return {
-        ...Object.fromEntries(editableFields(form).map((field) => [field.name, record[field.name] ?? null])),
+        ...Object.fromEntries(editableFormFields(form).map((field) => [field.name, record[field.name] ?? null])),
         ...Object.fromEntries(
             form.tableParts.filter(part => part.access !== 'deny').map((part) => {
                 const rows = record[part.name];
@@ -77,8 +70,8 @@ export function recordValues(form: FormView, record: RecordData): FormValues {
  * загруженная запись, в которой значения полей формы заменены введёнными. Поля, которые
  * заполняет платформа (`guid`, `deletedAt`, `number`, `posted`), сервер во входных данных пропускает.
  *
- * У новой записи вместо загруженной записи основой служат значения, которые передал открывший
- * форму (`NewFormProperties.initial`): так записываются и переданные значения скрытых полей.
+ * У новой записи основой служит ответ подготовки (`NewFormProperties.default`).
+ * В него входят и значения скрытых полей, переданные при открытии.
  */
 export function saveFields(form: FormView, saved: RecordData | FormValues | null, entered: FormValues): FormValues {
     return { ...saved, ...recordValues(form, entered) };

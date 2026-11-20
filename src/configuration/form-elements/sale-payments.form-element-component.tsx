@@ -139,7 +139,7 @@ export default function SalePayments({ part, value, onChange, disabled, ref, id,
         columnSizes,
         columnInputs: { method: PaymentMethodIcons },
         addTitle: 'Оплата',
-        newRow: () => ({ ...newRowValues(part), amount: rows.length > 0 && remaining > 0 ? remaining : null }),
+        newRow: () => ({ amount: rows.length > 0 && remaining > 0 ? remaining : null }),
     };
     return (
         <>{defaults}{!simple ? (

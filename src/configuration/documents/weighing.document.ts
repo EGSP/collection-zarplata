@@ -17,7 +17,7 @@ import { document, formula, type ObjectTarget, type Policy, type RecordOf } from
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { Goods } from '../goods.js';
 import { Sale } from './sale.document.js';
-import { Shift } from './shift.document.js';
+import { findOpenShiftGuid, Shift } from './shift.document.js';
 
 const held = 'В отвесе';
 const sold = 'Продано';
@@ -31,7 +31,7 @@ const inWeighing = { field: 'state', equals: held };
  */
 const weighing = document('weighing')
     .title('Отвес')
-    .field('shift', (field) => field.reference(Shift).title('Смена').required())
+    .field('shift', (field) => field.reference(Shift).title('Смена').required().default(findOpenShiftGuid()))
     .field('person', (field) => field.reference(PhysicalPersons).title('Покупатель').required().width('long'))
     .field('balance', (field) => field.money().title('Остаток').required().computed(formula.sum('goods', 'total', inWeighing)))
     // Признак закрытия: остаток для него не годится, потому что товар в отвесе может стоить ноль.
@@ -39,7 +39,7 @@ const weighing = document('weighing')
     .tablePart('goods', (part) => part
         .title('Товары')
         .include(Goods)
-        .field('state', (field) => field.string().title('Состояние').choices([held, sold, hung]).initial(held).required())
+        .field('state', (field) => field.string().title('Состояние').choices([held, sold, hung]).default(held).required())
         // Продажа ссылается на отвес как на основание, поэтому файлы импортируют друг друга по кругу.
         // Тип результата указан явно: иначе тип отвеса выводился бы через тип продажи и обратно.
         .field('sale', (field) => field.reference((): ObjectTarget => Sale).title('Продажа')))

@@ -7,6 +7,8 @@
  * объявить один раз в базовом классе и сохранить тип подкласса со всеми его методами.
  */
 import type { Formula } from '../../common/formulas.js';
+import type { Effect } from 'effect';
+import type { FunctionRequirements } from './builders.js';
 import type { CompositeReferenceValue, CompositeType, FieldKind, FieldWidth, ObjectTarget, RecorderValue, ObjectReferenceValue } from './descriptions.js';
 
 /**
@@ -47,8 +49,8 @@ export interface FieldState {
     readonly target: ReferenceTarget | null;
     /** Допустимые строковые значения; null означает свободный ввод. */
     readonly choices: ReadonlyArray<string> | null;
-    /** Значение строки в новой записи или новой строке формы; null оставляет поле пустым. */
-    readonly initial: string | null;
+    /** Обёртка отличает явно заданный null от отсутствия переопределения. */
+    readonly defaultValue?: { readonly value: unknown };
     readonly computed: Formula | null;
     /** Итог регистра по этой записи; `null` у обычного поля. */
     readonly total: RegisterTotalSource | null;
@@ -90,6 +92,11 @@ export abstract class FieldBuilder<Value> {
         return this.with({ required: true }) as this & RequiredField;
     }
 
+    /** Задаёт начальное значение записи, строки или поля действия. Effect выполняется на сервере при подготовке. */
+    default(value: Value | null | Effect.Effect<Value | null, unknown, FunctionRequirements>): this {
+        return this.with({ defaultValue: { value } });
+    }
+
     /**
      * Ширина поля ввода на форме: `long` длиннее обычной, `free` растягивается под представление
      * значения, но не уже обычной. Форма может задать полю другую ширину (`FieldGroup.widths`).
@@ -112,14 +119,6 @@ export class StringFieldBuilder extends FieldBuilder<string> {
     /** Ограничивает ввод заданными значениями и включает выбор из списка в форме. */
     choices(values: ReadonlyArray<string>): this {
         return this.with({ choices: Object.freeze([...values]) });
-    }
-
-    /**
-     * Значение, которым форма заполняет поле в новой записи и в новой строке табличной части.
-     * Действует только на форму: запись через единый эндпоинт без значения поле не заполняет.
-     */
-    initial(value: string): this {
-        return this.with({ initial: value });
     }
 
     minimumLength(minimumLength: number): this {
@@ -264,7 +263,6 @@ function initialState(kind: FieldKind): FieldState {
         integer: kind === 'money',
         target: null,
         choices: null,
-        initial: null,
         computed: null,
         total: null,
         suggestions: null,

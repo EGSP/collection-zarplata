@@ -219,9 +219,9 @@ type QueryParts<Builder extends ObjectBuilder> = {
 /** Поля строки части вместе с ключами, которые заполняет платформа. */
 type TablePartRow<Row> = Row & { readonly ownerGuid: string; readonly lineNumber: number };
 
-/** Описание варианта составного поля по его билдеру. */
+/** Описание варианта для SQL. Начальные значения применяются при открытии формы. */
 function queryVariant(entry: FieldEntry, variant: AnyFieldBuilder): FieldDescription {
-    const state = variant['~state'];
+    const { defaultValue: _defaultValue, ...state } = variant['~state'];
     // Цель входит в значение ссылочного варианта и в его столбец, поэтому здесь она нужна.
     // К построению запроса все файлы конфигурации загружены, и функция цели уже возвращает билдер.
     const target = typeof state.target === 'function' ? state.target() : state.target;
@@ -240,9 +240,9 @@ function queryTotal(state: FieldEntry['builder']['~state']): RegisterTotal | nul
     return { register: register.name, resource: state.total.resource, dimension: state.total.dimension, match: dimension === 'reference' ? 'reference' : 'objectReference' };
 }
 
-/** Описание поля билдера для кодека; цель обычной ссылки не требуется для проверки и хранения GUID. */
+/** Описание поля для кодека. Значения формы и цель обычной ссылки кодеку не нужны. */
 function queryField(entry: FieldEntry): FieldDescription {
-    const state = entry.builder['~state'];
+    const { defaultValue: _defaultValue, ...state } = entry.builder['~state'];
     return { ...state, total: queryTotal(state), name: entry.name, role: entry.role, managed: entry.managed || state.total !== null,
         // Способ ввода запросу не нужен; значение задано, чтобы состояние билдера совпало с типом описания.
         title: state.title ?? entry.name, target: null, suggestions: null, inputMode: 'solid',

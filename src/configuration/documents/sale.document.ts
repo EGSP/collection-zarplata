@@ -36,7 +36,7 @@ import { MoneyReceipts } from '../registers/money-receipts.register.js';
 import { UnarrangedInstallments } from '../registers/unarranged-installments.register.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
 import { closedPeriodByDocumentDatePolicy, dayOf, lastClosedThrough } from '../policies/closed-period.js';
-import { Shift } from './shift.document.js';
+import { findOpenShiftGuid, Shift } from './shift.document.js';
 import { Weighing } from './weighing.document.js';
 
 /** Способ оплаты продажи, при котором оплат несколько и у каждой свой способ. */
@@ -70,12 +70,12 @@ const certificateColumns = tablePart((part) => part
  */
 const sale = document('sale')
     .title('Продажа')
-    .field('shift', (field) => field.reference(Shift).title('Смена').required())
+    .field('shift', (field) => field.reference(Shift).title('Смена').required().default(findOpenShiftGuid()))
     // Отвес ссылается на продажу в строках товаров, поэтому файлы импортируют друг друга по кругу.
     // Тип результата указан явно: иначе тип продажи выводился бы через тип отвеса и обратно.
     .field('basis', (field) => field.reference((): ObjectTarget => Weighing).title('Основание'))
     .field('amount', (field) => field.money().title('Сумма').required().computed(formula.sum('goods', 'total')))
-    .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, installmentMethod, complexPayment]).initial(cash))
+    .field('paymentMode', (field) => field.string().title('Способ оплаты').choices([...paymentMethods, installmentMethod, complexPayment]).default(cash))
     .field('paid', (field) => field.money().title('Оплачено').required().computed(formula.sum('payments', 'amount')))
     .field('paidByCertificates', (field) => field.money().title('Оплачено сертификатами').required().computed(formula.sum('certificates', 'amount')))
     // Строка отвеса заполнена у товара, взятого из отвеса-основания: по ней проведение отмечает товар проданным.
@@ -794,7 +794,7 @@ const saleWithHandlers = sale
             // Ставку выбирают у банковской рассрочки; собственной действие проставляет ставку «Собственная» само.
             .field('rate', (field) => field.reference(InstallmentRates).title('Ставка рассрочки'))
             // Первоначальный взнос необязателен: без суммы рассрочка оформляется без взносов.
-            .field('initialMethod', (field) => field.string().title('Способ взноса').choices(paymentMethods).initial(cash))
+            .field('initialMethod', (field) => field.string().title('Способ взноса').choices(paymentMethods).default(cash))
             .field('initialAmount', (field) => field.money().title('Первоначальный взнос').minimum(1))
             .field('initialReceiver', receiverField))
         .handle((input) => Effect.gen(function* () {

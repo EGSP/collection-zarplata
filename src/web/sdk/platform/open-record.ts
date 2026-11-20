@@ -49,7 +49,7 @@ export interface OpenRecordOptions {
      * остаются в памяти клиента под ключом из адреса. После перезагрузки страницы их нет,
      * и по такому адресу открывается пустая форма новой записи.
      */
-    readonly initial?: FormValues | undefined;
+    readonly default?: FormValues | undefined;
     /**
      * Ширина модального окна в пикселях вместо обычных 720. Нужна широкой форме, например продаже
      * с таблицей товаров. Окно не шире области, в которой показано. Вкладка ширину не учитывает.
@@ -59,10 +59,10 @@ export interface OpenRecordOptions {
 
 /**
  * Команда области окна, которая показывает форму записи в модальном окне и возвращает итог его работы.
- * `initial` — значения новой записи поверх значений по умолчанию; у существующей записи не учитываются.
+ * `default` — значения новой записи поверх значений по умолчанию; у существующей записи не учитываются.
  * `width` — ширина окна вместо обычной.
  */
-export type OpenRecordDialog = (object: PerformTarget, guid: string | null, initial?: FormValues, width?: number) => Promise<string | null>;
+export type OpenRecordDialog = (object: PerformTarget, guid: string | null, defaults?: FormValues, width?: number) => Promise<string | null>;
 
 /** Значения черновиков новых записей по ключам из адресов вкладок. */
 const drafts = new Map<string, FormValues>();
@@ -100,11 +100,11 @@ export function useOpenRecord(): OpenRecord {
             }
             const creationMode = findObjectView(metadata, object)?.form?.creationMode ?? 'tab';
             if ((mode ?? (guid === null ? creationMode : 'tab')) === 'tab') {
-                if (guid === null && options?.initial !== undefined) {
+                if (guid === null && options?.default !== undefined) {
                     // Не `crypto.randomUUID`: на странице, открытой по http с адреса в сети, его нет,
                     // и вкладка со значениями, например продажа из отвеса, не открывалась.
                     const key = randomUuid();
-                    drafts.set(key, options.initial);
+                    drafts.set(key, options.default);
                     await navigate(newRecordDraftPath(object, key));
                     return null;
                 }
@@ -112,7 +112,7 @@ export function useOpenRecord(): OpenRecord {
                 return null;
             }
             if (openDialog === null) throw new Error('Окно с формой записи открывается только со страницы, показанной в области окна');
-            return openDialog(object, guid, options?.initial, options?.width);
+            return openDialog(object, guid, options?.default, options?.width);
         },
         [metadata, navigate, openDialog, message],
     );

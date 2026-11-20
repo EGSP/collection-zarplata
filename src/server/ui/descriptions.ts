@@ -48,8 +48,10 @@ export interface FormField {
     readonly target: ObjectTarget | null;
     /** Допустимые строковые значения для выбора. */
     readonly choices?: ReadonlyArray<string> | null;
-    /** Значение строки в новой записи или новой строке вместо пустого. */
-    readonly initial?: string | null;
+    /** Постоянное начальное значение; обёртка сохраняет явный null. */
+    readonly defaultValue?: { readonly value: unknown };
+    /** Значение вычисляется на сервере при подготовке. */
+    readonly serverDefault?: true;
     /** Значение заполняет платформа: поле показывается, но не редактируется и не входит в порядок обхода. */
     readonly readOnly: boolean;
     readonly computed?: Formula | null;
@@ -72,8 +74,15 @@ export interface FormField {
     readonly inputElement: string | null;
 }
 
+/** Где сервер ищет исходные объявления эффектов начального заполнения. */
+export type FieldDefaultsSource = { readonly object: ObjectTarget } & (
+    | { readonly action?: never; readonly tablePart: string }
+    | { readonly action: string; readonly tablePart?: string }
+);
+
 /** Табличная часть формы: колонки — поля одной строки в порядке объявления. */
 export interface FormTablePart {
+    readonly defaultsSource?: FieldDefaultsSource;
     readonly access?: 'deny' | 'read' | 'edit';
     /** Компонент вместо стандартной таблицы; отсутствие означает стандартное представление. */
     readonly inputElement?: string | null;
@@ -104,6 +113,7 @@ export interface FormGroup {
  * выводится кнопкой; без `confirmation` выполняется сразу.
  */
 export interface FormAction {
+    readonly defaultsSource?: FieldDefaultsSource;
     /** Команда открытия служебного экрана вместо изменения записи через диспетчер объекта. */
     readonly opens?: 'journal';
     readonly name: string;

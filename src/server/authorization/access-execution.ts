@@ -5,6 +5,7 @@ import type { AccessDefinition, AccessTarget, DataAccess } from './access-schema
 import { resolveAccess } from './access-schema.js';
 import { RightsDeniedError } from './authorization.errors.js';
 import type { UserRights } from './rights-guard.platform.js';
+import { standardFieldDefault } from '../metadata/field-defaults.js';
 import type { ObjectDescription, FieldDescription } from '../metadata/descriptions.js';
 import type { SqlQuery } from '../database/sql.builder.js';
 import type { RecordValue } from '../data/records.js';
@@ -83,7 +84,10 @@ export function publicRecord(description: ObjectDescription, record: RecordValue
 export function writableInput(description: ObjectDescription, input: RecordValue, existing: RecordValue | undefined, access: ExecutionAccess): RecordValue {
     const merged = { ...input };
     const same = (left: unknown, right: unknown) => isDeepStrictEqual(left ?? null, right ?? null);
-    const initial = (field: FieldDescription): unknown => field.initial ?? (field.required && field.kind === 'boolean' ? false : field.required && field.kind === 'dateTime' ? new Date().toISOString() : null);
+    // Запись восстанавливает постоянное значение недоступного поля без выполнения эффекта формы.
+    const initial = (field: FieldDescription): unknown => field.defaultValue?.kind === 'value'
+        ? field.defaultValue.value
+        : standardFieldDefault(field.kind, field.required);
     for (const field of description.fields.filter(field => !field.managed && field.computed == null)) {
         const level = dataLevel(access, description, field.name);
         if (level === 'edit') continue;

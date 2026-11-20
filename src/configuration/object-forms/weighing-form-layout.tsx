@@ -170,7 +170,7 @@ function SavedWeighingActions({ state }: { readonly state: RecordFormState }) {
             // Новый документ ещё не внесён в 1С, поэтому отметка «Проведено в 1С» не переносится.
             .map((line) => ({ name: line.name, code: line.code, size: line.size, comment: line.comment, postedIn1C: false, cost: line.cost, discount: line.discount, weighingLine: line.lineNumber }));
         // Об ошибке открытия вкладки сообщать нечего: переход по адресу не завершается отказом сервера.
-        openRecord(Objects.document.sale, null, 'tab', { initial: { basis: record['guid'], shift: record['shift'], goods: goodsOfSale } }).catch(() => undefined);
+        openRecord(Objects.document.sale, null, 'tab', { default: { basis: record['guid'], shift: record['shift'], goods: goodsOfSale } }).catch(() => undefined);
     };
     const hang = (numbers: ReadonlyArray<number>) => {
         if (writeAction === undefined) return;

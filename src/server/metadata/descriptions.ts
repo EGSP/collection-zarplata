@@ -131,6 +131,11 @@ export interface RegisterTotal {
     readonly match: 'objectReference' | 'reference';
 }
 
+/** Постоянное значение проверяется при сборке схемы, результат эффекта проверяется при подготовке формы. */
+export type FieldDefault =
+    | { readonly kind: 'value'; readonly value: unknown }
+    | { readonly kind: 'effect'; readonly effect: import('effect').Effect.Effect<unknown, unknown, import('./builders.js').FunctionRequirements> };
+
 /**
  * Описание поля объекта, строки табличной части или входных данных действия. По нему строятся
  * колонка таблицы, схема проверки входных данных и элемент формы. Свойства, которые к виду поля
@@ -160,8 +165,8 @@ export interface FieldDescription {
     readonly target: ObjectTarget | null;
     /** Предопределённые строковые значения либо null для свободного ввода. */
     readonly choices: ReadonlyArray<string> | null;
-    /** Значение строки в новой записи или новой строке формы. */
-    readonly initial?: string | null;
+    /** Явное начальное значение. Описание эффекта остаётся на сервере. */
+    readonly defaultValue?: FieldDefault;
     /** Формула числового значения, исполняемая до записи и при вводе. */
     readonly computed?: Formula | null;
     /** Итог регистра по этой записи: поле не хранится, его значение считает чтение. */

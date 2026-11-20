@@ -3,14 +3,15 @@ import { InputDraftItem } from '../../widgets/input-draft';
 import { ComputedValues } from './computed-values';
 import { TablePart } from './table-part';
 import { useFieldTraversal, fieldAttribute } from './field-traversal';
-import { Form, Modal } from 'antd';
+import { Alert, Button, Form, Modal } from 'antd';
+import { Pending } from '../../common/pending';
 import { BreakpointContainer } from '../ds/breakpoints';
-import { useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import type { FormAction, FormField } from '../../../server/ui/descriptions';
 import { ApiError } from '../../common/api';
 import { FieldDisplay, FieldInput } from '../../widgets/registry';
 import { fieldRules, formFieldPaths, isMarkedRequired, serverRejectionMessage } from '../../widgets/validation';
-import { newInputValues, type FormValues } from './record-values';
+import { newInputValues, requestFieldDefaults, type FormValues } from './record-values';
 import type { DateLimits, InputProperties } from '../../widgets/widget';
 
 /** Свойства окна входных данных действия. */
@@ -44,7 +45,32 @@ export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClo
     const [form] = Form.useForm<FormValues>();
     const [executing, setExecuting] = useState(false);
     const parts = action.tableParts ?? [];
-    const traversal = useFieldTraversal([...action.input.filter((field) => !field.readOnly).map((field) => field.name), ...parts.map((part) => part.name)], !executing);
+    const [opening] = useState(() => ({
+        fields: action.input,
+        source: action.defaultsSource,
+        given: initialValues,
+        values: { ...newInputValues(action.input), ...Object.fromEntries(parts.map(part => [part.name, []])) },
+    }));
+    const [attempt, setAttempt] = useState(0);
+    const [defaults, setDefaults] = useState<FormValues | Error | null>(() =>
+        opening.source !== undefined && opening.fields.some(field => field.serverDefault && !Object.hasOwn(opening.given ?? {}, field.name))
+            ? null
+            : { ...opening.values, ...opening.given });
+    const ready = defaults !== null && !(defaults instanceof Error);
+    const traversal = useFieldTraversal([...action.input.filter(field => !field.readOnly).map(field => field.name), ...parts.map(part => part.name)], ready && !executing);
+
+    useEffect(() => {
+        let active = true;
+        // Запрашиваем сервер только для эффектов и только после проверочного монтирования Strict Mode.
+        queueMicrotask(() => {
+            if (!active) return;
+            void requestFieldDefaults(opening.fields, opening.source, opening.given)?.then(
+                values => { if (active) setDefaults({ ...opening.values, ...values, ...opening.given }); },
+                error => { if (active) setDefaults(error instanceof Error ? error : new Error('Не удалось загрузить начальные значения')); },
+            );
+        });
+        return () => { active = false; };
+    }, [opening, attempt]);
 
     const execute = async (input: FormValues) => {
         setExecuting(true);
@@ -72,6 +98,7 @@ export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClo
             closable={{ disabled: executing }}
             keyboard={!executing}
             cancelButtonProps={{ disabled: executing }}
+            okButtonProps={{ disabled: !ready }}
             onOk={() => form.submit()}
             onCancel={() => {
                 if (!executing) onClose();
@@ -79,8 +106,11 @@ export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClo
         >
             {/* Окно ведёт собственный ввод: недоступность формы продажи не должна наследоваться
                 его полями. Во время выполнения запроса блокируется уже сам ввод окна. */}
-            <BreakpointContainer of="fixed" point="sm">
-            <Form form={form} scrollToFirstError={{ focus: true }} disabled={executing} layout="vertical" initialValues={{ ...newInputValues(action.input), ...Object.fromEntries(parts.map((part) => [part.name, []])), ...initialValues }} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
+            {defaults === null ? <Pending label="Загружаем начальные значения" /> : defaults instanceof Error ?
+                <Alert type="error" title={defaults.message} action={
+                    <Button onClick={() => { setDefaults(null); setAttempt(attempt + 1); }}>Повторить</Button>
+                } /> : <BreakpointContainer of="fixed" point="sm">
+            <Form form={form} scrollToFirstError={{ focus: true }} disabled={executing} layout="vertical" initialValues={defaults} onKeyDownCapture={traversal.onKeyDownCapture} onFinish={(input) => void execute(input)}>
                 <ComputedValues view={{ fields: action.input, tableParts: parts }} />
                 {action.input.map((field) => {
                     const limits = field.kind === 'date' ? dateLimits?.[field.name] : undefined;
@@ -103,7 +133,7 @@ export function ActionDialog({ action, dateLimits, fieldInputs, onExecute, onClo
                 })}
                 {parts.map((part) => <div key={part.name} {...{ [fieldAttribute]: part.name }}><TablePart part={part} ref={traversal.register(part.name)} onPrevious={() => traversal.previous(part.name)} disabled={executing} /></div>)}
             </Form>
-            </BreakpointContainer>
+            </BreakpointContainer>}
         </Modal>
     );
 }

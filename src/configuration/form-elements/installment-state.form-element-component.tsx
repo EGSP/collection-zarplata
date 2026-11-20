@@ -116,7 +116,8 @@ export default function InstallmentState() {
             )}
             {closing && close !== undefined && (
                 <ActionDialog
-                    action={{ ...close, input: close.input.filter((field) => field.name !== 'installment').map((field) => field.name === 'closedAt' ? { ...field, initial: suggestedClosing } : field) }}
+                    action={{ ...close, input: close.input.filter((field) => field.name !== 'installment') }}
+                    initialValues={{ closedAt: suggestedClosing }}
                     onExecute={async (input) => {
                         await form.runAction('close', { ...input, installment: saved.guid });
                     }}

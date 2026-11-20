@@ -272,7 +272,8 @@ export default function PayrollPage() {
             {closing && closePeriod !== undefined && (
                 <ActionDialog
                     dateLimits={{ closedThrough: { minimum: minimumDay, maximum: lastClosingDay } }}
-                    action={{ ...closePeriod, input: closePeriod.input.map((field) => field.name === 'closedThrough' ? { ...field, initial: through < dayFromToday(0) ? through : dayFromToday(-1) } : field) }}
+                    action={closePeriod}
+                    initialValues={{ closedThrough: through < dayFromToday(0) ? through : dayFromToday(-1) }}
                     onExecute={async (input) => {
                         const created: { readonly guid: string } = await run({ object: closings, action: 'closePeriod', payload: input, successMessage: 'Период закрыт', failureMessage: 'Период не закрыт' });
                         void openRecord(closings, created.guid);

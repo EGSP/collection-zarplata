@@ -24,7 +24,11 @@ export default function SamplePayments({ part, value, onChange, disabled, ref, i
             {full
                 ? <TablePart showTitle={false} part={part} disabled={disabled} ref={ref} onPrevious={onPrevious} />
                 : <FieldInput field={amount} value={rows[0]?.amount ?? null} disabled={disabled} ref={ref} id={id}
-                    onChange={(entered) => onChange?.([{ ...newRowValues(part), ...rows[0], method: rows[0]?.method ?? 'Наличные', amount: typeof entered === 'number' ? entered : null }])} />}
+                    onChange={(entered) => {
+                        const defaults = newRowValues(part);
+                        const method = rows[0]?.method ?? defaults['method'];
+                        onChange?.([{ ...defaults, ...rows[0], method: typeof method === 'string' ? method : null, amount: typeof entered === 'number' ? entered : null }]);
+                    }} />}
             <Button disabled={disabled || rows.length > 1} onClick={() => setExpanded(!full)}>
                 {full ? 'Показать одну сумму' : 'Показать таблицу оплаты'}
             </Button>
