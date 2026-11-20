@@ -32,7 +32,7 @@ interface OpenedDialog {
     /** `guid` открытой записи; у формы новой записи `null`. */
     readonly guid: string | null;
     /** Значения новой записи от открывшего окно кода. */
-    readonly initial: FormValues | undefined;
+    readonly default: FormValues | undefined;
     /** Ширина окна от открывшего его кода; без неё обычная. */
     readonly width: number | undefined;
 }
@@ -55,12 +55,12 @@ export function RecordDialogHost({ children }: { readonly children: ReactNode })
     const waiting = useRef(new Map<number, (written: string | null) => void>());
 
     const open = useCallback<OpenRecordDialog>(
-        (object, guid, initial, width) =>
+        (object, guid, defaults, width) =>
             new Promise((resolve) => {
                 const id = nextDialogId++;
                 waiting.current.set(id, resolve);
                 // Объект мог прийти описанием или ссылкой с типами: окну нужны только вид и имя.
-                setDialogs((previous) => [...previous, { id, guid, initial, width, object: { kind: object.kind, name: object.name } }]);
+                setDialogs((previous) => [...previous, { id, guid, default: defaults, width, object: { kind: object.kind, name: object.name } }]);
             }),
         [],
     );
@@ -126,7 +126,7 @@ function RecordDialog({ dialog, onFinish }: RecordDialogProperties) {
         >
             <RecordDialogWindow width={dialog.width} onHeader={setHeader} onFooter={setFooter}>
                 <RecordDialogHost>
-                    <RecordDialogContent object={dialog.object} guid={dialog.guid} initial={dialog.initial} />
+                    <RecordDialogContent object={dialog.object} guid={dialog.guid} default={dialog.default} />
                 </RecordDialogHost>
             </RecordDialogWindow>
         </WindowScopeProvider>
@@ -185,7 +185,7 @@ function RecordDialogWindow({ width, onHeader, onFooter, children }: RecordDialo
  * и новой записи без права записи вызывающий код открывать не должен; если это случилось, окно
  * отвечает так же, как адрес вкладки.
  */
-function RecordDialogContent({ object: target, guid, initial }: { readonly object: PerformTarget; readonly guid: string | null; readonly initial: FormValues | undefined }) {
+function RecordDialogContent({ object: target, guid, default: defaults }: { readonly object: PerformTarget; readonly guid: string | null; readonly default: FormValues | undefined }) {
     const object = useObjectView(target);
     const { close } = useWindowScope();
     if (object === undefined || object.form === null) return <NotFoundPage />;
@@ -205,5 +205,5 @@ function RecordDialogContent({ object: target, guid, initial }: { readonly objec
         );
     }
     if (!object.form.actions.some((action) => action.name === 'save')) return <NotFoundPage />;
-    return <ObjectRecordForm object={object} view={object.form} record={null} reload={null} presentation="dialog" initial={initial} />;
+    return <ObjectRecordForm object={object} view={object.form} record={null} reload={null} presentation="dialog" default={defaults} />;
 }

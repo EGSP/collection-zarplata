@@ -31,7 +31,7 @@ import { hasOpenDialog, hasOpenPicker } from './keyboard';
 import type { NewFormProperties, RecordFormProperties } from './object-form-properties';
 import { Page } from './page';
 import { useRecordFormContract, useRecordFormHost, type RecordFormActionInput, type RecordFormRunOptions } from './record-form-contract';
-import { newRecordValues, recordValues, saveFields, type FormValues } from './record-values';
+import { recordValues, saveFields, type FormValues } from './record-values';
 
 /** Состояние формы записи: то, что хук `useRecordForm` передаёт частям раскладки. */
 export interface RecordFormState {
@@ -117,14 +117,13 @@ export interface RecordFormOptions {
 export function useRecordForm(properties: RecordFormProperties | NewFormProperties, options: RecordFormOptions = {}): RecordFormState {
     const { object, view } = properties;
     const initial = 'record' in properties ? properties.record : null;
-    const given = 'initial' in properties ? properties.initial : undefined;
+    const given = 'default' in properties ? properties.default : undefined;
     const reload = 'reload' in properties ? properties.reload : null;
     const [form] = Form.useForm<FormValues>();
     const scope = useWindowScope();
     const performAction = useAction();
-    // Начальные значения вычисляются один раз: у новой записи в них входит текущее время.
-    // Значения, переданные открывшим форму, стоят поверх значений по умолчанию.
-    const [initialValues] = useState(() => (initial === null ? { ...newRecordValues(view), ...given } : recordValues(view, initial)));
+    // Новая форма получает полный ответ подготовки; исходные значения фиксируются при монтировании.
+    const [initialValues] = useState(() => (initial === null ? given ?? {} : recordValues(view, initial)));
     const changed = useRef(false);
     const root = useRef<HTMLDivElement>(null);
     // Виджет может закрыть выбор до глобального обработчика Escape. Сохраняем состояние до события.

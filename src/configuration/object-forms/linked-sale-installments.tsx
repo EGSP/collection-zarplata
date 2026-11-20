@@ -86,6 +86,6 @@ export function LinkedInstallmentActions({ installment, view, disabled = false }
             {close !== undefined && <Button size="lg" icon={<Icons.closeInstallment />} disabled={!actionable || balance !== 0} onClick={() => setDialog('close')}>Закрыть</Button>}
         </Flex>
         {dialog === 'pay' && action !== undefined && <InstallmentPaymentDialog action={action} onExecute={run} onClose={() => setDialog(null)} />}
-        {dialog === 'close' && action !== undefined && <ActionDialog action={{ ...action, input: action.input.filter((field) => field.name !== 'installment').map((field) => field.name === 'closedAt' ? { ...field, initial: closingDate(installment) } : field) }} onExecute={run} onClose={() => setDialog(null)} />}
+        {dialog === 'close' && action !== undefined && <ActionDialog action={{ ...action, input: action.input.filter((field) => field.name !== 'installment') }} initialValues={{ closedAt: closingDate(installment) }} onExecute={run} onClose={() => setDialog(null)} />}
     </>;
 }

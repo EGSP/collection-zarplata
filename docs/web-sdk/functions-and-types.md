@@ -16,7 +16,9 @@ covers:
 | `recordGuid`, `recordTitle`, `recordPresentation` | Идентификатор, заголовок и собственное представление записи |
 | `listRecordPresentation` | Представление записи из страницы списка с учётом представлений ссылок; для упорядочивания по представлению на клиенте |
 | `recordFormElements` | Элементы группы [стандартной формы](components.md#стандартная-форма-и-её-части) для `FieldGroup` без служебных полей новой записи |
-| `newRecordValues`, `recordValues`, `saveFields`, `newRowValues` | Начальные значения формы и строки, значения записи, данные для `save` |
+| `newRecordValues`, `newRowValues` | Стандартные и постоянные значения формы и строки из метаданных |
+| `prepareNewRowValues(part, given?)` | Все начальные значения строки, включая вычисляемые. Синхронно возвращает значения либо возвращает Promise при запросе к серверу. `given` задаёт значения для конкретного добавления |
+| `recordValues`, `saveFields` | Значения записи и данные для `save` |
 | `fieldRules`, `formFieldPaths`, `isMarkedRequired`, `validationMessage`, `serverRejectionMessage`, `tablePartValidationMessages` | Проверка полей и строк, сопоставление ошибок сервера с полями |
 | `hasInput`, `hasOpenPicker`, `hasOpenDialog` | Есть ли ввод в поле, открыт ли выбор или модальное окно |
 | `actionApplies`, `actionSuccessMessage` | Применимость действия к записи и текст успешного выполнения |

@@ -35,7 +35,7 @@ import { Sale } from './sale.document.js';
 import { readInitialPayments, readInstallmentPaymentFeed, SaleInstallment } from './sale-installment.document.js';
 import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
 import { closedPeriodByDocumentDatePolicy } from '../policies/closed-period.js';
-import { Shift } from './shift.document.js';
+import { findOpenShiftGuid, Shift } from './shift.document.js';
 
 /**
  * Способы расчёта возврата: деньги, «В счёт долга» (погашение долга по рассрочке: покупатель
@@ -184,7 +184,7 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
  */
 const refund = document('refund')
     .title('Возврат')
-    .field('shift', (field) => field.reference(Shift).title('Смена').required())
+    .field('shift', (field) => field.reference(Shift).title('Смена').required().default(findOpenShiftGuid()))
     // Список показывает весь расчёт, включая суммы в счёт долга и на сертификат.
     .field('settlementTotal', (field) => field.money().title('Итого расчётов').required().computed(formula.sum('settlements', 'amount')))
     .tablePart('bases', (part) => part

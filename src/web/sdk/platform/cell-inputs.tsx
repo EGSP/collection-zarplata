@@ -285,8 +285,8 @@ function CompositeCellInput({ field, value, onChange, id, ref }: CellInputProper
      */
     const create = async (object: ObjectView, name: string) => {
         if (openDialog === null) return;
-        const initial = object.kind === 'catalog' && object.presentation === null ? { name } : undefined;
-        const guid = await openDialog(object, null, initial);
+        const defaults = object.kind === 'catalog' && object.presentation === null ? { name } : undefined;
+        const guid = await openDialog(object, null, defaults);
         if (guid !== null) onChange?.({ type: 'reference', kind: object.kind === 'document' ? 'document' : 'catalog', name: object.name, guid });
     };
 

@@ -12,12 +12,14 @@ import type { FormComponentDefinition } from './form-elements.js';
 import type { Formula } from '../../common/formulas.js';
 import type { ReferenceTarget, RegisterTarget } from './fields.js';
 import { formulaDependencies } from '../../common/formulas.js';
-import { Effect } from 'effect';
+import { Effect, Schema } from 'effect';
+import { fieldSchema } from './schema.js';
 import type { FieldEntry, ObjectBuilder, ObjectState } from './builders.js';
 import type {
     ActionDescription,
     FunctionDescription,
     DelegatedPresentation,
+    FieldDefault,
     FieldDescription,
     FieldKind,
     FormOverride,
@@ -209,7 +211,7 @@ function describeVariants(
             seen.add(key);
         }
         if (state.required || state.title !== null) problems.add(variantLocation, 'подпись и обязательность задаются составному полю, а не варианту');
-        if (state.computed !== null || state.suggestions !== null || state.initial !== null || state.expandedTablePart !== null) {
+        if (state.computed !== null || state.suggestions !== null || state.defaultValue !== undefined || state.expandedTablePart !== null) {
             problems.add(variantLocation, 'вариант не поддерживает формулу, подсказки, начальное значение и раскрытие табличной части');
         }
         const description: FieldDescription = {
@@ -241,7 +243,7 @@ function describeFields(
     prefix: string,
     problems: Problems,
     configuration: ReadonlyArray<ObjectBuilder>,
-    allowTotal = false,
+    formScope?: 'record' | 'input',
 ): ReadonlyArray<FieldDescription> {
     const seen = new Map<string, FieldEntry>();
     return entries.map((entry) => {
@@ -263,7 +265,18 @@ function describeFields(
         if (state.inputMode !== null && (state.kind !== 'composite' || state.inputMode !== 'solid')) {
             problems.add(location, 'способ ввода задаётся только составному полю и только как solid');
         }
-        const total = describeTotal(entry, location, problems, configuration, allowTotal);
+        const total = describeTotal(entry, location, problems, configuration, formScope === 'record');
+        const source = state.defaultValue;
+        let defaultValue: FieldDefault | undefined;
+        if (source !== undefined) {
+            if (formScope === undefined || entry.managed || state.total !== null || state.computed !== null) {
+                problems.add(location, 'Значение по умолчанию задаётся редактируемому полю формы записи или действия');
+            }
+            const value = source.value;
+            defaultValue = Effect.isEffect(value)
+                ? { kind: 'effect', effect: value as Extract<FieldDefault, { kind: 'effect' }>['effect'] }
+                : { kind: 'value', value };
+        }
         const description: FieldDescription = {
             name: entry.name,
             kind: state.kind,
@@ -282,7 +295,7 @@ function describeFields(
             maximum: state.maximum,
             integer: state.integer,
             choices: state.choices,
-            initial: state.initial,
+            ...(defaultValue === undefined ? {} : { defaultValue }),
             target: state.kind === 'reference' ? resolveTarget(entry, location, problems, configuration) : null,
             variants,
             // Настройка конфигурации может только отключить текстовый ввод, выведенный из вариантов.
@@ -300,8 +313,8 @@ function describeFields(
             if (!target?.['~state'].tableParts.some((part) => part.name === state.expandedTablePart)) problems.add(location, 'Для раскрытия нужна существующая табличная часть объекта ссылки');
         }
         checkChoices(description, location, problems);
-        if (state.initial !== null && (state.kind !== 'string' || state.computed !== null || (state.choices !== null && !state.choices.includes(state.initial)))) {
-            problems.add(location, 'Начальное значение задаётся строковому полю и входит в его предопределённые значения');
+        if (defaultValue?.kind === 'value' && defaultValue.value !== null && !Schema.is(fieldSchema(description))(defaultValue.value)) {
+            problems.add(location, 'Значение по умолчанию не соответствует схеме поля');
         }
         return description;
     });
@@ -476,7 +489,7 @@ function validateObject(
         problems.add(null, 'стандартные поля не добавлены: вызовите withStandardFields() перед commit()');
     }
 
-    const fields = describeFields(state.fields, '', problems, configuration, state.kind === 'catalog' || state.kind === 'document');
+    const fields = describeFields(state.fields, '', problems, configuration, state.kind === 'catalog' || state.kind === 'document' ? 'record' : undefined);
     if ((state.kind === 'register' || state.kind === 'informationRegister') && !fields.some((field) => field.role === 'resource')) {
         problems.add(null, 'у регистра нет ни одного ресурса');
     }
@@ -510,7 +523,7 @@ function validateObject(
         return {
             name: part.name,
             title: part.title ?? part.name,
-            fields: describeFields(part.fields, `${location}, `, problems, configuration),
+            fields: describeFields(part.fields, `${location}, `, problems, configuration, state.kind === 'catalog' || state.kind === 'document' ? 'input' : undefined),
         };
     });
 
@@ -537,8 +550,8 @@ function validateObject(
         return {
             name: action.name,
             title: action.title ?? action.name,
-            input: describeFields(action.input, `${location}, `, problems, configuration),
-            tableParts: action.tableParts.map((part) => ({ name: part.name, title: part.title ?? part.name, fields: describeFields(part.fields, location + ', табличная часть ' + part.name + ', ', problems, configuration) })),
+            input: describeFields(action.input, `${location}, `, problems, configuration, 'input'),
+            tableParts: action.tableParts.map((part) => ({ name: part.name, title: part.title ?? part.name, fields: describeFields(part.fields, location + ', табличная часть ' + part.name + ', ', problems, configuration, 'input') })),
             access: action.access,
             handler: action.handler,
             placement: action.placement,

@@ -40,7 +40,7 @@ import { InstallmentRates, ownInstallmentRateName } from './catalogs/installment
 import { PhysicalPersons } from './catalogs/physical-persons.catalog.js';
 import { Rights } from './configuration.generated.js';
 import { figuresFunction, type SaleInstallmentFunctions } from './documents/sale-installment.functions.js';
-import { Shift } from './documents/shift.document.js';
+import { findOpenShiftGuid, Shift } from './documents/shift.document.js';
 import { rubles } from './money.js';
 import { closedPeriodPolicy, dayOf, lastClosedThrough } from './policies/closed-period.js';
 import { cash, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from './payments.js';
@@ -73,7 +73,7 @@ const head = <const Name extends InstallmentName>(name: Name, title: string) => 
     .field('type', (field) => field.string().title('Тип').choices(installmentTypes))
     // Ставку банка читает расчёт зарплаты: она уменьшает базу начисления и выбирает ступень ставки сотрудника.
     .field('rate', (field) => field.reference(InstallmentRates).title('Ставка рассрочки'))
-    .field('shift', (field) => field.reference(Shift).title('Смена').required())
+    .field('shift', (field) => field.reference(Shift).title('Смена').required().default(findOpenShiftGuid()))
     .field('person', (field) => field.reference(PhysicalPersons).title('Физическое лицо').width('free'))
     .field('responsibleEmployee', (field) => field.reference(Employees).title('Ответственный сотрудник').width('long'));
 

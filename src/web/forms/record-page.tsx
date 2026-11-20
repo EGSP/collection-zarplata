@@ -39,7 +39,7 @@ export function RecordPage() {
     }
     if (!object.form.actions.some((action) => action.name === 'save')) return <NotFoundPage />;
     // Ключ черновика различает формы: у каждого черновика своя вкладка и свои значения.
-    return <ObjectRecordForm key={draft === undefined ? key : `${key}/${draft}`} object={object} view={object.form} record={null} reload={null} presentation="page" initial={draft === undefined ? undefined : draftValues(draft)} />;
+    return <ObjectRecordForm key={draft === undefined ? key : `${key}/${draft}`} object={object} view={object.form} record={null} reload={null} presentation="page" default={draft === undefined ? undefined : draftValues(draft)} />;
 }
 
 /**

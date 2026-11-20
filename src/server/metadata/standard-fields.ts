@@ -6,6 +6,7 @@
  * поля заданы значением с `as const`, а не собираются во время выполнения, иначе TypeScript
  * не узнал бы их имена и типы.
  */
+import { semanticDefaults } from './field-defaults.js';
 import type { ObjectKind } from './descriptions.js';
 import { fieldFactory as field, standardFieldFactory, type AnyFieldBuilder } from './fields.js';
 
@@ -22,7 +23,7 @@ export const standardFields = {
         deletedAt: field.dateTime().title('Пометка удаления'),
         number: field.string().title('Номер').required().maximumLength(50),
         // Дата документа хранится с временем: документы одного дня упорядочиваются по нему.
-        date: field.dateTime().title('Дата').required(),
+        date: field.dateTime().title('Дата').required().default(semanticDefaults.currentDateTime),
         posted: field.boolean().title('Проведён').required(),
     },
     // У строк регистра нет guid и пометки удаления: строку определяют регистратор и номер строки,

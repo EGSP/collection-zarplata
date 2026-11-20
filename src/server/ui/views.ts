@@ -9,7 +9,7 @@ import type { UserRights } from '../authorization/rights-guard.platform.js';
  * поэтому построение не завершается ошибкой.
  */
 import { platformRights, readRight, requiredFunctionRight, requiredRight, type Right } from '../authorization/rights.js';
-import type { FieldDescription, FormOverride, ObjectDescription, RecordOpeningMode } from '../metadata/descriptions.js';
+import type { FieldDescription, FormOverride, ObjectDescription, RecordOpeningMode, TablePartDescription } from '../metadata/descriptions.js';
 import { formHiddenStandardFields } from '../metadata/standard-fields.js';
 import {
     filterOperators,
@@ -72,7 +72,8 @@ function formField(field: FieldDescription, title: string = field.title, inputEl
         kind: field.kind,
         target: field.target,
         choices: field.choices,
-        initial: field.initial ?? null,
+        ...(field.defaultValue?.kind === 'value' ? { defaultValue: { value: field.defaultValue.value } } : {}),
+        ...(field.defaultValue?.kind === 'effect' ? { serverDefault: true } : {}),
         readOnly: field.managed || field.computed != null,
         computed: field.computed ?? null,
         suggestions: field.suggestions ?? null,
@@ -81,6 +82,17 @@ function formField(field: FieldDescription, title: string = field.title, inputEl
         ...(field.inputMode === undefined ? {} : { inputMode: field.inputMode }),
         ...(field.width == null ? {} : { width: field.width }),
         rules: validationRules(field),
+    };
+}
+
+/** Колонки и адрес схемы для подготовки строки, если в ней есть вычисляемое начальное значение. */
+function formTablePart(part: Pick<TablePartDescription, 'name' | 'title' | 'fields'>, { kind, name }: Pick<ObjectDescription, 'kind' | 'name'>, action?: string): FormTablePart {
+    const columns = part.fields.map(field => formField(field));
+    return {
+        name: part.name, title: part.title, columns,
+        ...((kind === 'catalog' || kind === 'document') && columns.some(field => field.serverDefault)
+            ? { defaultsSource: { object: { kind, name }, tablePart: part.name, ...(action === undefined ? {} : { action }) } }
+            : {}),
     };
 }
 
@@ -142,7 +154,7 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
         .map((field) => formField(field, titles.get(field.name) ?? field.title, inputs.get(field.name) ?? null));
     const tableParts: ReadonlyArray<FormTablePart> = object.tableParts
         .filter((part) => !hidden.has(part.name))
-        .map((part) => ({ inputElement: inputs.get(part.name) ?? null, name: part.name, title: titles.get(part.name) ?? part.title, columns: part.fields.map((field) => formField(field)) }));
+        .map((part) => ({ ...formTablePart(part, object), inputElement: inputs.get(part.name) ?? null, title: titles.get(part.name) ?? part.title }));
 
     // Табличные части идут после полей: на форме они занимают всю ширину и обычно стоят внизу.
     const groups = layout([...fields.map((field) => field.name), ...tableParts.map((part) => part.name)], overrides);
@@ -162,7 +174,10 @@ export function buildForm(object: ObjectDescription & { readonly kind: 'catalog'
             title: action.title,
             standard: false,
             input: action.input.map((field) => formField(field)),
-            tableParts: action.tableParts.map((part) => ({ name: part.name, title: part.title, columns: part.fields.map((field) => formField(field)) })),
+            ...(action.input.some(field => field.defaultValue?.kind === 'effect')
+                ? { defaultsSource: { object: { kind: object.kind, name: object.name }, action: action.name } }
+                : {}),
+            tableParts: action.tableParts.map(part => formTablePart(part, object, action.name)),
             placement: action.placement,
             ...(action.confirmation === null ? {} : { confirmation: action.confirmation }),
         })),
@@ -207,7 +222,7 @@ export function buildObjectView(object: ObjectDescription): ObjectView {
         name: object.name,
         title: object.title,
         presentation: object.presentation,
-        tableParts: object.tableParts.map((part) => ({ name: part.name, title: part.title, columns: part.fields.map((field) => formField(field)) })),
+        tableParts: object.tableParts.map(part => formTablePart(part, object)),
         form: object.kind === 'catalog' || object.kind === 'document' ? buildForm({ ...object, kind: object.kind }) : null,
         list: buildList(object),
         lookup: object.lookup === null ? null : { columns: object.lookup.columns.map((field) => formField(field)) },
@@ -231,7 +246,17 @@ export function restrictObjectView(object: ObjectDescription, view: ObjectView, 
     const internal = new Set(object.access?.entries.filter(entry => entry.path.startsWith('internal.')).map(entry => entry.path.slice(9)) ?? []);
     const level = (name: string) => rights?.decision(object, `fields.${name}`).level ?? 'edit';
     const hiddenInputs = [...object.fields.map(field => field.name), ...object.tableParts.flatMap(part => part.fields.map(field => `${part.name}.${field.name}`))].some(name => level(name) === 'deny');
-    const restrictField = (field: FormField, prefix = ''): FormField => ({ ...field, ...(hiddenInputs || level(prefix + field.name) !== 'edit' ? { computed: null } : {}), access: level(prefix + field.name) as 'deny' | 'read' | 'edit', readOnly: field.readOnly || level(prefix + field.name) !== 'edit', ...(level(prefix + field.name) === 'deny' ? { initial: null, computed: null, inputElement: null } : {}) });
+    // Скрытые значения и признаки серверного заполнения недоступных полей не передаются клиенту.
+    const restrictField = ({ defaultValue, serverDefault, ...field }: FormField, prefix = ''): FormField => {
+        const access = level(prefix + field.name) as 'deny' | 'read' | 'edit';
+        return {
+            ...field, access, readOnly: field.readOnly || access !== 'edit',
+            ...(hiddenInputs || access !== 'edit' ? { computed: null } : {}),
+            ...(access === 'deny' ? { inputElement: null } : {}),
+            ...(access !== 'deny' && defaultValue !== undefined ? { defaultValue } : {}),
+            ...(access === 'edit' && serverDefault ? { serverDefault } : {}),
+        };
+    };
     const parts = (parts: readonly import('./descriptions.js').FormTablePart[]) => parts.filter(part => !internal.has(part.name)).map(part => ({ ...part, access: (part.columns.some(field => level(`${part.name}.${field.name}`) === 'edit') ? 'edit' : part.columns.some(field => level(`${part.name}.${field.name}`) === 'read') ? 'read' : 'deny') as 'deny' | 'read' | 'edit', columns: part.columns.filter(field => !internal.has(`${part.name}.${field.name}`)).map(field => restrictField(field, `${part.name}.`)) }));
     const safeNames = new Set(object.fields.filter(field => !internal.has(field.name)).map(field => field.name));
     view = { ...view, presentation: object.fields.some(field => level(field.name) === 'deny') ? null : view.presentation,

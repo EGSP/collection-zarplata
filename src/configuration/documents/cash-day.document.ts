@@ -5,7 +5,7 @@ import { ActionContext, ActionDispatcher } from '../../server/data/action-contex
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
 import { query } from '../../server/database/sql.builder.js';
-import { document, type Policy, type RecordOf } from '../../server/metadata/index.js';
+import { document, semanticDefaults, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { Users } from '../../server/users/object.js';
 import { cashSummary, cashSummaryVersion, type CashSummary } from '../cash-summary.js';
 import { nextDay } from '../payroll.js';
@@ -28,7 +28,7 @@ const cashDay = document('cashDay')
     .tablePart('reviews', (part) => part
         .title('История сверок')
         .field('status', (field) => field.string().title('Новый статус').choices(reviewStatuses).required())
-        .field('appliedAt', (field) => field.dateTime().title('Дата отметки').required())
+        .field('appliedAt', (field) => field.dateTime().title('Дата отметки').required().default(semanticDefaults.currentDateTime))
         .field('author', (field) => field.reference(Users).title('Автор').required())
         .field('authorName', (field) => field.string().title('Имя автора').required())
         .field('comment', (field) => field.string().title('Комментарий').maximumLength(1000))

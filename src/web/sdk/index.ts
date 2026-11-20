@@ -82,7 +82,7 @@ export { FormDataProvider, useFormData, useFormRestrictions, useFormValue, type 
 export { useFormRestrictionRegistry, type FormRestrictionRegistry, type FormRestrictions } from './platform/form-restrictions';
 export { useFieldTraversal, type FieldTraversal } from './platform/field-traversal';
 export { hasOpenDialog, hasOpenPicker } from './platform/keyboard';
-export { newRecordValues, newRowValues, recordValues, saveFields, type FormValues } from './platform/record-values';
+export { newRecordValues, newRowValues, prepareNewRowValues, recordValues, saveFields, type FormValues } from './platform/record-values';
 export { TablePart, TablePartTitle, type TablePartOptions, type TablePartProperties } from './platform/table-part';
 
 // Формы объекта: свойства форм, контракт формы записи с областью окна и части стандартной формы записи.

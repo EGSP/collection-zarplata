@@ -9,7 +9,7 @@ import { ActionDispatcher } from '../../server/data/action-context.js';
 import { DataPolicyError } from '../../server/data/data.errors.js';
 import { query } from '../../server/database/sql.builder.js';
 import { ReadonlyDatabase } from '../../server/database/database.effect.js';
-import { document, type Policy, type RecordOf } from '../../server/metadata/index.js';
+import { document, semanticDefaults, type Policy, type RecordOf } from '../../server/metadata/index.js';
 import { Employees } from '../catalogs/employees.catalog.js';
 
 /**
@@ -126,7 +126,7 @@ export const Shift = shift
     .policy(shiftRulesPolicy)
     .action('close', (action) => action
         .title('Закрыть смену')
-        .input((input) => input.field('closedAt', (field) => field.dateTime().title('Дата закрытия').required()))
+        .input((input) => input.field('closedAt', (field) => field.dateTime().title('Дата закрытия').required().default(semanticDefaults.currentDateTime)))
         .handle((input) => Effect.gen(function* () {
             const database = yield* ReadonlyDatabase;
             const dispatcher = yield* ActionDispatcher;
@@ -150,3 +150,14 @@ export const Shift = shift
             });
             return yield* dispatcher.execute({ target, action: 'post', payload: { guid: open.guid } });
         })));
+
+/** Читает идентификатор открытой смены для начальных значений новых документов. */
+export const findOpenShiftGuid = Effect.fnUntraced(function* () {
+    const database = yield* ReadonlyDatabase;
+    const open = yield* database.get(query(Shift).select({
+        columns: ['guid'],
+        where: [{ column: 'closedAt', operator: '=', value: null }],
+        limit: 1,
+    }));
+    return open?.guid ?? null;
+});

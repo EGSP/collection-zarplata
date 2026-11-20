@@ -186,8 +186,8 @@ const isEntered = (line: GoodsLine) => typeof line.name === 'string' && line.nam
  * на действие и у продажи, помеченной на удаление.
  *
  * Рядом стоит кнопка «Оформить возврат», как «Продать» в отвесе: она открывает во вкладке новый
- * возврат с этой продажей в основаниях. Товары продавец отмечает уже в возврате, а смену подставляет
- * элемент `OpenShift`: возврат оформляет открытая смена, в расчётах его смена не участвует.
+ * возврат с этой продажей в основаниях. Товары продавец отмечает уже в возврате, а открытую смену
+ * платформа загружает при подготовке новой записи.
  * Кнопки нет без права проводить возвраты и у непроведённой продажи.
  */
 function SaleFormLayout({ state, presentation }: { readonly state: RecordFormState; readonly presentation: FormPresentation }) {
@@ -235,7 +235,7 @@ function SaleFormLayout({ state, presentation }: { readonly state: RecordFormSta
     const refundView = useObjectView(Objects.document.refund);
     const refundable = posted && refundView?.form?.actions.some((action) => action.name === 'post') === true;
     // Об ошибке открытия вкладки сообщать нечего: переход по адресу не завершается отказом сервера.
-    const refund = () => void openRecord(Objects.document.refund, null, 'tab', { initial: { bases: [{ sale: state.record!['guid'] }] } }).catch(() => undefined);
+    const refund = () => void openRecord(Objects.document.refund, null, 'tab', { default: { bases: [{ sale: state.record!['guid'] }] } }).catch(() => undefined);
     const runSell = () => {
         if (withInstallment) {
             setTermsChecked(true);

@@ -1,5 +1,5 @@
 import { InputDraftItem } from '../../widgets/input-draft';
-import { Flex, Form, Typography } from 'antd';
+import { App, Flex, Form, Typography } from 'antd';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentType, type Key, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import type { FormField, FormTablePart } from '../../../server/ui/descriptions';
 import { hasInput } from '../../widgets/registry';
@@ -16,7 +16,7 @@ import { Icons } from '../ds/icons';
 import { Stack } from '../ds/stack';
 import { columnLines, screenOrder as orderOnScreen, tableLinesAt, type ColumnSize, type TableLayout, type TableLayouts, type TableLines } from '../ds/table-layout';
 import { hasOpenDialog, hasOpenPicker } from './keyboard';
-import { newRowValues } from './record-values';
+import { prepareNewRowValues, type FormValues } from './record-values';
 
 /**
  * Настройки вида табличной части. Их задаёт собственная форма или элемент конфигурации, когда
@@ -149,10 +149,10 @@ export function TablePart(properties: TablePartProperties) {
     const part = shownPart(orderedPart(properties.part, properties.columnOrder), properties.hiddenColumns, properties.readOnlyColumns);
     // Значения новой строки собираются по всем колонкам, в том числе скрытым: их тоже записывает сервер.
     // Ими пользуются и кнопка добавления, и начальная строка.
-    const newRow = () => ({ ...newRowValues(properties.part), ...properties.newRow?.() });
+    const prepareRow = () => prepareNewRowValues(properties.part, properties.newRow?.());
     return (
         <Form.List name={part.name}>
-            {(rows, { add, remove }) => <RowTable {...properties} part={part} newRow={newRow} rows={rows} add={() => add(newRow())} remove={remove} />}
+            {(rows, { add, remove }) => <RowTable {...properties} part={part} prepareRow={prepareRow} rows={rows} add={values => add(values)} remove={remove} />}
         </Form.List>
     );
 }
@@ -189,7 +189,8 @@ export function TablePartTitle({ children }: { readonly children: ReactNode }) {
 
 interface RowTableProperties extends TablePartProperties {
     readonly rows: ReadonlyArray<Row>;
-    readonly add: () => void;
+    readonly prepareRow: () => FormValues | Promise<FormValues>;
+    readonly add: (values: FormValues) => void;
     readonly remove: (index: number) => void;
 }
 
@@ -204,7 +205,7 @@ const arrows: { readonly [Key in string]?: readonly [number, number] } = { Arrow
  * ссылки на поля остальных строк. Новая строка получает фокус после регистрации её полей.
  * Редактируется не больше одной ячейки: её имя хранит таблица.
  */
-function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnSizes, layouts, columnInputs, addTitle = 'Добавить строку', addIcon = <Icons.add />, initialRow = false, newRow, totals = [], hiddenColumns = [], fixedRows = false, readOnlyRows, expandedRow, columnAdornments }: RowTableProperties) {
+function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, rows, add, remove, columnSizes, layouts, columnInputs, addTitle = 'Добавить строку', addIcon = <Icons.add />, initialRow = false, prepareRow, totals = [], hiddenColumns = [], fixedRows = false, readOnlyRows, expandedRow, columnAdornments }: RowTableProperties) {
     const form = Form.useFormInstance();
     const watched: unknown = Form.useWatch(part.name, { form, preserve: true });
     const values = (Array.isArray(watched) ? watched : form.getFieldValue(part.name) ?? []) as Record<string, unknown>[];
@@ -216,6 +217,14 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     const [editing, setEditing] = useState<string | null>(null);
     const cells = useFieldFocus();
     const pendingRow = useRef<number | null>(null);
+    const { message } = App.useApp();
+    const [preparing, setPreparing] = useState(false);
+    const requestActive = useRef(false);
+    const availability = useRef({ disabled: true, fixedRows });
+    useLayoutEffect(() => {
+        availability.current = { disabled, fixedRows };
+        return () => { availability.current.disabled = true; };
+    }, [disabled, fixedRows]);
     // Tab отслеживается на документе: вход в таблицу может начаться в поле за её пределами.
     // Стрелки, Escape и мышь сбрасывают признак и оставляют обычный фокус просмотра.
     //
@@ -266,10 +275,41 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
             cells.focus(name);
         }
     };
+    /** Вставляет строку только после подготовки. Автоматическая строка не отмечает форму изменённой. */
+    const placeRow = (automatic: boolean) => {
+        const canInsert = () => !availability.current.disabled && (automatic || !availability.current.fixedRows);
+        if (!canInsert() || requestActive.current) return;
+        const insert = (values: FormValues) => {
+            if (!canInsert()) {
+                pendingRow.current = null;
+                return;
+            }
+            const current: unknown = form.getFieldValue(part.name);
+            const count = Array.isArray(current) ? current.length : 0;
+            if (automatic) {
+                if (count === 0) form.setFieldValue(part.name, [values]);
+            } else {
+                pendingRow.current = count;
+                add(values);
+            }
+        };
+        const values = prepareRow();
+        if (!(values instanceof Promise)) {
+            insert(values);
+            return;
+        }
+        requestActive.current = true;
+        setPreparing(true);
+        void values.then(insert, error => {
+            pendingRow.current = null;
+            if (canInsert()) void message.error(error instanceof Error ? error.message : 'Не удалось подготовить строку');
+        }).finally(() => {
+            requestActive.current = false;
+            setPreparing(false);
+        });
+    };
     const addRow = () => {
-        if (disabled || fixedRows || inputColumns.length === 0 || pendingRow.current !== null) return;
-        pendingRow.current = rows.length;
-        add();
+        if (inputColumns.length > 0 && pendingRow.current === null) placeRow(false);
     };
     useLayoutEffect(() => {
         if (pendingRow.current === null || rows[pendingRow.current] === undefined) return;
@@ -282,14 +322,14 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
     useEffect(() => {
         if (!initialRow || initialRowPlaced.current || disabled) return;
         initialRowPlaced.current = true;
-        if (rows.length === 0) form.setFieldValue(part.name, [newRow?.() ?? newRowValues(part)]);
+        if (rows.length === 0) placeRow(true);
     }, [disabled]);
     useImperativeHandle(ref, () => ({
         focus: () => {
             if (disabled) return;
             // Начальная строка уже может быть в хранилище формы, но ещё не в отрисованном
             // списке. Ждём её регистрации, не добавляя вторую строку и не меняя признак ввода.
-            if (rows.length === 0 && initialRow && (!initialRowPlaced.current || (form.getFieldValue(part.name) as unknown[] | undefined)?.length)) pendingRow.current = 0;
+            if (rows.length === 0 && initialRow && (!initialRowPlaced.current || requestActive.current || (form.getFieldValue(part.name) as unknown[] | undefined)?.length)) pendingRow.current = 0;
             else if (rows.length === 0) addRow();
             else focusCell(0, 0);
         },
@@ -462,7 +502,7 @@ function RowTable({ part, disabled = false, showTitle = true, ref, onPrevious, r
                     interactive={!disabled}
                 />
             </div>
-            {!disabled && !fixedRows && <div><Button icon={addIcon} onClick={addRow}>{addTitle}</Button></div>}
+            {!disabled && !fixedRows && <div><Button icon={addIcon} loading={preparing} onClick={addRow}>{addTitle}</Button></div>}
         </Stack>
     );
 }

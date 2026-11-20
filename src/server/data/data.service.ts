@@ -4,6 +4,7 @@ import { AccessExecution, currentAccess, checkQuery, dataLevel, accessDenied, pu
 import { resolveAccess, emptyAccess } from '../authorization/access-schema.js';
 import { calculatedInput } from './computed-values.js';
 import { resolveRecordOpening } from './record-opening.js';
+import { prepareFieldDefaults, prepareNewRecord } from './form-defaults.js';
 import { Injectable } from '@nestjs/common';
 import { accessTreeAction } from '../authorization/access-tree.js';
 import { backupAction, backupsTarget } from '../backup/backup.action.js';
@@ -228,8 +229,32 @@ export class DataService {
                 return yield* (['settings', 'saveSettings'].includes(operation.action) ? accessEditorAction(operation.action, operation.payload, user, this.rightsGuard, this.metadata.objects) : accessTreeAction(operation.action, operation.payload, user, this.rightsGuard, this.metadata.objects));
             }
             if (operation.target.kind === 'platform' && operation.target.name === 'records') {
-                if (operation.action !== 'resolveOpening') return yield* new DataNotFoundError({ message: `Действие «${operation.action}» для открытия записей не найдено` });
-                return yield* resolveRecordOpening(operation.payload).pipe(Effect.provideService(AccessExecution, access));
+                if (operation.action === 'resolveOpening') {
+                    return yield* resolveRecordOpening(operation.payload).pipe(Effect.provideService(AccessExecution, access));
+                }
+                if (operation.action === 'prepareNewRecord' || operation.action === 'prepareFieldDefaults') {
+                    const payload = objectValue(operation.payload, 'payload');
+                    const target = objectValue(payload['object'], 'payload.object');
+                    const kind = target['kind'];
+                    if (kind !== 'catalog' && kind !== 'document') {
+                        return yield* new DataValidationError({ message: 'Новая запись доступна для справочника или документа', fields: ['payload.object.kind'] });
+                    }
+                    const name = stringValue(target['name'], 'payload.object.name');
+                    const object = this.metadata.find(kind, name);
+                    if (object === undefined) return yield* new DataNotFoundError({ message: `Объект ${kind}.${name} не найден` });
+                    // Значения формы подготавливаются в правах пользователя, без расширений вызывающей операции.
+                    const prepare = operation.action === 'prepareNewRecord' ? prepareNewRecord : prepareFieldDefaults;
+                    const result = yield* prepare(object, payload).pipe(
+                        Effect.catchIf(error => access.disclosure.sensitive && !(error instanceof RightsDeniedError), () => Effect.fail(accessDenied(access, object, 'result', 'read', 'deny'))),
+                        Effect.provideService(ActionContext, context),
+                        Effect.provideService(AccessExecution, { ...access, extensions: [] }),
+                        Effect.provideService(Database, readOnlyDatabase(this.database.effect)),
+                        Effect.provideService(ActionDispatcher, deniedActionDispatcher),
+                    );
+                    if (direct && access.disclosure.sensitive) return yield* accessDenied(access, object, 'result', 'read', 'deny');
+                    return result;
+                }
+                return yield* new DataNotFoundError({ message: `Действие «${operation.action}» для открытия записей не найдено` });
             }
             const description = this.metadata.find(operation.target.kind as ObjectDescription['kind'], operation.target.name);
             if (description === undefined) {

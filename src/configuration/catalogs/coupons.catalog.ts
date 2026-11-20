@@ -20,7 +20,7 @@ import { amountCoupon, checkCouponActive, couponApplications, checkCouponUsage, 
 const coupons = catalog('coupons')
     .title('Купоны')
     // Вид выбирают до размера: от него зависит, какое из двух следующих полей видно на форме.
-    .field('kind', (field) => field.string().title('Вид').choices(couponKinds).initial(percentageCoupon).required())
+    .field('kind', (field) => field.string().title('Вид').choices(couponKinds).default(percentageCoupon).required())
     // Процент и номинал необязательны в описании: обязательность по виду проверяет `couponRulesPolicy`.
     .field('percentage', (field) => field.number().title('Процент').minimum(0).maximum(100))
     .field('denomination', (field) => field.money().title('Номинал').minimum(0))
