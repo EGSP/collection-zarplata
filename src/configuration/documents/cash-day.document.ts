@@ -23,7 +23,7 @@ export type CashDayReviewStatus = (typeof reviewStatuses)[number];
 const cashDay = document('cashDay')
     .title('Кассовый день')
     .field('cashDate', (field) => field.date().title('Кассовый день').required())
-    .field('endsAt', (field) => field.dateTime().title('Конец суток').required())
+    .field('endsAt', (field) => field.dateTime().title('Дата конца').required())
     .field('reviewStatus', (field) => field.string().title('Отметка').choices(reviewStatuses).required())
     .tablePart('reviews', (part) => part
         .title('История сверок')
@@ -33,7 +33,7 @@ const cashDay = document('cashDay')
         .field('authorName', (field) => field.string().title('Имя автора').required())
         .field('comment', (field) => field.string().title('Комментарий').maximumLength(1000))
         .field('snapshot', (field) => field.string().title('Снимок сводки').required()))
-    .form((form) => form.title('date', 'Начало суток').hide('posted'));
+    .form((form) => form.hide('posted'));
 
 /** Приватное разрешение на вложенную запись выдаёт только действие отметки. */
 const ReviewWrite = Context.Service<boolean>('CashDayReviewWrite');
