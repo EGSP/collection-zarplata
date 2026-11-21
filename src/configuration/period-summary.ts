@@ -1,13 +1,9 @@
-/**
- * Отчёт «Сводка за период»: продажи, проведённые и не проведённые в 1С, взносы по рассрочкам,
- * товары в отвесе и должники. Отчёт только читает данные; его вызывает действие «Сводка за период»
- * закрытия периода, а показывает страница `pages/period-summary.page-component.tsx`.
- *
- * Период задаётся днями включительно. День события сравнивается по первым десяти знакам даты,
- * как в политике закрытого периода и в расчёте зарплаты.
- */
-import { addSummaryAmounts, addSummaryTotals, emptySummaryAmounts, summaryOperations, summaryTotals, type SummaryAmounts, type SummaryTotals } from './period-summary-operations.js';
+/** Отчёт о денежных оплатах и выдачах, рассрочках, сертификатах и отвесах за выбранные дни. */
+import { addSummaryAmounts, addSummaryTotals, emptySummaryAmounts, periodOperations, summaryTotals, withBreakdown, type SummaryAmounts, type SummaryTotals } from './period-summary-operations.js';
 import { initialPayments } from './installment-initial-payments.js';
+import { lastPaymentDate, ownInstallment } from './installments.js';
+import { breakdownOf, emptyBreakdown, mergeBreakdowns, type BreakdownEntry, type SummaryBreakdown } from './summary-breakdown.js';
+import { summaryPaymentSources } from './summary-payment-sources.js';
 import { Effect } from 'effect';
 import { callFunction } from '../server/data/action-context.js';
 import { ReadonlyDatabase } from '../server/database/database.effect.js';
@@ -40,6 +36,7 @@ export interface SummaryPaymentRow {
     readonly date: string;
     readonly method: string;
     readonly amount: number;
+    readonly receiver: BreakdownEntry;
 }
 
 /**
@@ -55,6 +52,7 @@ export interface SummaryCertificateRow {
     readonly date: string;
     readonly cash: number;
     readonly cashless: number;
+    readonly breakdown: SummaryBreakdown;
 }
 
 /** Товар в отвесе. */
@@ -88,23 +86,29 @@ export interface SummaryDebtor {
     readonly installments: ReadonlyArray<SummaryDebt>;
 }
 
+/** Открытая собственная рассрочка, погашенная к концу периода. */
+export interface SummaryClosableInstallment {
+    readonly installment: string;
+    readonly number: string;
+    readonly person: string;
+    readonly amount: number;
+    readonly lastPayment: string | null;
+}
+
 /** Сводка за период. */
 export interface PeriodSummary {
-    /** Продажи и возвраты двух зон 1С. */
-    readonly operations: ReturnType<typeof summaryOperations>;
-    /**
-     * Все деньги периода: обе зоны и таблица «Взносы». Взносы входят в продажи (`sales`), возвраты
-     * по продажам других дней стоят отдельно (`refunds`), `all` — их сумма. Каждая сумма входит
-     * ровно в одно слагаемое.
-     */
+    /** Продажи и возвраты одной таблицей. */
+    readonly operations: ReturnType<typeof periodOperations>;
+    /** Продажи и взносы, все денежные возвраты и общий итог. */
     readonly totals: SummaryTotals;
     readonly from: string;
     readonly to: string;
     readonly payments: { readonly rows: ReadonlyArray<SummaryPaymentRow>; readonly totals: PaymentTotals };
     /** Покупки и обмены сертификатов со своим итогом вне «Всего». */
-    readonly certificates: { readonly rows: ReadonlyArray<SummaryCertificateRow>; readonly totals: PaymentTotals };
+    readonly certificates: { readonly rows: ReadonlyArray<SummaryCertificateRow>; readonly totals: PaymentTotals; readonly breakdown: SummaryBreakdown };
     readonly weighings: { readonly rows: ReadonlyArray<SummaryWeighingRow>; readonly total: number };
     readonly debtors: { readonly rows: ReadonlyArray<SummaryDebtor>; readonly total: number };
+    readonly closableInstallments: ReadonlyArray<SummaryClosableInstallment>;
 }
 
 /** Отбор действующих проведённых документов. */
@@ -119,11 +123,11 @@ const moment = (value: string): number => new Date(value).getTime();
 /**
  * Строит сводку с дня `from` по день `to` включительно.
  *
- * - Продажи и возвраты: функция продажи `periodFigures` отдаёт товары, доли оплат и выдачи возвратов,
- *   `summaryOperations` раскладывает их по зонам 1С. В суммы входят только деньги: оплаты,
- *   первоначальный взнос и выдачи возвратов; долг рассрочки и его списание возвратом не входят.
- * - Взносы: взносы проведённых рассрочек с датой в периоде, кроме первоначальных взносов продаж
- *   периода (`initialPayments`): те уже стоят в строке продажи.
+ * - Продажи и возвраты: оплаты и выдачи с расшифровкой по приёмникам; все денежные возвраты
+ *   входят в «Возвраты» по дате выдачи.
+ * - Взносы: деньги по датам взносов. Первоначальный взнос по собственной рассрочке показывается
+ *   в строке продажи по способу оплаты, банковский в колонке «Рассрочка». Если продажи в отчёте
+ *   нет, любой её взнос виден в таблице «Взносы».
  * - Отвесы: строки, которые сейчас в состоянии «В отвесе», у отвесов с датой не позже конца
  *   периода. Отвес не хранит историю состояний строк, поэтому берётся текущее.
  * - Сертификаты: купленные сертификаты с датой в периоде дают номинал со знаком плюс, обмены
@@ -132,6 +136,7 @@ const moment = (value: string): number => new Date(value).getTime();
  * - Должники: проведённые рассрочки, оформленные не позже конца периода, с долгом на его конец:
  *   сумма рассрочки за вычетом взносов и погашений возвратами по этот день. Сумму рассрочки
  *   должник видит уже за вычетом погашений возвратами: её разница с долгом — только взносы.
+ * - Можно закрыть: открытые собственные рассрочки с нулевым долгом на конец периода и сейчас.
  *
  * Взносы, погашения и долг рассрочек на конец периода считает функция рассрочек `figures`:
  * по ней же их показывают формы продажи и рассрочки.
@@ -153,7 +158,7 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
     // Рассрочки, оформленные не позже конца периода, и их суммы на его конец: по ним считаются
     // внесённая часть продаж периода, взносы периода и долги.
     const installments = (yield* database.all(query(SaleInstallment).select({
-        columns: ['guid', 'date', 'sale', 'type', 'person', 'amount'],
+        columns: ['guid', 'number', 'date', 'sale', 'type', 'person', 'amount', 'closedAt', 'balance'],
         where: [...active, { column: 'date', operator: '<', value: end }],
     }))).filter((installment) => dayOf(installment.date) <= to);
     const figures = new Map((yield* callFunction(SaleInstallment, 'figures', {
@@ -165,27 +170,56 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
     // Взносы читаются строками в порядке строк: по нему правило первоначального взноса выбирает
     // первый из взносов с равным моментом.
     const installmentPayments = installments.length === 0 ? [] : yield* database.all(query(SaleInstallment).tablePart('payments').select({
-        columns: ['ownerGuid', 'lineNumber', 'date', 'method', 'amount'],
+        columns: ['ownerGuid', 'lineNumber', 'date', 'method', 'amount', 'receiver'],
         where: [{ column: 'ownerGuid', operator: 'IN', value: installments.map((installment) => installment.guid) }],
         orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
     }));
-    // Первоначальный взнос продажи периода стоит в строке продажи (колонка «Рассрочка»), остальные
-    // взносы периода — в таблице «Взносы». Первоначальный взнос продажи вне периода тоже идёт
-    // в таблицу: строки этой продажи в сводке нет, и иначе деньги пропали бы из итога.
+
+    // Сертификаты: покупки периода по дате документа, обмены по времени обмена. Оба отбора
+    // читаются с запасом по строке даты и уточняются днём события, как продажи.
+    const purchased = (yield* database.all(query(Certificate).select({
+        columns: ['guid', 'date', 'holder', 'denomination', 'paymentMethod', 'receiver'],
+        where: [...active, { column: 'kind', operator: '=', value: purchasedCertificate }, { column: 'date', operator: '>=', value: dayStart(from) }, { column: 'date', operator: '<', value: end }],
+    }))).filter((row) => inPeriod(row.date));
+    const exchanged = (yield* database.all(query(Certificate).select({
+        columns: ['guid', 'exchangedAt', 'holder'],
+        where: [...active, { column: 'exchangedAt', operator: '>=', value: dayStart(from) }, { column: 'exchangedAt', operator: '<', value: end }],
+    }))).filter((row) => row.exchangedAt !== null && inPeriod(row.exchangedAt));
+    const exchangeLines = exchanged.length === 0 ? [] : yield* database.all(query(Certificate).tablePart('exchanges').select({
+        columns: ['ownerGuid', 'method', 'amount', 'receiver'],
+        where: [{ column: 'ownerGuid', operator: 'IN', value: exchanged.map((row) => row.guid) }],
+    }));
+
+    const sources = yield* summaryPaymentSources(saleGuids, periodFigures.refunds.map((refund) => refund.refund), [
+        ...installmentPayments.filter((payment) => inPeriod(payment.date)), ...purchased, ...exchangeLines,
+    ]);
+
+    // У первоначального взноса продаж периода есть денежная колонка в строке продажи.
+    // Взнос по продаже вне периода попадает в «Взносы», даже если он был первоначальным.
     const periodSales = new Set(saleGuids);
     const initial = new Map<string, SummaryAmounts>();
+    const initialBreakdowns = new Map<string, ReturnType<typeof emptyBreakdown>>();
     const paymentRows: SummaryPaymentRow[] = [];
     for (const installment of installments) {
         const payments = installmentPayments.filter((payment) => payment.ownerGuid === installment.guid);
         const initialOfInstallment = initialPayments(installment, payments);
+        const own = installment.type === ownInstallment;
         for (const payment of payments) {
             if (!inPeriod(payment.date)) continue;
+            const methodColumn = payment.method === cash ? 'cash' : 'cashless';
             if (initialOfInstallment.has(payment) && periodSales.has(installment.sale)) {
-                // В сводке за период первоначальный взнос целиком стоит в колонке «Рассрочка».
-                initial.set(installment.sale, addSummaryAmounts(initial.get(installment.sale) ?? emptySummaryAmounts(), { cash: 0, cashless: 0, installment: payment.amount }));
+                const column = own ? methodColumn : 'installment';
+                const group = own ? 'ownInstallment' : installment.type === 'Банковская' ? 'bankInstallment' : undefined;
+                const amounts = { ...emptySummaryAmounts(), [column]: payment.amount };
+                initial.set(installment.sale, addSummaryAmounts(initial.get(installment.sale) ?? emptySummaryAmounts(), amounts));
+                breakdownOf(initialBreakdowns, installment.sale)[column].push(sources.payment(payment.receiver, payment.amount, group));
                 continue;
             }
-            paymentRows.push({ installment: installment.guid, sale: installment.sale, person: installment.person, date: payment.date, method: payment.method, amount: payment.amount });
+            paymentRows.push({
+                installment: installment.guid, sale: installment.sale, person: installment.person,
+                date: payment.date, method: payment.method, amount: payment.amount,
+                receiver: sources.payment(payment.receiver, payment.amount, own ? 'ownInstallment' : undefined),
+            });
         }
     }
     paymentRows.sort((first, second) => moment(first.date) - moment(second.date));
@@ -206,34 +240,44 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
         person, debt: debts.reduce((sum, item) => sum + item.debt, 0), installments: debts.sort((first, second) => moment(first.date) - moment(second.date)),
     })).sort((first, second) => second.debt - first.debt);
 
-    // Сертификаты: покупки периода по дате документа, обмены по времени обмена. Оба отбора
-    // читаются с запасом по строке даты и уточняются днём события, как продажи.
-    const purchased = (yield* database.all(query(Certificate).select({
-        columns: ['guid', 'date', 'holder', 'denomination', 'paymentMethod'],
-        where: [...active, { column: 'kind', operator: '=', value: purchasedCertificate }, { column: 'date', operator: '>=', value: dayStart(from) }, { column: 'date', operator: '<', value: end }],
-    }))).filter((row) => inPeriod(row.date));
-    const exchanged = (yield* database.all(query(Certificate).select({
-        columns: ['guid', 'exchangedAt', 'holder'],
-        where: [...active, { column: 'exchangedAt', operator: '>=', value: dayStart(from) }, { column: 'exchangedAt', operator: '<', value: end }],
-    }))).filter((row) => row.exchangedAt !== null && inPeriod(row.exchangedAt));
-    const exchangeLines = exchanged.length === 0 ? [] : yield* database.all(query(Certificate).tablePart('exchanges').select({
-        columns: ['ownerGuid', 'method', 'amount'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: exchanged.map((row) => row.guid) }],
-    }));
-    // Сумма строк обмена одним способом: обмен может выдать деньги и наличными, и безналичными.
-    const exchangedBy = (guid: string, method: string) => exchangeLines
-        .filter((line) => line.ownerGuid === guid && line.method === method)
-        .reduce((sum, line) => sum + line.amount, 0);
+    // Исторический нулевой долг сам по себе не означает готовность к закрытию: его могли изменить позже.
+    const now = Date.now();
+    const closableInstallments = installments.flatMap((installment): SummaryClosableInstallment[] => {
+        const { guid, number, person, amount, date, type, closedAt, balance } = installment;
+        if (person === null || type !== ownInstallment || closedAt !== null || balance !== 0 || figuresOf(guid).debt !== 0) return [];
+        const lastPayment = lastPaymentDate(installmentPayments.filter((payment) => payment.ownerGuid === guid));
+        // Дата закрытия не может быть раньше оформления или последнего взноса и позже текущего момента.
+        if (moment(date) > now || (lastPayment !== null && (dayOf(lastPayment) > to || moment(lastPayment) > now))) return [];
+        return [{ installment: guid, number, person, amount, lastPayment }];
+    });
+    closableInstallments.sort((first, second) => (first.lastPayment === null ? 0 : moment(first.lastPayment))
+        - (second.lastPayment === null ? 0 : moment(second.lastPayment)) || first.number.localeCompare(second.number));
+
+    /** Берёт способы и источники из каждой строки покупки или выдачи по сертификату. */
+    const certificateBreakdown = (lines: ReadonlyArray<{ method: string | null; receiver: unknown; amount: number }>, sign: 1 | -1) => {
+        const columns = emptyBreakdown();
+        for (const line of lines) {
+            if (line.method !== cash && line.method !== cashless) continue;
+            columns[line.method === cash ? 'cash' : 'cashless'].push(sources.payment(line.receiver, sign * line.amount));
+        }
+        return mergeBreakdowns([columns]);
+    };
     const certificateRows: SummaryCertificateRow[] = [
         ...purchased.map((row): SummaryCertificateRow => ({
             certificate: row.guid, kind: 'purchase', holder: row.holder, date: row.date,
             cash: row.paymentMethod === cash ? row.denomination : 0,
             cashless: row.paymentMethod === cashless ? row.denomination : 0,
+            breakdown: certificateBreakdown([{ method: row.paymentMethod, receiver: row.receiver, amount: row.denomination }], 1),
         })),
-        ...exchanged.map((row): SummaryCertificateRow => ({
-            certificate: row.guid, kind: 'exchange', holder: row.holder, date: row.exchangedAt!,
-            cash: 0 - exchangedBy(row.guid, cash), cashless: 0 - exchangedBy(row.guid, cashless),
-        })),
+        ...exchanged.map((row): SummaryCertificateRow => {
+            const breakdown = certificateBreakdown(exchangeLines.filter((line) => line.ownerGuid === row.guid), -1);
+            return {
+                certificate: row.guid, kind: 'exchange', holder: row.holder, date: row.exchangedAt!,
+                cash: breakdown.cash.reduce((sum, entry) => sum + entry.amount, 0),
+                cashless: breakdown.cashless.reduce((sum, entry) => sum + entry.amount, 0),
+                breakdown,
+            };
+        }),
     ].sort((first, second) => moment(first.date) - moment(second.date));
     const certificateTotals: PaymentTotals = {
         cash: certificateRows.reduce((sum, row) => sum + row.cash, 0),
@@ -256,14 +300,27 @@ export const periodSummary = (from: string, to: string) => Effect.gen(function* 
             weighing: weighing.guid, person: weighing.person, date: weighing.date, name: line.name, code: line.code, size: line.size, total: line.total,
         })));
 
-    const operations = summaryOperations(periodFigures.sales, periodFigures.refunds, from, initial, paymentRows);
+    const empty = emptyBreakdown();
+    const operations = periodOperations({
+        sales: periodFigures.sales, refunds: periodFigures.refunds, from, initial, payments: paymentRows,
+        sources: { ...sources, installment: (sale) => initialBreakdowns.get(sale) ?? empty },
+    });
+    const paymentBreakdown = mergeBreakdowns([{
+        cash: paymentRows.filter((row) => row.method === cash).map((row) => row.receiver),
+        cashless: paymentRows.filter((row) => row.method === cashless).map((row) => row.receiver),
+        installment: [],
+    }]);
+    const paymentSummary = withBreakdown(
+        summaryTotals({ ...paymentTotals, installment: 0 }, emptySummaryAmounts()), paymentBreakdown, mergeBreakdowns([]),
+    );
     const result: PeriodSummary = {
         from, to, operations,
-        totals: addSummaryTotals(operations.totals, summaryTotals({ ...paymentTotals, installment: 0 }, emptySummaryAmounts())),
+        totals: addSummaryTotals(operations.totals, paymentSummary),
         payments: { rows: paymentRows, totals: paymentTotals },
-        certificates: { rows: certificateRows, totals: certificateTotals },
+        certificates: { rows: certificateRows, totals: certificateTotals, breakdown: mergeBreakdowns(certificateRows.map((row) => row.breakdown)) },
         weighings: { rows: weighingRows, total: weighingRows.reduce((sum, row) => sum + row.total, 0) },
         debtors: { rows: debtorRows, total: debtorRows.reduce((sum, row) => sum + row.debt, 0) },
+        closableInstallments,
     };
     return result;
 });
