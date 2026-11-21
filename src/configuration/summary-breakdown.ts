@@ -8,6 +8,8 @@ export interface BreakdownEntry {
     readonly kind: 'receiver' | 'missing' | 'balance' | 'debt';
     readonly name: string;
     readonly amount: number;
+    /** В блоке «Всего» взносы образуют подсписок внутри своей денежной колонки. */
+    readonly group?: 'ownInstallment' | 'bankInstallment';
 }
 
 /** Исходные позиции по трём способам оплаты. */
@@ -21,11 +23,20 @@ export function emptyBreakdown(): Record<SummaryColumn, BreakdownEntry[]> {
     return { cash: [], cashless: [], installment: [] };
 }
 
-/** Собирает оплаты и выдачи с одним названием. Неденежные позиции сохраняют свой вид. */
+/** Возвращает накопитель денежных позиций по документу или по части возврата. */
+export function breakdownOf<Key>(sources: Map<Key, ReturnType<typeof emptyBreakdown>>, key: Key) {
+    const existing = sources.get(key);
+    if (existing !== undefined) return existing;
+    const created = emptyBreakdown();
+    sources.set(key, created);
+    return created;
+}
+
+/** Собирает оплаты и выдачи с одним названием внутри одного подсписка. */
 function mergeBreakdownEntries(entries: ReadonlyArray<BreakdownEntry>): BreakdownEntry[] {
     const merged = new Map<string, BreakdownEntry>();
     for (const entry of entries) {
-        const key = JSON.stringify([entry.kind, entry.name]);
+        const key = JSON.stringify([entry.kind, entry.name, entry.group]);
         const previous = merged.get(key);
         merged.set(key, { ...entry, amount: (previous?.amount ?? 0) + entry.amount });
     }
@@ -37,7 +48,9 @@ export function mergeBreakdowns(breakdowns: ReadonlyArray<BreakdownColumns>): Su
     const cash = mergeBreakdownEntries(breakdowns.flatMap((breakdown) => breakdown.cash));
     const cashless = mergeBreakdownEntries(breakdowns.flatMap((breakdown) => breakdown.cashless));
     const installment = mergeBreakdownEntries(breakdowns.flatMap((breakdown) => breakdown.installment));
-    return { cash, cashless, installment, total: mergeBreakdownEntries([...cash, ...cashless, ...installment]) };
+    // «Итого» объединяет один приёмник по всем способам оплаты, включая взносы.
+    const total = mergeBreakdownEntries([...cash, ...cashless, ...installment].map(({ kind, name, amount }) => ({ kind, name, amount })));
+    return { cash, cashless, installment, total };
 }
 
 /**

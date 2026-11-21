@@ -1,0 +1,56 @@
+.summary-breakdown-list {
+    display: grid;
+    gap: 2px;
+    inline-size: 100%;
+    min-inline-size: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.summary-breakdown-list[data-placement="totals"] {
+    --summary-breakdown-indent: 8px;
+}
+
+.summary-breakdown-list[data-placement="table"] {
+    --summary-breakdown-indent: 4px;
+    align-self: flex-start;
+    padding-block: 4px;
+    text-align: end;
+}
+
+.summary-breakdown-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 8px;
+    padding: 2px var(--summary-breakdown-indent);
+    background-color: var(--summary-breakdown-fill);
+}
+
+.summary-breakdown-name {
+    flex: 1 1 6ch;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+}
+
+.summary-breakdown-amount {
+    margin-inline-start: auto;
+    font-variant-numeric: tabular-nums;
+}
+
+/* В денежной колонке название и сумма стоят друг под другом у правого края. */
+.summary-breakdown-list[data-placement="table"] .summary-breakdown-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.summary-breakdown-group {
+    display: grid;
+    gap: 2px;
+    margin-block-start: 2px;
+    /* Заголовок занимает первый уровень, строки внутри добавляют такой же отступ. */
+    padding-inline: calc(var(--summary-breakdown-indent) - 1px) var(--summary-breakdown-indent);
+    border-inline-start: 1px solid var(--summary-breakdown-border);
+    overflow-wrap: anywhere;
+}

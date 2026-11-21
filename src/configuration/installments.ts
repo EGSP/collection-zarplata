@@ -16,7 +16,7 @@
  * Взносы, погашения возвратами и долг на день отдаёт функция рассрочки `figures`
  * (`documents/sale-installment.functions.ts`): по ней их показывают формы и сводка за период и проверяет сервер.
  */
-import { Effect } from 'effect';
+import { Context, Effect } from 'effect';
 import { requireRight } from '../server/authorization/current-user-rights.js';
 import { ActionDispatcher } from '../server/data/action-context.js';
 import { DataPolicyError } from '../server/data/data.errors.js';
@@ -43,7 +43,7 @@ import { figuresFunction, type SaleInstallmentFunctions } from './documents/sale
 import { findOpenShiftGuid, Shift } from './documents/shift.document.js';
 import { rubles } from './money.js';
 import { closedPeriodPolicy, dayOf, lastClosedThrough } from './policies/closed-period.js';
-import { cash, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from './payments.js';
+import { cash, changedPaymentReceivers, checkPaymentReceiverReferences, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from './payments.js';
 import { InstallmentDebts } from './registers/installment-debts.register.js';
 import { MoneyReceipts } from './registers/money-receipts.register.js';
 
@@ -61,6 +61,9 @@ const cashless = paymentMethods.find((method) => method !== cash)!;
  * отдельно: тот же выбор запрашивает действие продажи «Продать с рассрочкой».
  */
 export const installmentTypes = ['Банковская', ownInstallment];
+
+/** Только действие «Оплата банком» может записать название ставки, прочитанное из справочника. */
+const bankPaymentWrite = Context.Reference<string | null>('configuration/bankPaymentWrite', { defaultValue: () => null });
 
 /**
  * Начало шапки: поля до суммы. Сумму объявляет документ.
@@ -149,7 +152,7 @@ const moment = (value: string): number => new Date(value).getTime();
  * Дата последнего взноса рассрочки; без взносов `null`. Так же её считает форма рассрочки,
  * когда предлагает дату закрытия: рассрочка погашена этим взносом.
  */
-const lastPaymentDate = (payments: ReadonlyArray<{ readonly date: string }>): string | null =>
+export const lastPaymentDate = (payments: ReadonlyArray<{ readonly date: string }>): string | null =>
     payments.reduce<string | null>((latest, payment) => latest === null || moment(payment.date) > moment(latest) ? payment.date : latest, null);
 
 /**
@@ -291,6 +294,9 @@ const installmentRulesPolicy = (name: InstallmentName, cancelledWithBasis: Cance
         const withoutReceiver = paymentsWithoutReceiver(existingRecord?.payments ?? [], proposedRecord.payments, paymentKey);
         if (withoutReceiver.length > 0) {
             return yield* rejected(`Взнос ${withoutReceiver.map((index) => index + 1).join(', ')}: укажите «Куда оплачено»`);
+        }
+        if ((yield* bankPaymentWrite) !== proposedRecord.guid) {
+            yield* checkPaymentReceiverReferences(changedPaymentReceivers(existingRecord?.payments ?? [], proposedRecord.payments, paymentKey, 'payments'));
         }
     }),
     post: ({ document: record }) => checkCustomer(record),
@@ -439,7 +445,8 @@ export function installmentDocument<const Name extends InstallmentName, Fields e
                 const payments = record.balance > 0
                     ? [...record.payments, { date, method: cashless, amount: record.balance, receiver: rate === undefined ? null : { type: 'string' as const, value: rate.name }, shift: record.shift }]
                     : record.payments;
-                return yield* write(record, { payments, closedAt: date });
+                // Изменение добавляет только взнос с названием ставки, полученным на сервере.
+                return yield* write(record, { payments, closedAt: date }).pipe(Effect.provideService(bankPaymentWrite, record.guid));
             })))
         // Функции объявлены в отдельном файле: их сигнатуры нужны и там, откуда документ недоступен.
         .function('figures', figuresFunction);

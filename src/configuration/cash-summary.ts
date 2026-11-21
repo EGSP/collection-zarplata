@@ -3,7 +3,7 @@
  * закрытия дня (раздел «Правила учёта», «Кассовая сводка»). Отчёт только читает данные; его вызывает
  * действие «Кассовая сводка» закрытия периода, а показывает вкладка «Касса» страницы сводки.
  *
- * Правила сводки за период действуют и здесь, кроме раскладки рассрочки:
+ * Правила кассы учитывают долг и сворачивают возврат в день продажи с самой продажей:
  *
  * - первоначальный взнос собственной рассрочки стоит в колонке своего способа оплаты;
  * - «Рассрочка» содержит оплату банком и остаток собственной рассрочки за вычетом первоначального
@@ -17,17 +17,15 @@ import { Effect } from 'effect';
 import { callFunction } from '../server/data/action-context.js';
 import { ReadonlyDatabase } from '../server/database/database.effect.js';
 import { query } from '../server/database/sql.builder.js';
-import { compositeReference, isCompositeValue } from '../server/metadata/composite.js';
-import { PaymentReceivers } from './catalogs/payment-receivers.catalog.js';
-import { Refund } from './documents/refund.document.js';
 import { SaleInstallment } from './documents/sale-installment.document.js';
 import { Sale } from './documents/sale.document.js';
 import { initialPayments } from './installment-initial-payments.js';
 import { ownInstallment } from './installments.js';
-import { cash, debtSettlement, paymentMethods } from './payments.js';
+import { cash } from './payments.js';
 import { addSummaryAmounts, emptySummaryAmounts, summaryOperations, type SummaryAmounts, type SummaryTotals } from './period-summary-operations.js';
 import { dayOf } from './policies/closed-period.js';
-import { emptyBreakdown, type BreakdownEntry } from './summary-breakdown.js';
+import { breakdownOf, emptyBreakdown } from './summary-breakdown.js';
+import { summaryPaymentSources } from './summary-payment-sources.js';
 
 /** Кассовая сводка за день. */
 export interface CashSummary {
@@ -55,24 +53,6 @@ const active = [
     { column: 'posted', operator: '=', value: true },
     { column: 'deletedAt', operator: '=', value: null },
 ] as const;
-
-/** Разрешает ссылки в названия на момент составления сводки, чтобы снимок не зависел от справочника. */
-function paymentEntry(receiver: unknown, amount: number, names: ReadonlyMap<string, string>): BreakdownEntry {
-    const reference = compositeReference(receiver);
-    const name = reference === null
-        ? (isCompositeValue(receiver) && receiver.type === 'string' ? receiver.value : null)
-        : names.get(reference.guid);
-    return name ? { kind: 'receiver', name, amount } : { kind: 'missing', name: 'Не указан', amount };
-}
-
-/** Накопитель позиций одного документа или расчётов возврата по одной продаже. */
-function breakdownOf<Key>(sources: Map<Key, ReturnType<typeof emptyBreakdown>>, key: Key) {
-    const existing = sources.get(key);
-    if (existing !== undefined) return existing;
-    const breakdown = emptyBreakdown();
-    sources.set(key, breakdown);
-    return breakdown;
-}
 
 /**
  * Строит кассовую сводку за день `day` (`ГГГГ-ММ-ДД`).
@@ -109,42 +89,8 @@ export const cashSummary = (day: string) => Effect.gen(function* () {
         where: [{ column: 'ownerGuid', operator: 'IN', value: installments.map((installment) => installment.guid) }],
         orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
     }));
-    const salePayments = daySales.length === 0 ? [] : yield* database.all(query(Sale).tablePart('payments').select({
-        columns: ['ownerGuid', 'method', 'amount', 'receiver'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: daySales.map((sale) => sale.sale) }],
-        orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
-    }));
-    const settlements = figures.refunds.length === 0 ? [] : yield* database.all(query(Refund).tablePart('settlements').select({
-        columns: ['ownerGuid', 'sale', 'method', 'amount', 'receiver'],
-        where: [{ column: 'ownerGuid', operator: 'IN', value: figures.refunds.map((refund) => refund.refund) }],
-        orderBy: [{ column: 'ownerGuid', direction: 'ASC' }, { column: 'lineNumber', direction: 'ASC' }],
-    }));
-    const references = [...new Set([...salePayments, ...installmentPayments, ...settlements].flatMap(({ receiver }) => {
-        const reference = compositeReference(receiver);
-        return reference === null ? [] : [reference.guid];
-    }))];
-    const receivers = references.length === 0 ? [] : yield* database.all(query(PaymentReceivers).select({
-        columns: ['guid', 'name'],
-        where: [{ column: 'guid', operator: 'IN', value: references }],
-    }));
-    const names = new Map(receivers.map(({ guid, name }) => [guid, name]));
-    const saleBreakdowns = new Map<string, ReturnType<typeof emptyBreakdown>>();
+    const sources = yield* summaryPaymentSources(daySales.map((sale) => sale.sale), figures.refunds.map((refund) => refund.refund), installmentPayments);
     const installmentBreakdowns = new Map<string, ReturnType<typeof emptyBreakdown>>();
-    const refundBreakdowns = new Map<string, ReturnType<typeof emptyBreakdown>>();
-    for (const payment of salePayments) {
-        if (!paymentMethods.some((method) => method === payment.method)) continue;
-        const column = payment.method === cash ? 'cash' : 'cashless';
-        breakdownOf(saleBreakdowns, payment.ownerGuid)[column].push(paymentEntry(payment.receiver, payment.amount, names));
-    }
-    for (const line of settlements) {
-        const key = JSON.stringify([line.ownerGuid, line.sale]);
-        if (line.method === debtSettlement) {
-            breakdownOf(refundBreakdowns, key).installment.push({ kind: 'debt', name: debtSettlement, amount: line.amount });
-        } else if (paymentMethods.some((method) => method === line.method)) {
-            const column = line.method === cash ? 'cash' : 'cashless';
-            breakdownOf(refundBreakdowns, key)[column].push(paymentEntry(line.receiver, line.amount, names));
-        }
-    }
 
     // Первоначальные взносы дня по продажам: собственные по способу, банковские в «Рассрочку».
     const initial = new Map<string, SummaryAmounts>();
@@ -154,7 +100,7 @@ export const cashSummary = (day: string) => Effect.gen(function* () {
             if (dayOf(payment.date) !== day) continue;
             const own = installment.type === ownInstallment;
             const column = own ? (payment.method === cash ? 'cash' : 'cashless') : 'installment';
-            breakdownOf(installmentBreakdowns, installment.sale)[column].push(paymentEntry(payment.receiver, payment.amount, names));
+            breakdownOf(installmentBreakdowns, installment.sale)[column].push(sources.payment(payment.receiver, payment.amount));
             const amounts: SummaryAmounts = {
                 cash: own && payment.method === cash ? payment.amount : 0,
                 cashless: own && payment.method !== cash ? payment.amount : 0,
@@ -175,10 +121,9 @@ export const cashSummary = (day: string) => Effect.gen(function* () {
 
     // Ссылок на взносы нет: таблицы «Взносы» в кассе нет.
     const empty = emptyBreakdown();
-    const operations = summaryOperations(figures.sales, figures.refunds, day, initial, [], true, {
-        sale: (sale) => saleBreakdowns.get(sale) ?? empty,
-        installment: (sale) => installmentBreakdowns.get(sale) ?? empty,
-        refund: (refund, sale) => refundBreakdowns.get(JSON.stringify([refund, sale])) ?? empty,
+    const operations = summaryOperations({
+        sales: figures.sales, refunds: figures.refunds, from: day, initial, payments: [],
+        sources: { ...sources, installment: (sale) => installmentBreakdowns.get(sale) ?? empty },
     });
     const result: CashSummary = { day, operations, totals: operations.totals };
     return result;

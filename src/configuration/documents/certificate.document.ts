@@ -19,7 +19,7 @@ import { document, movements, type ObjectTarget, type Policy, type RecordOf } fr
 import { Employees } from '../catalogs/employees.catalog.js';
 import { PhysicalPersons } from '../catalogs/physical-persons.catalog.js';
 import { rubles } from '../money.js';
-import { paymentMethods, receiverField } from '../payments.js';
+import { changedPaymentReceivers, checkPaymentReceiverReferences, paymentMethods, receiverField } from '../payments.js';
 import { preventPostedDocumentDeletionPolicy } from '../policies/posted-document-deletion.js';
 import { CertificateBalances } from '../registers/certificate-balances.register.js';
 
@@ -132,7 +132,7 @@ const hasForeignMovements = (guid: string) => Effect.gen(function* () {
  */
 const certificateRulesPolicy: Policy<CertificateRecord> = {
     name: 'certificate-rules',
-    save: ({ proposedRecord }) => Effect.gen(function* () {
+    save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
         // Необязательное поле, не переданное в запросе, приходит в политику как `undefined`, а не `null`.
         const method = proposedRecord.paymentMethod ?? null;
         const receiver = proposedRecord.receiver ?? null;
@@ -144,6 +144,12 @@ const certificateRulesPolicy: Policy<CertificateRecord> = {
             if (method !== null || receiver !== null) return yield* rejected(`У сертификата «${freeCertificate}» нет способа оплаты и «Куда оплачено»`);
             if (proposedRecord.exchanges.length > 0) return yield* rejected(`Сертификат «${freeCertificate}» на деньги не обменивается: магазин не получал за него денег`);
         }
+        // Обмен сертификата не меняет прежнюю оплату. Старый текст покупки сохраняется при таком обмене.
+        const purchaseChanged = existingRecord === null || proposedRecord.kind !== existingRecord.kind || proposedRecord.denomination !== existingRecord.denomination
+            || method !== existingRecord.paymentMethod || JSON.stringify(receiver) !== JSON.stringify(existingRecord.receiver ?? null);
+        const exchangeReceivers = changedPaymentReceivers(existingRecord?.exchanges ?? [], proposedRecord.exchanges,
+            (line) => JSON.stringify([line.method, line.amount, line.receiver ?? null]), 'exchanges');
+        yield* checkPaymentReceiverReferences(purchaseChanged ? [{ value: receiver, path: 'payload.fields.receiver' }, ...exchangeReceivers] : exchangeReceivers);
         if (proposedRecord.exchanges.length === 0) {
             if (exchangedAt !== null) return yield* rejected('Время обмена указано без строк обмена на деньги');
             return;

@@ -29,7 +29,7 @@ import { Certificate } from './certificate.document.js';
 import { figuresFunction, periodFiguresFunction } from './sale.functions.js';
 import { SaleInstallmentFunctions } from './sale-installment.functions.js';
 import { numberAndDate, rubles } from '../money.js';
-import { cash, installmentMethod, paymentColumns, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from '../payments.js';
+import { cash, changedPaymentReceivers, checkPaymentReceiverReferences, installmentMethod, paymentColumns, paymentMethods, Payments, paymentsWithoutReceiver, receiverField } from '../payments.js';
 import { AppliedCoupons } from '../registers/applied-coupons.register.js';
 import { CertificateBalances } from '../registers/certificate-balances.register.js';
 import { MoneyReceipts } from '../registers/money-receipts.register.js';
@@ -180,7 +180,10 @@ const saleCertificatesPolicy: Policy<SaleRecord> = {
  */
 const salePaymentsPolicy: Policy<SaleRecord> = {
     name: 'sale-payments',
-    save: ({ existingRecord, proposedRecord }) => checkPayments(proposedRecord, existingRecord),
+    save: ({ existingRecord, proposedRecord }) => Effect.gen(function* () {
+        yield* checkPayments(proposedRecord, existingRecord);
+        yield* checkPaymentReceiverReferences(changedPaymentReceivers(existingRecord?.payments ?? [], proposedRecord.payments, salePaymentKey, 'payments'));
+    }),
     // При проведении строки оплат не меняются: «Куда оплачено» проверила запись перед ним.
     post: ({ document }) => checkPayments(document, document),
 };

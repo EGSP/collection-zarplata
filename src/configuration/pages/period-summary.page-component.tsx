@@ -1,14 +1,16 @@
-import { CertificatesTable, Money, OperationsTable, summaryLayout, SummaryTotalsPanel, type SummaryVariant } from './period-summary-tables';
+import { CertificatesTable, OperationsTable, summaryLayout, SummaryTotalsPanel } from './period-summary-tables';
+import { Money, SummaryBreakdownList } from './summary-breakdown-list';
 import { CashDayNavigation, shiftDay } from './cash-day-navigation';
 import { CashDayReview } from './cash-day-review';
-import { DataTable, Icons, StickyRail } from '../../web/sdk';
+import { breakpointAtLeast, DataTable, Icons, spacing, StickyRail, useBreakpoint, useOpenRecord } from '../../web/sdk';
 import { Alert, Button, Tabs } from 'antd';
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Column, FieldDisplay, FieldInput, FluidField, isEmptyFieldValue, Grid, Layer, Page, Panel, RecordLink, Stack, Text, useActionResult, useFunctionResult, useRecordList, type AccountingTone } from '../../web/sdk';
 import { Objects } from '../objects.generated';
-import type { PeriodSummary } from '../period-summary';
+import type { PeriodSummary, SummaryClosableInstallment } from '../period-summary';
 import type { CashSummaryForReview } from '../cash-summary';
+import { documentNumber } from '../shell-components/seller-feed-format';
 
 /** Сегодняшний день датой `ГГГГ-ММ-ДД` по часам браузера: отчёт по умолчанию строится за него. */
 function today(): string {
@@ -66,16 +68,10 @@ function FilledZone({ title, tone, children }: { readonly title: string; readonl
 }
 
 
-/**
- * Продажи и возвраты двух зон 1С с итогом «Всего» на рельсе справа; на узкой области итог стоит
- * под зонами. Обе вкладки показывают зоны одинаково и различаются правилами сумм (`variant`)
- * и тем, что касса не показывает сертификаты.
- */
-function Zones({ operations, totals, certificates, variant }: {
-    readonly operations: PeriodSummary['operations'];
-    readonly totals: PeriodSummary['totals'];
-    readonly certificates?: PeriodSummary['certificates']['totals'] | undefined;
-    readonly variant: SummaryVariant;
+/** Кассовые зоны и правый итог для текущего дня и сохранённых снимков сверки. */
+function CashZones({ operations, totals }: {
+    readonly operations: CashSummaryForReview['operations'];
+    readonly totals: CashSummaryForReview['totals'];
 }) {
     return (
         <Grid>
@@ -83,113 +79,180 @@ function Zones({ operations, totals, certificates, variant }: {
                 <Panel title="Продажи и возвраты">
                     <Stack gap={5}>
                         <FilledZone title="Проведено в 1С" tone="warning">
-                            <OperationsTable rows={operations.posted.rows} totals={operations.posted.totals} variant={variant} />
+                            <OperationsTable rows={operations.posted.rows} totals={operations.posted.totals} variant="cash" />
                         </FilledZone>
                         <FilledZone title="Не проведено в 1С">
-                            <OperationsTable rows={operations.notPosted.rows} totals={operations.notPosted.totals} variant={variant} />
+                            <OperationsTable rows={operations.notPosted.rows} totals={operations.notPosted.totals} variant="cash" />
                         </FilledZone>
                     </Stack>
                 </Panel>
             </Column>
             <Column span={{ lg: 4 }}>
-                <StickyRail from="lg"><SummaryTotalsPanel totals={totals} certificates={certificates} variant={variant} /></StickyRail>
+                <StickyRail from="lg"><SummaryTotalsPanel totals={totals} variant="cash" /></StickyRail>
             </Column>
         </Grid>
     );
 }
 
-/**
- * Отчёт за период: продажи, взносы и должники, товары в отвесе. Продажи и возвраты сгруппированы в две зоны:
- * проведённое в 1С залито цветом предупреждения, непроведённое — серым фоном вложенной поверхности,
- * чтобы их нельзя было спутать. Итоги обеих зон стоят на рельсе справа, на узкой области под ними. Взносы
- * и должники — одна группа о рассрочках. Сертификаты стоят отдельной панелью со своим итогом:
- * их деньги во «Всего» не входят и на рельсе показаны отдельной строкой.
- */
-function Summary({ summary }: { readonly summary: PeriodSummary }) {
-    const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-    const { payments, weighings, debtors, certificates } = summary;
+/** Ограничивает высоту длинной расшифровки областью вкладки, чтобы рейл оставался закреплённым. */
+function PeriodTotalsRail({ children }: { readonly children: ReactNode }) {
+    const reference = useRef<HTMLDivElement>(null);
+    const [height, setHeight] = useState<number>();
+    useLayoutEffect(() => {
+        let scroller = reference.current?.parentElement;
+        while (scroller && !/(auto|scroll|hidden|overlay)/u.test(getComputedStyle(scroller).overflowY)) {
+            scroller = scroller.parentElement;
+        }
+        const container = scroller ?? document.documentElement;
+        // Закреплённый итог занимает высоту внутри полей вкладки. В фоновой вкладке сохраняется последнее измерение.
+        const measure = () => {
+            if (container.clientHeight === 0) return;
+            const style = getComputedStyle(container);
+            const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+            setHeight(Math.max(0, container.clientHeight - padding - spacing[5] * 2));
+        };
+        const observer = new ResizeObserver(measure);
+        observer.observe(container);
+        measure();
+        return () => observer.disconnect();
+    }, []);
     return (
-        <Stack gap={5}>
-            <Zones operations={summary.operations} totals={summary.totals} certificates={certificates.totals} variant="period" />
-            <Panel title="Сертификаты">
-                <CertificatesTable rows={certificates.rows} totals={certificates.totals} />
-            </Panel>
-            <Panel title="Рассрочки">
-                <Stack gap={5}>
-                    <Stack gap={3}>
-                        <Text strong>Взносы</Text>
-                        {payments.rows.length === 0 ? <Text tone="secondary">Строк нет</Text> : (
-                            <DataTable
-                                rowKey={(row, index) => `${row.installment}-${row.date}-${index}`}
-                                rows={[...payments.rows]}
-                                // Взнос занимает одну строку на любой ширине: колонок немного, и все суммы видны сразу.
-                                layouts={{ sm: { lines: [{ line: [{ group: ['date', 'person'] }, 'installment', { group: ['cash', 'cashless'] }] }] }, md: summaryLayout, lg: { lines: [] } }}
-                                columns={[
-                                    { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
-                                    { title: 'Покупатель', key: 'person', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                                    { title: 'Рассрочка', key: 'installment', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
-                                    // Взнос принят одним способом, поэтому его сумма стоит в одной из двух колонок.
-                                    { title: 'Наличные', key: 'cash', type: 'money' as const, value: (row) => row.method === cashMethod ? row.amount : null },
-                                    { title: 'Безналичные', key: 'cashless', type: 'money' as const, value: (row) => row.method === cashMethod ? null : row.amount },
-                                ]}
-                                summary={{ date: 'Итого', cash: payments.totals.cash, cashless: payments.totals.cashless }}
-                            />
-                        )}
-                    </Stack>
-                    <Stack gap={3}>
-                        <Text strong>Должники</Text>
-                        {debtors.rows.length === 0 ? <Text tone="secondary">Строк нет</Text> : (
-                            <DataTable
-                                rowKey={(row) => row.person}
-                                rows={[...debtors.rows]}
-                                layouts={{ sm: { lines: [{ line: [{ group: ['person', 'count'] }, 'debt'] }] }, md: summaryLayout, lg: { lines: [] } }}
-                                expansion={{
-                                    isExpandable: () => true,
-                                    isExpanded: (row) => expanded.has(row.person),
-                                    onToggle: (row, _index, open) => setExpanded((previous) => { const next = new Set(previous); if (open) next.add(row.person); else next.delete(row.person); return next; }),
-                                    render: (debtor) => (
-                                        <DataTable
-                                            rowKey={(row) => row.installment}
-                                            rows={[...debtor.installments]}
-                                            layouts={{ sm: { lines: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }] }, lg: { lines: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }] } }}
-                                            columns={[
-                                                { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
-                                                { title: 'Продажа', key: 'sale', type: 'free' as const, render: (row) => <Reference kind="document" name="sale" guid={row.sale} /> },
-                                                { title: 'Рассрочка', key: 'installment', type: 'free' as const, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
-                                                { title: 'Сумма рассрочки', key: 'amount', type: 'money' as const, render: (row) => <Money value={row.amount} /> },
-                                                { title: 'Долг', key: 'debt', type: 'money' as const, render: (row) => <Debt value={row.debt} /> },
-                                            ]}
-                                        />
-                                    ),
-                                }}
-                                columns={[
-                                    { title: 'Покупатель', key: 'person', type: 'free' as const, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                                    { title: 'Рассрочек', key: 'count', type: 'number' as const, render: (row) => row.installments.length },
-                                    { title: 'Долг', key: 'debt', type: 'money' as const, render: (row) => <Debt value={row.debt} /> },
-                                ]}
-                                summary={{ person: 'Итого', debt: <Text tone="debt" strong><Money value={debtors.total} /></Text> }}
-                            />
-                        )}
-                    </Stack>
-                </Stack>
-            </Panel>
-            <Block title="Товары в отвесе" empty={weighings.rows.length === 0}>
+        <StickyRail from="lg">
+            <div ref={reference} style={{ maxHeight: height, overflowY: 'auto' }}>{children}</div>
+        </StickyRail>
+    );
+}
+
+/** Показывает погашенные рассрочки под должниками. Номер открывается по обычному правилу перехода. */
+function ClosableInstallments({ rows }: { readonly rows: ReadonlyArray<SummaryClosableInstallment> }) {
+    const openRecord = useOpenRecord();
+    return (
+        <section aria-label="Можно закрыть">
+            <Stack gap={3}>
+                <Text strong>Можно закрыть</Text>
                 <DataTable
-                    rowKey={(row) => `${row.weighing}-${weighings.rows.indexOf(row)}`}
-                    rows={[...weighings.rows]}
-                    layouts={{ sm: { lines: [{ line: [{ group: ['code', 'name', 'size'] }, { group: ['person', 'date', 'weighing'] }] }] }, md: summaryLayout, lg: { lines: [{ line: [{ group: ['name', 'code', 'size'] }, { group: ['person', 'date', 'weighing'] }] }] } }}
+                    rowKey={(row) => row.installment}
+                    rows={[...rows]}
+                    emptyText="Нет рассрочек к закрытию"
+                    layouts={{ sm: { lines: [{ line: [{ group: ['installment', 'person'] }, { group: ['lastPayment', 'amount'] }] }] }, md: summaryLayout, lg: { lines: [] } }}
                     columns={[
-                        { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
-                        { title: 'Отвес', key: 'weighing', type: 'free' as const, render: (row) => <Reference kind="document" name="weighing" guid={row.weighing} /> },
-                        { title: 'Покупатель', key: 'person', type: 'free' as const, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
-                        // У отложенных товаров тот же порядок реквизитов, что у проданных.
-                        { title: 'Код', key: 'code', type: 'string' as const, value: (row) => row.code },
-                        { title: 'Товар', key: 'name', type: 'string' as const, value: (row) => row.name },
-                        { title: 'Размер', key: 'size', type: 'string' as const, value: (row) => row.size },
+                        { title: 'Рассрочка', key: 'installment', type: 'free' as const, render: (row) => (
+                            <Button type="link" style={{ paddingInline: 0 }}
+                                aria-label={`Открыть рассрочку № ${documentNumber(row.number)}`}
+                                onClick={() => void openRecord(Objects.document.saleInstallment, row.installment, 'tab')}>
+                                № {documentNumber(row.number)}
+                            </Button>
+                        ) },
+                        { title: 'Покупатель', key: 'person', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                        { title: 'Последний взнос', key: 'lastPayment', type: 'dateTime' as const, render: (row) => row.lastPayment === null ? null : <Moment value={row.lastPayment} /> },
+                        { title: 'Сумма рассрочки', key: 'amount', type: 'money' as const, value: (row) => row.amount },
                     ]}
                 />
-            </Block>
-        </Stack>
+            </Stack>
+        </section>
+    );
+}
+
+/** Слева все таблицы периода. Справа итог закрепляется до конца отчёта, на узкой странице стоит сразу за продажами. */
+function Summary({ summary }: { readonly summary: PeriodSummary }) {
+    const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+    const { payments, weighings, debtors, certificates, closableInstallments } = summary;
+    const wide = breakpointAtLeast(useBreakpoint(), 'lg');
+    const totals = <SummaryTotalsPanel totals={summary.totals} certificates={certificates} />;
+    return (
+        <Grid>
+            <Column span={{ lg: 12 }}>
+                <Stack gap={5}>
+                    <Panel title="Продажи и возвраты">
+                        <OperationsTable rows={summary.operations.rows} totals={summary.operations.totals} />
+                    </Panel>
+                    {!wide && totals}
+                    <Panel title="Сертификаты">
+                        <CertificatesTable rows={certificates.rows} totals={certificates.totals} />
+                    </Panel>
+                    <Panel title="Рассрочки">
+                        <Stack gap={5}>
+                            <Stack gap={3}>
+                                <Text strong>Взносы</Text>
+                                {payments.rows.length === 0 ? <Text tone="secondary">Строк нет</Text> : (
+                                    <DataTable
+                                        rowKey={(row, index) => `${row.installment}-${row.date}-${index}`}
+                                        rows={[...payments.rows]}
+                                        subrow={(row) => ({
+                                            [row.method === cashMethod ? 'cash' : 'cashless']: <SummaryBreakdownList entries={[row.receiver]} inTable grouped={false} />,
+                                        })}
+                                        // Взнос занимает одну строку на любой ширине: колонок немного, и все суммы видны сразу.
+                                        layouts={{ sm: { lines: [{ line: [{ group: ['date', 'person'] }, 'installment', { group: ['cash', 'cashless'] }] }] }, md: summaryLayout, lg: { lines: [] } }}
+                                        columns={[
+                                            { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
+                                            { title: 'Покупатель', key: 'person', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                                            { title: 'Рассрочка', key: 'installment', type: 'free' as const, size: { minimum: 20, weight: 1 }, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
+                                            // Взнос принят одним способом, поэтому его сумма стоит в одной из двух колонок.
+                                            { title: 'Наличные', key: 'cash', type: 'money' as const, value: (row) => row.method === cashMethod ? row.amount : null },
+                                            { title: 'Безналичные', key: 'cashless', type: 'money' as const, value: (row) => row.method === cashMethod ? null : row.amount },
+                                        ]}
+                                        summary={{ date: 'Итого', cash: payments.totals.cash, cashless: payments.totals.cashless }}
+                                    />
+                                )}
+                            </Stack>
+                            <Stack gap={3}>
+                                <Text strong>Должники</Text>
+                                {debtors.rows.length === 0 ? <Text tone="secondary">Строк нет</Text> : (
+                                    <DataTable
+                                        rowKey={(row) => row.person}
+                                        rows={[...debtors.rows]}
+                                        layouts={{ sm: { lines: [{ line: [{ group: ['person', 'count'] }, 'debt'] }] }, md: summaryLayout, lg: { lines: [] } }}
+                                        expansion={{
+                                            isExpandable: () => true,
+                                            isExpanded: (row) => expanded.has(row.person),
+                                            onToggle: (row, _index, open) => setExpanded((previous) => { const next = new Set(previous); if (open) next.add(row.person); else next.delete(row.person); return next; }),
+                                            render: (debtor) => (
+                                                <DataTable
+                                                    rowKey={(row) => row.installment}
+                                                    rows={[...debtor.installments]}
+                                                    layouts={{ sm: { lines: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }] }, lg: { lines: [{ line: [{ group: ['installment', 'date'] }, { group: ['sale', 'amount'] }, 'debt'] }] } }}
+                                                    columns={[
+                                                        { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
+                                                        { title: 'Продажа', key: 'sale', type: 'free' as const, render: (row) => <Reference kind="document" name="sale" guid={row.sale} /> },
+                                                        { title: 'Рассрочка', key: 'installment', type: 'free' as const, render: (row) => <Reference kind="document" name="saleInstallment" guid={row.installment} /> },
+                                                        { title: 'Сумма рассрочки', key: 'amount', type: 'money' as const, render: (row) => <Money value={row.amount} /> },
+                                                        { title: 'Долг', key: 'debt', type: 'money' as const, render: (row) => <Debt value={row.debt} /> },
+                                                    ]}
+                                                />
+                                            ),
+                                        }}
+                                        columns={[
+                                            { title: 'Покупатель', key: 'person', type: 'free' as const, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                                            { title: 'Рассрочек', key: 'count', type: 'number' as const, render: (row) => row.installments.length },
+                                            { title: 'Долг', key: 'debt', type: 'money' as const, render: (row) => <Debt value={row.debt} /> },
+                                        ]}
+                                        summary={{ person: 'Итого', debt: <Text tone="debt" strong><Money value={debtors.total} /></Text> }}
+                                    />
+                                )}
+                            </Stack>
+                            <ClosableInstallments rows={closableInstallments} />
+                        </Stack>
+                    </Panel>
+                    <Block title="Товары в отвесе" empty={weighings.rows.length === 0}>
+                        <DataTable
+                            rowKey={(row) => `${row.weighing}-${weighings.rows.indexOf(row)}`}
+                            rows={[...weighings.rows]}
+                            layouts={{ sm: { lines: [{ line: [{ group: ['code', 'name', 'size'] }, { group: ['person', 'date', 'weighing'] }] }] }, md: summaryLayout, lg: { lines: [{ line: [{ group: ['name', 'code', 'size'] }, { group: ['person', 'date', 'weighing'] }] }] } }}
+                            columns={[
+                                { title: 'Дата', key: 'date', type: 'dateTime' as const, render: (row) => <Moment value={row.date} /> },
+                                { title: 'Отвес', key: 'weighing', type: 'free' as const, render: (row) => <Reference kind="document" name="weighing" guid={row.weighing} /> },
+                                { title: 'Покупатель', key: 'person', type: 'free' as const, render: (row) => <Reference kind="catalog" name="physicalPersons" guid={row.person} /> },
+                                // У отложенных товаров тот же порядок реквизитов, что у проданных.
+                                { title: 'Код', key: 'code', type: 'string' as const, value: (row) => row.code },
+                                { title: 'Товар', key: 'name', type: 'string' as const, value: (row) => row.name },
+                                { title: 'Размер', key: 'size', type: 'string' as const, value: (row) => row.size },
+                            ]}
+                        />
+                    </Block>
+                </Stack>
+            </Column>
+            {wide && <Column span={{ lg: 4 }}><PeriodTotalsRail>{totals}</PeriodTotalsRail></Column>}
+        </Grid>
     );
 }
 
@@ -289,11 +352,11 @@ function CashTab() {
                     renderSelectedDay={calendar.data === undefined || summary?.day !== day ? undefined : (trigger) => (
                         <CashDayReview key={day} trigger={trigger} day={day} closed={closedThrough !== null && day <= closedThrough}
                             summaryVersion={summary.reviewVersion} refresh={report.refresh}
-                            renderSnapshot={(snapshot) => <Zones operations={snapshot.operations} totals={snapshot.totals} variant="cash" />} />
+                            renderSnapshot={(snapshot) => <CashZones operations={snapshot.operations} totals={snapshot.totals} />} />
                     )} />
             </Panel>
             <ReportState report={report}>
-                {(summary) => <Zones operations={summary.operations} totals={summary.totals} variant="cash" />}
+                {(summary) => <CashZones operations={summary.operations} totals={summary.totals} />}
             </ReportState>
         </Stack>
     );

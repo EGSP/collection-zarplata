@@ -27,7 +27,7 @@ import { Goods } from '../goods.js';
 import { installmentDebt, ownInstallment } from '../installments.js';
 import { numberAndDate, rubles } from '../money.js';
 import { type PayoutPart } from '../money-shares.js';
-import { certificateRefill, debtSettlement, installmentMethod, paymentMethods, paymentsWithoutReceiver, receiverField } from '../payments.js';
+import { certificateRefill, changedPaymentReceivers, checkPaymentReceiverReferences, debtSettlement, installmentMethod, paymentMethods, paymentsWithoutReceiver, receiverField } from '../payments.js';
 import { operationMovements, operationOf, planRefund, plannedTotal, refundOperationHandlers, type CertificateTerms, type ExecutionContext, type SaleSettlementTerms } from '../refund-plan.js';
 import { SalesNetOfReturns } from '../registers/sales-net-of-returns.register.js';
 import { Certificate, readCertificateFeed } from './certificate.document.js';
@@ -179,8 +179,7 @@ const sellerFeed = (search: string, page: number, pageSize: number) => Effect.ge
  * из его же объявления не дала бы вывести тип.
  *
  * Строка расчёта ссылается на продажу из оснований: расчёты ведутся по каждой продаже отдельно,
- * даже если в возврате товары нескольких продаж. «Откуда выдано» — то же составное поле, что
- * «Куда оплачено» у оплаты: приёмник из справочника или текст.
+ * даже если в возврате товары нескольких продаж. В «Откуда выдано» выбирают приёмник из справочника.
  */
 const refund = document('refund')
     .title('Возврат')
@@ -411,7 +410,9 @@ const checkSettlements = (record: RefundRecord, existing: RefundRecord | null, p
  */
 const refundSettlementsPolicy: Policy<RefundRecord> = {
     name: 'refund-settlements',
-    save: ({ existingRecord, proposedRecord }) => checkSettlements(proposedRecord, existingRecord, proposedRecord.posted),
+    save: ({ existingRecord, proposedRecord }) => checkSettlements(proposedRecord, existingRecord, proposedRecord.posted).pipe(
+        Effect.andThen(checkPaymentReceiverReferences(changedPaymentReceivers(existingRecord?.settlements ?? [], proposedRecord.settlements, settlementKey, 'settlements'))),
+    ),
     // При проведении строки не меняются: «Откуда выдано» проверила запись перед ним. Новое погашение
     // только уменьшает долг, поэтому открывать рассрочки при проведении не нужно.
     post: ({ document }) => checkSettlements(document, document, true),
